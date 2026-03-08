@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#b6860c",
+                        "background-light": "#f8f7f6",
+                        "background-dark": "#221d10",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "Noto Sans SC", "sans-serif"]
+                    },
+                    borderRadius: {"DEFAULT": "0.5rem", "lg": "1rem", "xl": "1.5rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<title>科希头疗管理系统 - 排班与预约管理</title>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100">
+<div class="flex h-screen overflow-hidden">
+<!-- Sidebar -->
+<aside class="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col shrink-0">
+<div class="p-6 flex flex-col gap-6 h-full">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white">
+<span class="material-symbols-outlined">spa</span>
+</div>
+<div>
+<h1 class="text-sm font-bold leading-none">Kexi Head Therapy</h1>
+<p class="text-xs text-slate-500 mt-1">科希头疗管理系统</p>
+</div>
+</div>
+<nav class="flex flex-col gap-1 flex-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-primary/10 hover:text-primary transition-colors" href="#">
+<span class="material-symbols-outlined">home</span>
+<span class="text-sm font-medium">首页</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg bg-primary/10 text-primary" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1">calendar_today</span>
+<span class="text-sm font-medium">排班管理</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-primary/10 hover:text-primary transition-colors" href="#">
+<span class="material-symbols-outlined">schedule</span>
+<span class="text-sm font-medium">预约列表</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-primary/10 hover:text-primary transition-colors" href="#">
+<span class="material-symbols-outlined">storefront</span>
+<span class="text-sm font-medium">门店概况</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-primary/10 hover:text-primary transition-colors" href="#">
+<span class="material-symbols-outlined">group</span>
+<span class="text-sm font-medium">员工管理</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-primary/10 hover:text-primary transition-colors" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="text-sm font-medium">系统设置</span>
+</a>
+</nav>
+<button class="w-full bg-primary text-white py-2.5 rounded-lg font-bold text-sm shadow-sm hover:opacity-90 transition-opacity">
+                + 新建预约
+            </button>
+</div>
+</aside>
+<!-- Main Content -->
+<main class="flex-1 flex flex-col overflow-hidden">
+<!-- Header -->
+<header class="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-8 shrink-0">
+<div class="flex items-center gap-8">
+<h2 class="text-lg font-bold">排班与预约管理</h2>
+<div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
+<button class="px-4 py-1.5 text-xs font-medium rounded-md bg-white dark:bg-slate-700 shadow-sm">日视图</button>
+<button class="px-4 py-1.5 text-xs font-medium text-slate-500 rounded-md">周视图</button>
+<button class="px-4 py-1.5 text-xs font-medium text-slate-500 rounded-md">月视图</button>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
+<input class="pl-10 pr-4 py-2 bg-slate-100 dark:bg-slate-800 border-none rounded-lg text-sm w-64 focus:ring-2 focus:ring-primary/50" placeholder="搜索预约、技师..." type="text"/>
+</div>
+<button class="w-10 h-10 flex items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<div class="flex items-center gap-3 border-l border-slate-200 dark:border-slate-800 pl-4 ml-2">
+<div class="text-right">
+<p class="text-xs font-bold leading-none">店长 张经理</p>
+<p class="text-[10px] text-slate-500 mt-1">旗舰店</p>
+</div>
+<div class="w-9 h-9 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="Manager profile picture" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB1x16qZyO164zt3_3NC9UufqTbhNUbYmvGFutpjnlyKgcqbgziQKzxnDINygH4BVs1w_i_CKVcI5lDAOKIDL0MWO3EEJEQSR0DRhyych5Muj-2OvhY3Mm4DFKY7Rdtbi-wL9fDpZlCOH98Ex5Tz2Tr9JexZEXXU3cdAQk-XRVRr8N7VlWuH6JlEAnnj5ht_ECS5-WBhPprcOs3uzcRiqiEGOT6YmX5KXARsrH4_N8jEF4_BRrL7vgYfGK8yzP56vjCvglHDMgITmQ"/>
+</div>
+</div>
+</div>
+</header>
+<!-- Sub-header Actions -->
+<div class="bg-white dark:bg-slate-900 px-8 py-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-800 shrink-0">
+<div class="flex items-center gap-6">
+<div class="flex flex-col">
+<span class="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">选择门店</span>
+<select class="bg-transparent border-none p-0 pr-8 text-sm font-bold focus:ring-0 cursor-pointer">
+<option>徐家汇旗舰店</option>
+<option>静安寺精品店</option>
+<option>浦东陆家嘴店</option>
+</select>
+</div>
+<div class="h-8 w-px bg-slate-200 dark:bg-slate-800"></div>
+<div class="flex gap-4">
+<button class="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg text-sm font-bold hover:bg-primary/90">
+<span class="material-symbols-outlined text-lg">auto_awesome</span>
+                        AI 智能排班优化
+                    </button>
+<button class="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+<span class="material-symbols-outlined text-lg">file_upload</span>
+                        导入数据
+                    </button>
+</div>
+</div>
+<div class="flex gap-2">
+<button class="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium">导出报表</button>
+<button class="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium">打印排班</button>
+</div>
+</div>
+<!-- Dashboard Content -->
+<div class="flex-1 overflow-y-auto p-8 bg-background-light dark:bg-background-dark">
+<div class="grid grid-cols-12 gap-8">
+<!-- Left Column: Appointment List -->
+<div class="col-span-8 space-y-8">
+<div class="bg-white dark:bg-slate-900 rounded-xl shadow-sm overflow-hidden border border-slate-200/50 dark:border-slate-800">
+<div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+<h3 class="font-bold flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">event_note</span>
+                                今日预约 (12)
+                            </h3>
+<a class="text-primary text-xs font-bold hover:underline" href="#">查看全部</a>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left">
+<thead class="bg-slate-50 dark:bg-slate-800/50 text-slate-500 text-[10px] uppercase font-bold tracking-wider">
+<tr>
+<th class="px-6 py-3">时间段</th>
+<th class="px-6 py-3">客户信息</th>
+<th class="px-6 py-3">服务项目</th>
+<th class="px-6 py-3">指定技师</th>
+<th class="px-6 py-3">状态</th>
+<th class="px-6 py-3 text-right">操作</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+<tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+<td class="px-6 py-4">
+<span class="text-sm font-bold">14:00 - 15:30</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-xs">王</div>
+<div>
+<p class="text-sm font-bold leading-none">王小姐</p>
+<p class="text-[10px] text-slate-500 mt-1">138****8899</p>
+</div>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="text-xs px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-slate-700 dark:text-slate-300">深层舒压头疗</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="Therapist profile" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB0ZrhpNevY4ntF67fFE7yWCCt-_nl224v0RF3kr1B3OFsZpcLhf5Lk0T14QS2lU36GST_zCRoLrU_KBTUy29w8dM5C29Hav8oVrd3Sa9v1n1NAxbgspRSqGtemLmzbk6C7JdDqWNRRBf-lG7ewzT3MYB3FgCiV1xi7sS-vo-pgNm6OCxXwil3DzoaOwMzGVDBwnnNgt3-PVC3ruMYwUsA-gciJM4JsT3PDUYSbYtuyxsV_-CXNs2zpa5lLKaHq6_2Bp7cWEXiZJEg"/>
+</div>
+<span class="text-xs font-medium">Lily 老师</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="inline-flex items-center gap-1 text-[10px] font-bold text-green-600 px-2 py-0.5 bg-green-50 dark:bg-green-900/20 rounded-full uppercase">
+<span class="w-1.5 h-1.5 rounded-full bg-green-600"></span>
+                                                已签到
+                                            </span>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="text-slate-400 hover:text-primary"><span class="material-symbols-outlined text-lg">more_horiz</span></button>
+</td>
+</tr>
+<tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+<td class="px-6 py-4">
+<span class="text-sm font-bold">15:45 - 17:00</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-400 font-bold text-xs">李</div>
+<div>
+<p class="text-sm font-bold leading-none">李先生</p>
+<p class="text-[10px] text-slate-500 mt-1">139****1234</p>
+</div>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="text-xs px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-slate-700 dark:text-slate-300">中药熏蒸SPA</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="Therapist profile" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD1ClgPGUSa9pNjTrUNwFu7Pjv8ESER3uLGntBO0csan0DnrW2aTRe2FRFZPJI8hjvD8VVJaJKG2j2yXjyDMuInuLT7TOPdhBe-UeUB2KpKUOaufre2y_TtRDKtE2Nz4UEuBlCWkcx3WGWzLuZk0cUTAMg3JezGaBPO-Jk7Pa4j7wWQw-w55fJin9FHlwnLYEmaClHEm0DgM_llMyYdOvUPy_APz6tukn6D5wih6PpKc9kCWFCpuyuvp_TWxJpCvmx6-ffo-ILP3AI"/>
+</div>
+<span class="text-xs font-medium">Emma 老师</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 px-2 py-0.5 bg-amber-50 dark:bg-amber-900/20 rounded-full uppercase">
+<span class="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
+                                                等待中
+                                            </span>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="text-slate-400 hover:text-primary"><span class="material-symbols-outlined text-lg">more_horiz</span></button>
+</td>
+</tr>
+<tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors opacity-60">
+<td class="px-6 py-4">
+<span class="text-sm font-bold">11:00 - 12:30</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-400 font-bold text-xs">陈</div>
+<div>
+<p class="text-sm font-bold leading-none">陈小姐</p>
+<p class="text-[10px] text-slate-500 mt-1">136****5566</p>
+</div>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="text-xs px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-slate-700 dark:text-slate-300">头皮养护理疗</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="Therapist profile" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA3XnUZ2TnICL7Z3PAk8qVYjsTOpaCU7xW_XdtYEH7i4yRqjNaN5T7O3nQqXwktLfiRrH34niKsMWE-v40nB43so6BMzux5ka0EXitg_pEtaI3y3ufu8MPWKoyGMnVmBToooRBeX3eA3Db4fQqxZPq3w8yiEpHVC_qbFNII_99y0pMb3Bf6N3VNRE-66g9CxQYxBbFJwZhmc8zX3AWpUYnm12D63bzxzKRXVXCG2h-2L9jhjhb39xYn4Wb1Oen5watUFOAERCCcn3c"/>
+</div>
+<span class="text-xs font-medium">Sofia 老师</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400 px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded-full uppercase">
+<span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                                                已完成
+                                            </span>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="text-slate-400 hover:text-primary"><span class="material-symbols-outlined text-lg">more_horiz</span></button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- Staff Schedule Section -->
+<div class="bg-white dark:bg-slate-900 rounded-xl shadow-sm overflow-hidden border border-slate-200/50 dark:border-slate-800">
+<div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+<h3 class="font-bold flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">diversity_3</span>
+                                技师排班与请假记录
+                            </h3>
+<div class="flex gap-2">
+<button class="text-xs font-bold text-slate-500 hover:text-primary">本周</button>
+<button class="text-xs font-bold text-primary">下周</button>
+</div>
+</div>
+<div class="p-6">
+<div class="grid grid-cols-8 gap-1">
+<!-- Calendar Headers -->
+<div class="p-2"></div>
+<div class="p-2 text-center"><p class="text-[10px] font-bold text-slate-500">周一</p><p class="text-xs font-bold">22</p></div>
+<div class="p-2 text-center"><p class="text-[10px] font-bold text-slate-500">周二</p><p class="text-xs font-bold">23</p></div>
+<div class="p-2 text-center bg-primary/5 rounded-t-lg"><p class="text-[10px] font-bold text-primary">周三</p><p class="text-xs font-bold text-primary">24</p></div>
+<div class="p-2 text-center"><p class="text-[10px] font-bold text-slate-500">周四</p><p class="text-xs font-bold">25</p></div>
+<div class="p-2 text-center"><p class="text-[10px] font-bold text-slate-500">周五</p><p class="text-xs font-bold">26</p></div>
+<div class="p-2 text-center"><p class="text-[10px] font-bold text-slate-400">周六</p><p class="text-xs font-bold">27</p></div>
+<div class="p-2 text-center"><p class="text-[10px] font-bold text-slate-400">周日</p><p class="text-xs font-bold">28</p></div>
+<!-- Lily -->
+<div class="p-2 flex items-center gap-2 border-t border-slate-50 dark:border-slate-800">
+<div class="w-6 h-6 rounded-full overflow-hidden shrink-0"><img class="w-full h-full object-cover" data-alt="Staff" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDyrTTsQyUFkiS9TzGQk7u-oTJNj03cm3oOaeNbN_KHnG8rKajH_fb4CqeoWGYV5yCDZJL_7WP2RqL6xCA7S0J_WXs7rtu4QmJwVlkLnL_WMWjHbEIAyXW6RB7sKHq5lu118vRxrLv6-ASFXES0QsD05CyS44rUGaSjQSkNYJE51lziEQ1R6vFhJIP0p78eSCJtMwtTmOXblm1DE0Gi0acJ4ipaH-539xSW8u0AQzdSqtIHV8cmmYMVnxLbTFFC4y7rqSGcvDHlWD4"/></div>
+<span class="text-[10px] font-bold truncate">Lily</span>
+</div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800"><div class="h-6 rounded bg-primary/20 flex items-center justify-center"><span class="text-[8px] font-bold text-primary">早班</span></div></div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800"><div class="h-6 rounded bg-primary/20 flex items-center justify-center"><span class="text-[8px] font-bold text-primary">早班</span></div></div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800 bg-primary/5"><div class="h-6 rounded bg-primary/20 flex items-center justify-center"><span class="text-[8px] font-bold text-primary">早班</span></div></div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800"><div class="h-6 rounded bg-slate-100 dark:bg-slate-800 flex items-center justify-center"><span class="text-[8px] font-bold text-slate-400">休</span></div></div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800"><div class="h-6 rounded bg-primary/20 flex items-center justify-center"><span class="text-[8px] font-bold text-primary">中班</span></div></div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800"><div class="h-6 rounded bg-primary/20 flex items-center justify-center"><span class="text-[8px] font-bold text-primary">全天</span></div></div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800"><div class="h-6 rounded bg-primary/20 flex items-center justify-center"><span class="text-[8px] font-bold text-primary">全天</span></div></div>
+<!-- Emma -->
+<div class="p-2 flex items-center gap-2 border-t border-slate-50 dark:border-slate-800">
+<div class="w-6 h-6 rounded-full overflow-hidden shrink-0"><img class="w-full h-full object-cover" data-alt="Staff" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBr0G0khqbi5HGlfOtICB8edzKwoczgSUJhsLAiSoBDlMgaXkQL5t7V31nMC0Vy184sbVR69XKFl6N1MXRe19_iuMe7JzwQ8cgVeuDmUP5HZ1JklVjHi1kyPP0J6ruPeTR5Q-P_2XGcBFIocp25qdYpwBMEBOcmUIDZwPDwZuKorE_1qA2thSHrCm4dyarbiIW6JujgNLJsiuQ_mtuh8r6LtBRTxCVT6ktWx6DVAuTuTntzjSvKpCmoo207XmtB4GZrYQF0AbiZ7lA"/></div>
+<span class="text-[10px] font-bold truncate">Emma</span>
+</div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800"><div class="h-6 rounded bg-primary/20 flex items-center justify-center"><span class="text-[8px] font-bold text-primary">全天</span></div></div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800"><div class="h-6 rounded bg-rose-50 dark:bg-rose-900/20 flex items-center justify-center border border-rose-100 dark:border-rose-900/30"><span class="text-[8px] font-bold text-rose-500">请假</span></div></div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800 bg-primary/5"><div class="h-6 rounded bg-primary/20 flex items-center justify-center"><span class="text-[8px] font-bold text-primary">中班</span></div></div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800"><div class="h-6 rounded bg-primary/20 flex items-center justify-center"><span class="text-[8px] font-bold text-primary">早班</span></div></div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800"><div class="h-6 rounded bg-primary/20 flex items-center justify-center"><span class="text-[8px] font-bold text-primary">早班</span></div></div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800"><div class="h-6 rounded bg-slate-100 dark:bg-slate-800 flex items-center justify-center"><span class="text-[8px] font-bold text-slate-400">休</span></div></div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800"><div class="h-6 rounded bg-primary/20 flex items-center justify-center"><span class="text-[8px] font-bold text-primary">晚班</span></div></div>
+<!-- Sofia -->
+<div class="p-2 flex items-center gap-2 border-t border-slate-50 dark:border-slate-800">
+<div class="w-6 h-6 rounded-full overflow-hidden shrink-0"><img class="w-full h-full object-cover" data-alt="Staff" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAoRL58d1t3PW8TntBcIObf5XEyqFPLS20mdaezBOKmImhky_EB27AoA29yrJG6CIFbLYAGlr_L3CxoUfPUI5tV_6mYzNgA3DTzBRXrzuFb8p3hGzfjgOEf-QmHwlc_EOBZQ9Rs0xpVno0OsaGfEXc57JeXy5GwByZI2Rs547rwFulcj_oeOzjsA_jrYiw89LdwLNrdUjZpioNz7YXXQPi1JWPZWl5X4TU2BKWhhxQcJwzbi339pr54Av-dze4ErmAysE7dmNSLhhw"/></div>
+<span class="text-[10px] font-bold truncate">Sofia</span>
+</div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800"><div class="h-6 rounded bg-slate-100 dark:bg-slate-800 flex items-center justify-center"><span class="text-[8px] font-bold text-slate-400">休</span></div></div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800"><div class="h-6 rounded bg-primary/20 flex items-center justify-center"><span class="text-[8px] font-bold text-primary">晚班</span></div></div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800 bg-primary/5"><div class="h-6 rounded bg-primary/20 flex items-center justify-center"><span class="text-[8px] font-bold text-primary">晚班</span></div></div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800"><div class="h-6 rounded bg-primary/20 flex items-center justify-center"><span class="text-[8px] font-bold text-primary">全天</span></div></div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800"><div class="h-6 rounded bg-primary/20 flex items-center justify-center"><span class="text-[8px] font-bold text-primary">全天</span></div></div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800"><div class="h-6 rounded bg-primary/20 flex items-center justify-center"><span class="text-[8px] font-bold text-primary">早班</span></div></div>
+<div class="p-1 border-t border-slate-50 dark:border-slate-800"><div class="h-6 rounded bg-primary/20 flex items-center justify-center"><span class="text-[8px] font-bold text-primary">早班</span></div></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Column: Status & Requests -->
+<div class="col-span-4 space-y-8">
+<!-- AI Insights Card -->
+<div class="bg-slate-900 text-white rounded-xl p-6 relative overflow-hidden shadow-xl">
+<div class="relative z-10">
+<div class="flex items-center gap-2 mb-4">
+<span class="material-symbols-outlined text-primary">auto_awesome</span>
+<h3 class="font-bold text-sm">AI 排班诊断</h3>
+</div>
+<p class="text-xs text-slate-400 mb-4 leading-relaxed">
+                                系统检测到下周三（24日）下午预约量预计将增长 30%，建议提前调整 Lily 和 Sofia 的轮班时间以平衡负载。
+                            </p>
+<button class="w-full py-2 bg-primary/20 border border-primary text-primary rounded-lg text-xs font-bold hover:bg-primary hover:text-white transition-all">
+                                立即优化负载
+                            </button>
+</div>
+<div class="absolute -right-8 -bottom-8 opacity-10">
+<span class="material-symbols-outlined text-[120px]">smart_toy</span>
+</div>
+</div>
+<!-- Pending Leave Requests -->
+<div class="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200/50 dark:border-slate-800">
+<div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
+<h3 class="font-bold text-sm flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">time_to_leave</span>
+                                待处理请假申请 (2)
+                            </h3>
+</div>
+<div class="p-4 space-y-4">
+<div class="flex flex-col gap-2 p-3 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+<div class="flex justify-between items-start">
+<div class="flex items-center gap-2">
+<div class="w-7 h-7 rounded-full overflow-hidden"><img class="w-full h-full object-cover" data-alt="Staff" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC19Hp80fotdRzGOCnLOrUrcXhQafO0_BtflX_pgYUJJeqk6WoJjH0ukRKVE3fHwYWQNZ44JpD8syWWz-twYPJIEk803z5p1olthGb73YeUWvOOhQvkmPVoHdYXHETCpwsLUcA_YWvdaXmDmOJ3LA6Kn7SPYqlX34Sub2yyx9rAWrtwfrb7cW32iKnweMUXZWX4RSygWwdsTxArs3UcS2m2607V6KSEVWqAy5jnpigosYfYZ-JASczXlgdiyNCp4t6SMCvIJerL6rY"/></div>
+<div>
+<p class="text-xs font-bold">Lily 老师</p>
+<p class="text-[10px] text-slate-500">2024-05-30 全天</p>
+</div>
+</div>
+<span class="text-[10px] font-bold text-primary">事假</span>
+</div>
+<p class="text-[10px] text-slate-600 dark:text-slate-400">“家里有紧急事务需处理，望批准。”</p>
+<div class="flex gap-2 mt-1">
+<button class="flex-1 py-1.5 bg-primary text-white text-[10px] font-bold rounded">通过</button>
+<button class="flex-1 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-bold rounded">拒绝</button>
+</div>
+</div>
+<div class="flex flex-col gap-2 p-3 rounded-lg border border-slate-100 dark:border-slate-800">
+<div class="flex justify-between items-start">
+<div class="flex items-center gap-2">
+<div class="w-7 h-7 rounded-full overflow-hidden bg-slate-200"></div>
+<div>
+<p class="text-xs font-bold">张小美 (前台)</p>
+<p class="text-[10px] text-slate-500">2024-06-02 下午</p>
+</div>
+</div>
+<span class="text-[10px] font-bold text-blue-500">病假</span>
+</div>
+<div class="flex gap-2 mt-2">
+<button class="flex-1 py-1.5 bg-primary/10 text-primary text-[10px] font-bold rounded">查看详情</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Capacity Gauge -->
+<div class="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200/50 dark:border-slate-800 p-6">
+<h3 class="font-bold text-sm mb-4">今日接待饱和度</h3>
+<div class="flex items-end justify-between mb-2">
+<span class="text-xs text-slate-500 font-medium">已接单 / 最大承载量</span>
+<span class="text-lg font-bold text-primary">82%</span>
+</div>
+<div class="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+<div class="h-full bg-primary rounded-full" style="width: 82%"></div>
+</div>
+<p class="text-[10px] text-slate-500 mt-3 leading-relaxed">
+                            今日当前时段较为繁忙。建议在 18:00 后释放多余的预约名额。
+                        </p>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

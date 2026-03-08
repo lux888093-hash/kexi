@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#b6860c",
+                        "background-light": "#f8f7f6",
+                        "background-dark": "#221d10",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: { "DEFAULT": "0.5rem", "lg": "1rem", "xl": "1.5rem", "full": "9999px" },
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .active-nav {
+            background-color: rgba(182, 134, 12, 0.1);
+            color: #b6860c;
+        }
+    
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        main::-webkit-scrollbar {
+            width: 6px;
+        }
+        main::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        main::-webkit-scrollbar-thumb {
+            background: #e2e8f0;
+            border-radius: 10px;
+        }
+        .dark main::-webkit-scrollbar-thumb {
+            background: #334155;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 min-h-screen">
+<div class="flex h-screen overflow-hidden">
+<!-- Sidebar Navigation -->
+<aside class="w-72 flex-shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark/50 flex flex-col z-20 shadow-sm">
+<div class="p-6 flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="Kexi Head Therapy Brand Logo" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCfUMphj_5YoSxefJCi29VYUmCWVuKeZnc9awULS2P6Ks6Cukn_Nzz19G_j4aKT7aZPxktFYXtyuwSNrMnbjLYnjlB54h641SnR-5JIUFYO94lx5fe2sYAaDgJPuhmFwHFzPPlCaB-ONfUz8LejuCwzMLgU_HYvoCOklmtVGsKZBHftHogUHwldpoK-i_pWnJWIq3YMtxBfD6HGxfTsbaTkScpmgu3yum6Z4Lz1Gnf4ElsR5yUZ33lJrQEDaEf6GDfxskEWRlnPJLE"/>
+</div>
+<div>
+<h1 class="font-bold text-lg leading-tight">柯溪头疗</h1>
+<p class="text-xs text-slate-500 dark:text-slate-400">Kexi Head Therapy</p>
+</div>
+</div>
+<nav class="flex-1 px-4 space-y-2 mt-4">
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl active-nav" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-medium">经营仪表盘</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-primary/5 transition-colors" href="#">
+<span class="material-symbols-outlined">calendar_today</span>
+<span class="font-medium">预约管理</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-primary/5 transition-colors" href="#">
+<span class="material-symbols-outlined">group</span>
+<span class="font-medium">会员中心</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-primary/5 transition-colors" href="#">
+<span class="material-symbols-outlined">spa</span>
+<span class="font-medium">服务项目</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-primary/5 transition-colors" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-medium">门店设置</span>
+</a>
+</nav>
+<div class="p-4 border-t border-primary/10">
+<div class="flex items-center gap-3 p-2 bg-primary/5 rounded-xl">
+<div class="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+<span class="material-symbols-outlined text-sm">person</span>
+</div>
+<div class="text-xs">
+<p class="font-bold">管理员</p>
+<p class="text-slate-500">上海总部</p>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Content -->
+<main class="flex-1 flex flex-col overflow-hidden">
+<!-- Header -->
+<header class="h-20 border-b border-slate-100 dark:border-slate-800 bg-white/80 dark:bg-background-dark/80 backdrop-blur-md flex items-center justify-between px-10 sticky top-0 z-10">
+<div class="flex items-center gap-6">
+<h2 class="text-xl font-bold">经营管理看板</h2>
+<div class="flex items-center bg-background-light dark:bg-slate-800 rounded-lg p-1">
+<button class="px-4 py-1 text-sm font-medium rounded-md bg-white dark:bg-slate-700 shadow-sm">全店概览</button>
+<button class="px-4 py-1 text-sm font-medium text-slate-500 hover:text-slate-700">门店对比</button>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">search</span>
+<input class="bg-background-light dark:bg-slate-800 border-none rounded-xl pl-10 pr-4 py-2 text-sm focus:ring-2 focus:ring-primary w-64" placeholder="搜索报表数据..." type="text"/>
+</div>
+<button class="w-10 h-10 flex items-center justify-center rounded-xl bg-background-light dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<div class="w-10 h-10 rounded-full bg-primary overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="User Avatar Profile Image" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBxwMdW3EWg4ZbidH9qeqbKjgohk9kf03fyJ-c22n3VZ_87Zj1dx-77XMDwHHsytAGKakSI9cG92-cypuV30F9Is6oWc_XAIlKlYuxJM8xDDwgiaEQKgOuyxHrYUg1oDrA6H0lb_KmIjOgTUmGbIIzrDlEvcTI6jfAKWiXWYnZ5aevTYhfRa3Pgc2eKwjTxehAq-Ogg0bGUGXOS96A885kswGZsDA1dSvITh2Ry1KO960lldxBnvV6pkB5QQmxCFDjsWWhDhKm8RAU"/>
+</div>
+</div>
+</header>
+<!-- Scrollable Content -->
+<div class="flex-1 overflow-y-auto p-10 space-y-10">
+<!-- Store Selectors -->
+<div class="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+<button class="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl shadow-lg shadow-primary/20">
+<span class="material-symbols-outlined text-sm">storefront</span>
+<span class="text-sm font-medium">全部门店</span>
+</button>
+<button class="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-primary/10 rounded-xl hover:border-primary transition-colors">
+<span class="text-sm font-medium">静安旗舰店</span>
+</button>
+<button class="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-primary/10 rounded-xl hover:border-primary transition-colors">
+<span class="text-sm font-medium">徐汇中心店</span>
+</button>
+<button class="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-primary/10 rounded-xl hover:border-primary transition-colors">
+<span class="text-sm font-medium">浦东嘉里店</span>
+</button>
+</div>
+<!-- Stats Cards -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<div class="bg-white dark:bg-slate-800 p-6 rounded-xl border border-primary/5 shadow-sm">
+<div class="flex justify-between items-start mb-4">
+<p class="text-slate-500 dark:text-slate-400 font-medium">今日预约</p>
+<span class="p-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-lg material-symbols-outlined">calendar_month</span>
+</div>
+<div class="flex items-end gap-2">
+<h3 class="text-3xl font-bold">42</h3>
+<span class="text-green-500 text-sm font-medium mb-1 flex items-center">
+<span class="material-symbols-outlined text-xs">arrow_upward</span> 12%
+                            </span>
+</div>
+<p class="text-xs text-slate-400 mt-2">较昨日同时段: 37</p>
+</div>
+<div class="bg-white dark:bg-slate-800 p-6 rounded-xl border border-primary/5 shadow-sm">
+<div class="flex justify-between items-start mb-4">
+<p class="text-slate-500 dark:text-slate-400 font-medium">今日营收</p>
+<span class="p-2 bg-orange-50 dark:bg-orange-900/20 text-orange-600 rounded-lg material-symbols-outlined">payments</span>
+</div>
+<div class="flex items-end gap-2">
+<h3 class="text-3xl font-bold">¥15,280</h3>
+<span class="text-green-500 text-sm font-medium mb-1 flex items-center">
+<span class="material-symbols-outlined text-xs">arrow_upward</span> 8.4%
+                            </span>
+</div>
+<p class="text-xs text-slate-400 mt-2">完成目标率: 92%</p>
+</div>
+<div class="bg-white dark:bg-slate-800 p-6 rounded-xl border border-primary/5 shadow-sm">
+<div class="flex justify-between items-start mb-4">
+<p class="text-slate-500 dark:text-slate-400 font-medium">接待客人数</p>
+<span class="p-2 bg-primary/10 text-primary rounded-lg material-symbols-outlined">person_add</span>
+</div>
+<div class="flex items-end gap-2">
+<h3 class="text-3xl font-bold">58</h3>
+<span class="text-red-500 text-sm font-medium mb-1 flex items-center">
+<span class="material-symbols-outlined text-xs">arrow_downward</span> 3.2%
+                            </span>
+</div>
+<p class="text-xs text-slate-400 mt-2">新客占比: 24%</p>
+</div>
+</div>
+<!-- Main Charts Section -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+<!-- Revenue Trends -->
+<div class="lg:col-span-2 bg-white dark:bg-slate-800 p-8 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+<div class="flex justify-between items-center mb-8">
+<div>
+<h4 class="font-bold text-lg">营收统计趋势</h4>
+<p class="text-sm text-slate-500">2023年10月21日 - 10月27日</p>
+</div>
+<select class="bg-slate-50 dark:bg-slate-700 border-none rounded-xl text-xs py-2 pl-3 pr-10 focus:ring-1 focus:ring-primary cursor-pointer transition-all">
+<option>最近7天</option>
+<option>最近30天</option>
+</select>
+</div>
+<div class="h-72 w-full relative group">
+<svg class="w-full h-full overflow-visible" preserveaspectratio="none" viewbox="0 0 800 200">
+<defs>
+<lineargradient id="chartGradient" x1="0" x2="0" y1="0" y2="1">
+<stop offset="0%" stop-color="#b6860c" stop-opacity="0.15"></stop>
+<stop offset="100%" stop-color="#b6860c" stop-opacity="0"></stop>
+</lineargradient>
+</defs>
+<path d="M0,150 Q100,120 200,140 T400,80 T600,100 T800,40 V200 H0 Z" fill="url(#chartGradient)"></path>
+<path d="M0,150 Q100,120 200,140 T400,80 T600,100 T800,40" fill="none" stroke="#b6860c" stroke-linecap="round" stroke-width="3"></path>
+<circle class="drop-shadow-sm" cx="200" cy="140" fill="#b6860c" r="4"></circle>
+<circle class="drop-shadow-sm" cx="400" cy="80" fill="#b6860c" r="4"></circle>
+<circle class="drop-shadow-sm" cx="600" cy="100" fill="#b6860c" r="4"></circle>
+<circle class="drop-shadow-sm" cx="800" cy="40" fill="#b6860c" r="4"></circle>
+</svg>
+<div class="flex justify-between mt-6 text-[11px] text-slate-400 font-semibold">
+<span>周一</span>
+<span>周二</span>
+<span>周三</span>
+<span>周四</span>
+<span>周五</span>
+<span>周六</span>
+<span>周日</span>
+</div>
+</div>
+</div>
+<!-- Service Distribution Donut -->
+<div class="bg-white dark:bg-slate-800 p-8 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+<h4 class="font-bold text-lg mb-8">服务项目分布</h4>
+<div class="relative h-56 flex items-center justify-center">
+<div class="w-44 h-44 rounded-full border-[18px] border-slate-50 dark:border-slate-700/50 relative flex items-center justify-center">
+<div class="absolute inset-0 rounded-full border-[18px] border-t-primary border-r-primary border-l-transparent border-b-transparent transform rotate-45"></div>
+<div class="text-center">
+<p class="text-3xl font-bold tracking-tight">1,240</p>
+<p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">总单数</p>
+</div>
+</div>
+</div>
+<div class="mt-8 space-y-4">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-2.5 h-2.5 rounded-full bg-primary"></div>
+<span class="text-sm text-slate-600 dark:text-slate-400 font-medium">头部深层清洁</span>
+</div>
+<span class="font-bold text-sm">45%</span>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-2.5 h-2.5 rounded-full bg-orange-400"></div>
+<span class="text-sm text-slate-600 dark:text-slate-400 font-medium">穴位减压按摩</span>
+</div>
+<span class="font-bold text-sm">30%</span>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-2.5 h-2.5 rounded-full bg-slate-300"></div>
+<span class="text-sm text-slate-600 dark:text-slate-400 font-medium">其他</span>
+</div>
+<span class="font-bold text-sm">25%</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Predictive Analytics -->
+<div class="bg-white dark:bg-slate-800 p-8 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+<div class="flex justify-between items-center mb-8">
+<div>
+<h4 class="font-bold text-lg">客流预测分析</h4>
+<p class="text-sm text-slate-500">未来一周客流量智能预测 (基于历史数据)</p>
+</div>
+<div class="flex gap-4">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-primary/20"></div>
+<span class="text-xs font-semibold text-slate-400">实际客流</span>
+</div>
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-primary"></div>
+<span class="text-xs font-semibold text-slate-400">预测客流</span>
+</div>
+</div>
+</div>
+<div class="flex items-end justify-between h-56 gap-6 px-4">
+<div class="flex-1 flex flex-col items-center gap-4">
+<div class="w-full bg-primary/15 rounded-t-xl transition-all hover:bg-primary/25" style="height: 40%;"></div>
+<span class="text-[11px] font-semibold text-slate-400">10/28</span>
+</div>
+<div class="flex-1 flex flex-col items-center gap-4">
+<div class="w-full bg-primary rounded-t-xl transition-all hover:brightness-110" style="height: 75%;"></div>
+<span class="text-[11px] font-bold text-primary">10/29</span>
+</div>
+<div class="flex-1 flex flex-col items-center gap-4">
+<div class="w-full bg-primary rounded-t-xl transition-all hover:brightness-110" style="height: 60%;"></div>
+<span class="text-[11px] font-semibold text-slate-400">10/30</span>
+</div>
+<div class="flex-1 flex flex-col items-center gap-4">
+<div class="w-full bg-primary rounded-t-xl transition-all hover:brightness-110" style="height: 85%;"></div>
+<span class="text-[11px] font-semibold text-slate-400">10/31</span>
+</div>
+<div class="flex-1 flex flex-col items-center gap-4">
+<div class="w-full bg-primary/15 rounded-t-xl transition-all hover:bg-primary/25" style="height: 95%;"></div>
+<span class="text-[11px] font-semibold text-slate-400">11/01</span>
+</div>
+<div class="flex-1 flex flex-col items-center gap-4">
+<div class="w-full bg-primary/15 rounded-t-xl transition-all hover:bg-primary/25" style="height: 100%;"></div>
+<span class="text-[11px] font-semibold text-slate-400">11/02</span>
+</div>
+<div class="flex-1 flex flex-col items-center gap-4">
+<div class="w-full bg-primary/15 rounded-t-xl transition-all hover:bg-primary/25" style="height: 50%;"></div>
+<span class="text-[11px] font-semibold text-slate-400">11/03</span>
+</div>
+</div>
+</div>
+<!-- Recent Store Performance -->
+<div class="bg-white dark:bg-slate-800 rounded-xl border border-primary/5 shadow-sm overflow-hidden">
+<div class="p-6 border-b border-slate-100 dark:border-slate-700">
+<h4 class="font-bold text-lg">各门店实时业绩</h4>
+</div>
+<table class="w-full text-left">
+<thead class="bg-slate-50 dark:bg-slate-900/50 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+<tr>
+<th class="px-6 py-4">门店名称</th>
+<th class="px-6 py-4">今日单量</th>
+<th class="px-6 py-4">转化率</th>
+<th class="px-6 py-4">客户评价</th>
+<th class="px-6 py-4">业绩状态</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+<tr class="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors">
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">J</div>
+<span class="text-sm font-medium">静安旗舰店</span>
+</div>
+</td>
+<td class="px-6 py-4 text-sm">24 单</td>
+<td class="px-6 py-4 text-sm">18.5%</td>
+<td class="px-6 py-4">
+<div class="flex text-primary">
+<span class="material-symbols-outlined text-xs">star</span>
+<span class="material-symbols-outlined text-xs">star</span>
+<span class="material-symbols-outlined text-xs">star</span>
+<span class="material-symbols-outlined text-xs">star</span>
+<span class="material-symbols-outlined text-xs">star_half</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-600 text-[10px] font-bold rounded-full">超标完成</span>
+</td>
+</tr>
+<tr class="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors">
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">X</div>
+<span class="text-sm font-medium">徐汇中心店</span>
+</div>
+</td>
+<td class="px-6 py-4 text-sm">18 单</td>
+<td class="px-6 py-4 text-sm">12.2%</td>
+<td class="px-6 py-4">
+<div class="flex text-primary">
+<span class="material-symbols-outlined text-xs">star</span>
+<span class="material-symbols-outlined text-xs">star</span>
+<span class="material-symbols-outlined text-xs">star</span>
+<span class="material-symbols-outlined text-xs">star</span>
+<span class="material-symbols-outlined text-xs">star_outline</span>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="px-2 py-1 bg-primary/10 text-primary text-[10px] font-bold rounded-full">稳步增长</span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</main>
+</div>
+</body></html>

@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#b6860c",
+                        "background-light": "#f8f7f6",
+                        "background-dark": "#221d10",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {"DEFAULT": "0.5rem", "lg": "1rem", "xl": "1.5rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        .chart-gradient-1 { fill: url(#gradient-1); }
+        .chart-stroke-1 { stroke: #b6860c; }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 antialiased">
+<div class="flex h-screen overflow-hidden">
+<!-- Sidebar -->
+<aside class="w-64 flex-shrink-0 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col justify-between p-6">
+<div class="flex flex-col gap-8">
+<div class="flex items-center gap-3">
+<div class="size-10 rounded-full bg-primary/20 flex items-center justify-center text-primary overflow-hidden" data-alt="Modern spa interior with warm lighting" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuCzyOy_7WuAKK__VsSOjO5-RdtubdCZmg8PluYamqkcmu0LnZWo25AUljPECuXwgDwwc3Oa3dmwCcbhPsInd4KNVdB4lDpgU4q12LgDfux4LSdpJY-6XVcXl3JUEIAzhHA5Rgzx1cMm9kUq7PULwtbj-Xhgq1V1PJsV5Ivha8_Pd0B3NshhtPWBqH_C8LtMq3s3KuVS7iGCPeasJxPygk6FAun_UF0zYIyLPVUhQjEKN8EOQoa1rumf-zITqRPkRto2GFFkzHzf1Y8"); background-size: cover;'>
+</div>
+<div class="flex flex-col">
+<h1 class="text-slate-900 dark:text-white text-base font-bold leading-tight">科希头部理疗</h1>
+<p class="text-slate-500 dark:text-slate-400 text-xs font-medium">财务管理系统</p>
+</div>
+</div>
+<nav class="flex flex-col gap-2">
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl bg-primary text-white font-medium" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="text-sm">概览</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="#">
+<span class="material-symbols-outlined">payments</span>
+<span class="text-sm">收入管理</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="#">
+<span class="material-symbols-outlined">receipt_long</span>
+<span class="text-sm">支出分析</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="#">
+<span class="material-symbols-outlined">bar_chart</span>
+<span class="text-sm">财务报表</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="#">
+<span class="material-symbols-outlined">auto_awesome</span>
+<span class="text-sm">AI 洞察</span>
+</a>
+</nav>
+</div>
+<div class="flex flex-col gap-4">
+<button class="w-full py-3 px-4 bg-primary text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-all">
+<span class="material-symbols-outlined text-sm">download</span>
+                导出报表
+            </button>
+<div class="flex items-center gap-3 px-2">
+<div class="size-8 rounded-full bg-slate-200 dark:bg-slate-700" data-alt="Female manager profile picture" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuBtqovfxWkhKXglasSawT1MdZX1W0dUIMxk84MQ8G_ohI0dHn-LQcdf79fqa6-t5cVpOPlH2cClUTPCDF0xDORzBkK8tITMcmKqyZ_Viha-2gA0k7H6a5zPcYG48M4-5NyvXY1fHixaffXCjNY0-Oa2dIztOVxX9MOo7xl6c-W4RzUbmJQeTXRk1d9a41YoosoapSpM9ZLudqLU36BTNgulvhCq37GfMRCjUs4BXsV1md6js5aY4-pUGYrJBD8xA73Nu-jCO2Evm34"); background-size: cover;'></div>
+<div class="flex flex-col">
+<p class="text-xs font-bold text-slate-900 dark:text-white">刘经理</p>
+<p class="text-[10px] text-slate-500">财务总监</p>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Content -->
+<main class="flex-1 overflow-y-auto flex flex-col">
+<!-- Header -->
+<header class="h-16 flex-shrink-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-8 sticky top-0 z-10">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">analytics</span>
+<h2 class="text-lg font-bold text-slate-900 dark:text-white">财务数据看板</h2>
+</div>
+<div class="flex items-center gap-6">
+<div class="relative w-64">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">search</span>
+<input class="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-xl pl-10 pr-4 py-2 text-sm focus:ring-1 focus:ring-primary text-slate-900 dark:text-white" placeholder="搜索报表或交易..." type="text"/>
+</div>
+<div class="flex items-center gap-3">
+<button class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-primary transition-colors relative">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full"></span>
+</button>
+<button class="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-primary transition-colors">
+<span class="material-symbols-outlined">settings</span>
+</button>
+</div>
+</div>
+</header>
+<!-- Dashboard Body -->
+<div class="p-8 flex flex-col gap-8 max-w-7xl mx-auto w-full">
+<!-- Key Metrics Cards -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<div class="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group">
+<div class="flex justify-between items-start mb-4">
+<div>
+<p class="text-slate-500 dark:text-slate-400 text-sm font-medium">总收入 (本月)</p>
+<h3 class="text-3xl font-bold mt-1 text-slate-900 dark:text-white">¥128,500.00</h3>
+</div>
+<span class="px-2 py-1 rounded-lg bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 text-xs font-bold">+12.5%</span>
+</div>
+<div class="h-16 w-full opacity-50 group-hover:opacity-100 transition-opacity">
+<svg class="w-full h-full overflow-visible" viewbox="0 0 100 30">
+<path d="M0 25 Q 10 20, 20 22 T 40 15 T 60 18 T 80 5 T 100 10" fill="none" stroke="#b6860c" stroke-width="2"></path>
+</svg>
+</div>
+</div>
+<div class="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group">
+<div class="flex justify-between items-start mb-4">
+<div>
+<p class="text-slate-500 dark:text-slate-400 text-sm font-medium">运营成本 (本月)</p>
+<h3 class="text-3xl font-bold mt-1 text-slate-900 dark:text-white">¥45,200.00</h3>
+</div>
+<span class="px-2 py-1 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 text-xs font-bold">-2.3%</span>
+</div>
+<div class="h-16 w-full opacity-50 group-hover:opacity-100 transition-opacity">
+<svg class="w-full h-full overflow-visible" viewbox="0 0 100 30">
+<path d="M0 5 Q 10 8, 20 5 T 40 12 T 60 10 T 80 20 T 100 25" fill="none" stroke="#e11d48" stroke-width="2"></path>
+</svg>
+</div>
+</div>
+<div class="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group">
+<div class="flex justify-between items-start mb-4">
+<div>
+<p class="text-slate-500 dark:text-slate-400 text-sm font-medium">净利润 (本月)</p>
+<h3 class="text-3xl font-bold mt-1 text-slate-900 dark:text-white">¥83,300.00</h3>
+</div>
+<span class="px-2 py-1 rounded-lg bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 text-xs font-bold">+15.8%</span>
+</div>
+<div class="h-16 w-full opacity-50 group-hover:opacity-100 transition-opacity">
+<svg class="w-full h-full overflow-visible" viewbox="0 0 100 30">
+<path d="M0 25 Q 10 22, 20 24 T 40 10 T 60 12 T 80 2 T 100 5" fill="none" stroke="#b6860c" stroke-width="2"></path>
+</svg>
+</div>
+</div>
+</div>
+<!-- Charts & AI Insights -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+<!-- Revenue Trend -->
+<div class="lg:col-span-2 bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+<div class="flex items-center justify-between mb-8">
+<div>
+<h4 class="text-base font-bold text-slate-900 dark:text-white">月度营收趋势</h4>
+<p class="text-xs text-slate-500">过去六个月的业绩增长曲线</p>
+</div>
+<div class="flex gap-2">
+<button class="px-3 py-1 text-xs bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-600">按月度</button>
+<button class="px-3 py-1 text-xs text-slate-400">按季度</button>
+</div>
+</div>
+<div class="h-64 w-full">
+<svg class="w-full h-full" preserveaspectratio="none" viewbox="0 0 800 250">
+<defs>
+<lineargradient id="gradient-1" x1="0%" x2="0%" y1="0%" y2="100%">
+<stop offset="0%" style="stop-color:rgba(182, 134, 12, 0.2); stop-opacity:1"></stop>
+<stop offset="100%" style="stop-color:rgba(182, 134, 12, 0); stop-opacity:1"></stop>
+</lineargradient>
+</defs>
+<path class="chart-gradient-1" d="M0,200 C100,180 200,190 300,120 C400,50 500,80 600,40 C700,0 800,20 800,20 L800,250 L0,250 Z"></path>
+<path class="chart-stroke-1" d="M0,200 C100,180 200,190 300,120 C400,50 500,80 600,40 C700,0 800,20 800,20" fill="none" stroke-width="3"></path>
+<!-- Grid lines -->
+<line stroke="#f1f5f9" stroke-dasharray="4" x1="0" x2="800" y1="200" y2="200"></line>
+<line stroke="#f1f5f9" stroke-dasharray="4" x1="0" x2="800" y1="150" y2="150"></line>
+<line stroke="#f1f5f9" stroke-dasharray="4" x1="0" x2="800" y1="100" y2="100"></line>
+<line stroke="#f1f5f9" stroke-dasharray="4" x1="0" x2="800" y1="50" y2="50"></line>
+</svg>
+<div class="flex justify-between px-2 mt-4 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+<span>1月</span><span>2月</span><span>3月</span><span>4月</span><span>5月</span><span>6月</span>
+</div>
+</div>
+</div>
+<!-- Expense Categories Pie -->
+<div class="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col items-center">
+<div class="w-full mb-6">
+<h4 class="text-base font-bold text-slate-900 dark:text-white">支出类别占比</h4>
+<p class="text-xs text-slate-500">本月运营成本分配</p>
+</div>
+<div class="relative size-48">
+<svg class="transform -rotate-90" viewbox="0 0 100 100">
+<!-- Circular sections using stroke-dasharray (simplified representation) -->
+<circle cx="50" cy="50" fill="transparent" r="40" stroke="#b6860c" stroke-dasharray="251.2" stroke-dashoffset="60" stroke-width="20"></circle>
+<circle cx="50" cy="50" fill="transparent" r="40" stroke="#eab308" stroke-dasharray="251.2" stroke-dashoffset="180" stroke-width="20"></circle>
+<circle cx="50" cy="50" fill="transparent" r="40" stroke="#fde047" stroke-dasharray="251.2" stroke-dashoffset="220" stroke-width="20"></circle>
+</svg>
+<div class="absolute inset-0 flex flex-col items-center justify-center">
+<span class="text-xs text-slate-500">总计</span>
+<span class="text-lg font-bold">¥45.2k</span>
+</div>
+</div>
+<div class="w-full mt-8 grid grid-cols-2 gap-4">
+<div class="flex items-center gap-2">
+<div class="size-3 rounded-full bg-primary"></div>
+<span class="text-xs text-slate-600 dark:text-slate-400">人工成本 (45%)</span>
+</div>
+<div class="flex items-center gap-2">
+<div class="size-3 rounded-full bg-yellow-500"></div>
+<span class="text-xs text-slate-600 dark:text-slate-400">房租水电 (30%)</span>
+</div>
+<div class="flex items-center gap-2">
+<div class="size-3 rounded-full bg-yellow-300"></div>
+<span class="text-xs text-slate-600 dark:text-slate-400">耗材采购 (15%)</span>
+</div>
+<div class="flex items-center gap-2">
+<div class="size-3 rounded-full bg-slate-200"></div>
+<span class="text-xs text-slate-600 dark:text-slate-400">市场营销 (10%)</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Transaction Table & AI Insights -->
+<div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+<!-- Transactions -->
+<div class="lg:col-span-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+<div class="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+<h4 class="text-base font-bold text-slate-900 dark:text-white">近期交易记录</h4>
+<button class="text-primary text-xs font-bold hover:underline">查看全部</button>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left text-sm">
+<thead class="bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 font-medium">
+<tr>
+<th class="px-6 py-4">交易日期</th>
+<th class="px-6 py-4">项目类别</th>
+<th class="px-6 py-4">流水单号</th>
+<th class="px-6 py-4">状态</th>
+<th class="px-6 py-4 text-right">金额</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
+<tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+<td class="px-6 py-4">2023-11-24 14:20</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<span class="size-6 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
+<span class="material-symbols-outlined text-sm">spa</span>
+</span>
+<span>金牌头疗套餐</span>
+</div>
+</td>
+<td class="px-6 py-4 text-xs font-mono">TRX-982134</td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 text-[10px] font-bold rounded-full">已完成</span>
+</td>
+<td class="px-6 py-4 text-right font-bold">+¥398.00</td>
+</tr>
+<tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+<td class="px-6 py-4">2023-11-24 11:05</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<span class="size-6 flex items-center justify-center rounded-lg bg-red-100 text-red-600">
+<span class="material-symbols-outlined text-sm">inventory_2</span>
+</span>
+<span>按摩精油补货</span>
+</div>
+</td>
+<td class="px-6 py-4 text-xs font-mono">TRX-982130</td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 text-[10px] font-bold rounded-full">已完成</span>
+</td>
+<td class="px-6 py-4 text-right font-bold text-red-600">-¥2,450.00</td>
+</tr>
+<tr class="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+<td class="px-6 py-4">2023-11-23 18:45</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<span class="size-6 flex items-center justify-center rounded-lg bg-primary/10 text-primary">
+<span class="material-symbols-outlined text-sm">card_membership</span>
+</span>
+<span>年度VIP储值</span>
+</div>
+</td>
+<td class="px-6 py-4 text-xs font-mono">TRX-982128</td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400 text-[10px] font-bold rounded-full">处理中</span>
+</td>
+<td class="px-6 py-4 text-right font-bold">+¥5,000.00</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- AI Insights Panel -->
+<div class="bg-primary/5 dark:bg-primary/10 p-6 rounded-xl border border-primary/20 flex flex-col gap-4">
+<div class="flex items-center gap-2 text-primary">
+<span class="material-symbols-outlined">auto_awesome</span>
+<h4 class="text-sm font-bold uppercase tracking-wider">AI 智能洞察</h4>
+</div>
+<div class="space-y-4">
+<div class="bg-white dark:bg-slate-900 p-4 rounded-lg shadow-sm border border-slate-100 dark:border-slate-800">
+<p class="text-xs font-bold text-slate-900 dark:text-white mb-2">利润率分析</p>
+<p class="text-xs text-slate-500 leading-relaxed">基于上月的经营数据，您的利润率提升了5%。主要归功于"头皮深度护理"项目的销售增长。</p>
+</div>
+<div class="bg-white dark:bg-slate-900 p-4 rounded-lg shadow-sm border border-slate-100 dark:border-slate-800">
+<p class="text-xs font-bold text-slate-900 dark:text-white mb-2">降本增效建议</p>
+<p class="text-xs text-slate-500 leading-relaxed">建议通过优化耗材采购流程，采取大宗订购模式，预计可进一步降低3%的运营成本。</p>
+</div>
+<div class="bg-white dark:bg-slate-900 p-4 rounded-lg shadow-sm border border-slate-100 dark:border-slate-800">
+<p class="text-xs font-bold text-slate-900 dark:text-white mb-2">下月预测</p>
+<div class="flex items-end gap-2">
+<span class="text-xl font-bold text-primary">¥142k</span>
+<span class="text-[10px] text-green-500 mb-1">预期增长 8%</span>
+</div>
+</div>
+</div>
+<button class="mt-2 w-full py-3 px-4 bg-primary text-white rounded-lg text-xs font-bold hover:bg-primary/90 transition-all flex items-center justify-center gap-2">
+                        生成详细优化方案
+                        <span class="material-symbols-outlined text-sm">arrow_forward</span>
+</button>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>
