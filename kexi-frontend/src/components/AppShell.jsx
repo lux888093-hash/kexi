@@ -13,7 +13,7 @@ export default function AppShell({
       <Sidebar1 />
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-transparent">
-        <header className="shrink-0 border-b border-black/5 bg-[#f7f2ec]/80 backdrop-blur-xl">
+        <header className="relative z-50 shrink-0 border-b border-black/5 bg-[#f7f2ec]/80 backdrop-blur-xl">
           <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-6 py-5 lg:flex-row lg:items-center lg:justify-between lg:px-8">
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">

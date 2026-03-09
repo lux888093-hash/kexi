@@ -1016,145 +1016,118 @@ function StoreScopeSwitcher({
   const currentStoreLabel = activeStoreMeta?.storeName || "全部门店";
 
   return (
-    <div ref={panelRef} className="relative">
-      <div className="flex flex-wrap items-center gap-3 rounded-[24px] border border-black/5 bg-[rgba(255,251,246,0.9)] px-4 py-3 shadow-[0_14px_36px_rgba(23,20,18,0.06)] backdrop-blur">
-        <div className="flex items-center gap-3 rounded-2xl bg-[#f8f2eb] px-3 py-2.5">
-          <span className="material-symbols-outlined text-[18px] text-[#d96e42]">
-            storefront
-          </span>
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
-              当前门店
-            </p>
-            <p className="text-sm font-bold text-[#171412]">
-              {currentStoreLabel}
-            </p>
-          </div>
-        </div>
-
-        <button
-          aria-expanded={expanded}
-          className={cn(
-            "group flex min-w-[220px] flex-1 cursor-pointer items-center justify-between rounded-2xl border px-4 py-3 text-left transition lg:max-w-[340px]",
-            expanded || activeStoreId !== "all"
-              ? "border-[#d96e42]/22 bg-[linear-gradient(135deg,rgba(255,247,240,0.96),rgba(255,255,255,0.92))]"
-              : "border-black/5 bg-white/88 hover:border-[#d96e42]/18 hover:bg-white",
-          )}
-          onClick={onToggle}
-          type="button"
-        >
-          <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
-              切换门店
-            </p>
-            <p className="mt-1 truncate text-sm font-bold text-[#171412]">
-              {currentStoreLabel}
-            </p>
-          </div>
-          <span
+    <div ref={panelRef} className="relative z-50">
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-full bg-[rgba(255,255,255,0.7)] p-2 pr-5 shadow-[0_4px_24px_rgba(22,20,18,0.04)] border border-white/60 backdrop-blur-lg">
+        
+        {/* Left Section: Current Store & Switcher */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onToggle}
             className={cn(
-              "material-symbols-outlined rounded-full bg-white/90 p-2 text-lg text-[#d96e42] transition duration-200",
-              expanded ? "rotate-180" : "",
+              "group flex items-center gap-3 rounded-full pl-2 pr-4 py-2 transition-all duration-300 border",
+              expanded 
+                ? "bg-white border-[#d96e42]/20 shadow-[0_8px_20px_rgba(217,110,66,0.06)]" 
+                : "bg-white/60 border-transparent hover:bg-white hover:border-black/5 hover:shadow-sm"
             )}
           >
-            expand_more
-          </span>
-        </button>
-
-        <div className="rounded-2xl bg-[#fbf4e7] px-3 py-2.5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#a67a2a]">
-            模式
-          </p>
-          <p className="text-sm font-bold text-[#171412]">{scopeModeLabel}</p>
+            <div className="flex items-center justify-center w-9 h-9 rounded-full bg-gradient-to-br from-[#f8efe6] to-[#f0dfce] text-[#d96e42] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
+              <span className="material-symbols-outlined text-[18px]">
+                {activeStoreId === "all" ? "domain" : "storefront"}
+              </span>
+            </div>
+            <div className="text-left">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">
+                {activeStoreId === "all" ? "分析视角" : "当前门店"}
+              </p>
+              <p className="text-sm font-bold text-[#171412] leading-none">
+                {currentStoreLabel}
+              </p>
+            </div>
+            <span
+              className={cn(
+                "material-symbols-outlined text-slate-400 transition-transform duration-300 ml-2 text-[20px]",
+                expanded ? "rotate-180 text-[#d96e42]" : ""
+              )}
+            >
+              expand_more
+            </span>
+          </button>
         </div>
 
-        <div className="rounded-2xl bg-white/88 px-3 py-2.5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
-            已导入
-          </p>
-          <p className="text-sm font-bold text-[#171412]">
-            {loadedStoreCount} / {stores.length || 6}
-          </p>
+        {/* Right Section: Stats */}
+        <div className="flex items-center gap-5">
+          <div className="flex flex-col items-end">
+             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">模式</span>
+             <span className="text-[11px] font-bold text-[#d96e42] bg-[#d96e42]/10 px-2 py-0.5 rounded-md mt-1">{scopeModeLabel}</span>
+          </div>
+          <div className="w-[1px] h-8 bg-black/5"></div>
+          <div className="flex flex-col items-end">
+             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">数据接入</span>
+             <span className="text-xs font-bold text-slate-700 mt-1 tabular-nums">{loadedStoreCount} <span className="text-slate-400 font-medium">/ {stores.length || 6}</span></span>
+          </div>
         </div>
       </div>
 
-      {expanded ? (
-        <div className="mt-3 w-full max-w-[880px] rounded-[26px] border border-black/5 bg-[rgba(255,251,246,0.97)] p-3 shadow-[0_24px_60px_rgba(23,20,18,0.12)] backdrop-blur">
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            <div>
+      {/* Animated Dropdown Panel */}
+      <div 
+        className={cn(
+          "grid transition-[grid-template-rows,opacity,transform] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] w-full origin-top",
+          expanded ? "grid-rows-[1fr] opacity-100 scale-100 mt-3" : "grid-rows-[0fr] opacity-0 scale-95 mt-0 pointer-events-none"
+        )}
+      >
+        <div className="overflow-hidden">
+          <div className="w-full rounded-[28px] border border-black/5 bg-[rgba(255,251,246,0.97)] p-4 shadow-[0_24px_60px_rgba(23,20,18,0.06)] backdrop-blur-xl">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 mb-3 mt-1">切换分析范围</p>
+            <div className="flex flex-col gap-1.5">
               <button
                 className={cn(
-                  "flex w-full cursor-pointer items-center justify-between rounded-[20px] border px-4 py-3 text-left transition",
+                  "flex items-center justify-between rounded-[20px] px-4 py-3.5 transition-colors border",
                   activeStoreId === "all"
-                    ? "border-[#d96e42]/28 bg-[linear-gradient(135deg,rgba(255,248,242,0.96),rgba(255,255,255,0.92))] shadow-[0_12px_30px_rgba(217,110,66,0.10)]"
-                    : "border-black/5 bg-white/88 hover:border-[#d96e42]/18 hover:bg-white",
+                    ? "bg-[linear-gradient(135deg,rgba(255,248,242,0.96),rgba(255,255,255,0.92))] border-[#d96e42]/20 text-[#d96e42] shadow-[0_8px_20px_rgba(217,110,66,0.06)]"
+                    : "border-transparent hover:bg-white hover:shadow-sm text-[#171412]"
                 )}
                 onClick={onSelectAllStores}
-                type="button"
               >
-                <div>
-                  <p className="text-sm font-bold text-[#171412]">全部门店</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    查看 6 店汇总分析
-                  </p>
-                </div>
-                <span
-                  className={cn(
-                    "rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em]",
-                    activeStoreId === "all"
-                      ? "bg-[#d96e42] text-white"
-                      : "bg-[#f3ece3] text-slate-500",
-                  )}
-                >
-                  当前
-                </span>
-              </button>
-            </div>
-            {stores.map((store) => {
-              const isActive = activeStoreId === store.storeId;
-
-              return (
-                <button
-                  key={store.storeId}
-                  className={cn(
-                    "flex cursor-pointer items-center justify-between gap-3 rounded-[20px] border px-4 py-3 text-left transition",
-                    isActive
-                      ? "border-[#d96e42]/28 bg-[linear-gradient(135deg,rgba(255,248,242,0.96),rgba(255,255,255,0.92))] shadow-[0_12px_30px_rgba(217,110,66,0.10)]"
-                      : store.isLoaded
-                        ? "border-black/5 bg-white/88 hover:border-[#d96e42]/18 hover:bg-white"
-                        : "border-dashed border-black/10 bg-[#f8f2eb] hover:border-[#d96e42]/18 hover:bg-white",
-                  )}
-                  onClick={() => onStoreClick(store)}
-                  type="button"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-bold text-[#171412]">
-                      {store.storeName}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {store.isLoaded
-                        ? store.latestPeriod || "已导入"
-                        : "未导入报表"}
-                    </p>
+                <div className="flex items-center gap-4">
+                  <span className="material-symbols-outlined text-[24px] opacity-80">domain</span>
+                  <div>
+                    <p className="font-bold text-[14px] text-left">全部门店 (大盘汇总)</p>
+                    {activeStoreId !== "all" && <p className="text-[11px] text-slate-400 text-left mt-0.5">查看 6 店汇总分析</p>}
                   </div>
-                  <span
-                    className={cn(
-                      "shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em]",
-                      isActive
-                        ? "bg-[#d96e42] text-white"
-                        : store.isLoaded
-                          ? "bg-[#f3ece3] text-slate-500"
-                          : "bg-white text-[#d96e42]",
-                    )}
-                  >
-                    {isActive ? "当前" : store.isLoaded ? "切换" : "上传"}
-                  </span>
-                </button>
-              );
-            })}
+                </div>
+                {activeStoreId === "all" && <span className="material-symbols-outlined text-[20px]">check_circle</span>}
+              </button>
+              
+              <div className="h-[1px] bg-black/5 mx-4 my-2"></div>
+              
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2 p-1">
+                {stores.map((store) => {
+                  const isActive = activeStoreId === store.storeId;
+                  return (
+                    <button
+                      key={store.storeId}
+                      className={cn(
+                        "flex flex-col items-start rounded-[18px] px-4 py-3 transition-all text-left border",
+                        isActive
+                          ? "bg-[#d96e42] text-white border-transparent shadow-[0_8px_24px_rgba(217,110,66,0.28)]"
+                          : store.isLoaded
+                            ? "bg-transparent border-black/5 hover:bg-white hover:border-black/10 text-[#171412] hover:shadow-sm"
+                            : "bg-transparent border-dashed border-black/10 opacity-70 hover:opacity-100 transition-opacity text-slate-500"
+                      )}
+                      onClick={() => onStoreClick(store)}
+                    >
+                      <span className="font-bold text-[13px]">{store.storeName}</span>
+                      <span className={cn("text-[10px] mt-1 font-medium", isActive ? "text-white/80" : "text-slate-400")}>
+                        {store.isLoaded ? store.latestPeriod || "已接入" : "未接入数据"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }
@@ -2330,6 +2303,86 @@ function AiStoreCard({ item }) {
   );
 }
 
+function PeriodSelector({ value, options, onChange, label }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => { document.body.style.overflow = prev; };
+    }
+  }, [isOpen]);
+
+  return (
+    <>
+      <button
+        className="flex h-9 items-center rounded-xl bg-transparent px-2 transition-colors hover:bg-slate-50"
+        onClick={() => setIsOpen(true)}
+        type="button"
+      >
+        <span className="min-w-[64px] text-center text-sm font-bold text-[#171412]">
+          {value === "all" ? "全部" : value}
+        </span>
+        <span className="material-symbols-outlined ml-1 text-[16px] text-slate-400">
+          arrow_drop_down
+        </span>
+      </button>
+
+      {isOpen && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+          <div 
+            className="absolute inset-0 bg-[#f7f2ec]/60 backdrop-blur-sm transition-opacity duration-300"
+            onClick={() => setIsOpen(false)}
+          />
+          <div className="relative w-full max-w-[360px] transform overflow-hidden rounded-[28px] border border-black/5 bg-white p-5 shadow-[0_24px_60px_rgba(23,20,18,0.1)] animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2.5">
+                <span className="material-symbols-outlined text-[22px] text-[#d96e42]">calendar_month</span>
+                <h3 className="text-base font-bold text-[#171412]">
+                  {label || '选择月份'}
+                </h3>
+              </div>
+              <button
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-50 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                onClick={() => setIsOpen(false)}
+                type="button"
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            <div className="custom-scrollbar grid max-h-[40vh] grid-cols-2 gap-2 overflow-y-auto pr-1">
+              {options.map((opt) => {
+                const isSelected = value === opt;
+                const labelStr = opt === "all" ? "全部月份" : opt;
+                return (
+                  <button
+                    key={opt}
+                    className={cn(
+                      "flex items-center justify-center rounded-[16px] border px-4 py-3.5 transition-all duration-200 text-sm font-bold",
+                      isSelected
+                        ? "border-transparent bg-[#171412] text-white shadow-md"
+                        : "border-black/5 bg-[#fcfaf7] text-slate-600 hover:border-black/15 hover:bg-white hover:text-[#171412] hover:shadow-sm"
+                    )}
+                    onClick={() => {
+                      onChange(opt);
+                      setIsOpen(false);
+                    }}
+                    type="button"
+                  >
+                    {labelStr}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function Financials() {
   const fileInputRef = useRef(null);
   const scopePanelRef = useRef(null);
@@ -2665,31 +2718,27 @@ export default function Financials() {
             />
           </div>
 
-          <select
-            className="cursor-pointer rounded-2xl border border-black/5 bg-white/85 px-4 py-3 text-sm font-semibold text-slate-600 outline-none transition focus:border-[#d96e42]/30"
-            onChange={(event) => handlePeriodStartChange(event.target.value)}
-            value={activePeriodStart}
-          >
-            <option value="all">全部月份</option>
-            {availablePeriods.map((period) => (
-              <option key={`start-${period}`} value={period}>
-                {period}
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center gap-1.5 rounded-2xl border border-black/5 bg-white/85 p-1.5 shadow-[0_2px_12px_rgba(23,20,18,0.03)] backdrop-blur transition-all focus-within:border-[#d96e42]/30 focus-within:shadow-[0_8px_24px_rgba(217,110,66,0.08)] hover:bg-white">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#f8f2eb] text-[#d96e42]">
+              <span className="material-symbols-outlined text-[18px]">calendar_month</span>
+            </div>
+            
+            <PeriodSelector
+              value={activePeriodStart}
+              options={['all', ...availablePeriods]}
+              onChange={handlePeriodStartChange}
+              label="起始月份"
+            />
 
-          <select
-            className="cursor-pointer rounded-2xl border border-black/5 bg-white/85 px-4 py-3 text-sm font-semibold text-slate-600 outline-none transition focus:border-[#d96e42]/30"
-            onChange={(event) => handlePeriodEndChange(event.target.value)}
-            value={activePeriodEnd}
-          >
-            <option value="all">全部月份</option>
-            {availablePeriods.map((period) => (
-              <option key={`end-${period}`} value={period}>
-                {period}
-              </option>
-            ))}
-          </select>
+            <span className="text-slate-300 material-symbols-outlined text-[16px]">arrow_forward</span>
+
+            <PeriodSelector
+              value={activePeriodEnd}
+              options={['all', ...availablePeriods]}
+              onChange={handlePeriodEndChange}
+              label="结束月份"
+            />
+          </div>
 
           <button
             className="flex cursor-pointer items-center gap-2 rounded-2xl bg-[#d96e42] px-4 py-3 text-sm font-bold text-white shadow-[0_18px_40px_rgba(217,110,66,0.22)] transition hover:bg-[#cf6137]"
