@@ -16,6 +16,9 @@ package-lock.json
 # 构建产物
 dist/
 build/
+kexi-backend/uploads/
+kexi-backend/data/financial-reports.json
+kexi-backend/sample_financial.xlsx
 
 # 环境变量
 .env

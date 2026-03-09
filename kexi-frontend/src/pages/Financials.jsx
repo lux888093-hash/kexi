@@ -1,319 +1,2955 @@
-import AppShell from '../components/AppShell';
+import {
+  startTransition,
+  useDeferredValue,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import AppShell from "../components/AppShell";
+import { buildApiUrl, getApiBaseUrl } from "../lib/runtimeConfig";
+import StoreComparisonCharts from "../components/StoreComparisonCharts";
 
-const metrics = [
-  {
-    label: '本月收入',
-    value: '128,500 元',
-    detail: '门店收入同比增长 12.5%',
-    toneClassName: 'bg-emerald-50 text-emerald-600',
-    change: '+12.5%',
-  },
-  {
-    label: '运营成本',
-    value: '45,200 元',
-    detail: '主要来自人工与房租水电',
-    toneClassName: 'bg-rose-50 text-rose-600',
-    change: '-2.3%',
-  },
-  {
-    label: '净利润',
-    value: '83,300 元',
-    detail: '利润率保持在高位区间',
-    toneClassName: 'bg-primary/10 text-primary',
-    change: '+15.8%',
-  },
-  {
-    label: '会员储值',
-    value: '38,600 元',
-    detail: '储值转化主要来自老客复购',
-    toneClassName: 'bg-sky-50 text-sky-600',
-    change: '+6.2%',
-  },
+const currencyFormatter = new Intl.NumberFormat("zh-CN", {
+  style: "currency",
+  currency: "CNY",
+  maximumFractionDigits: 0,
+});
+
+const integerFormatter = new Intl.NumberFormat("zh-CN", {
+  maximumFractionDigits: 0,
+});
+
+const gaugePalette = [
+  "#8a7667",
+  "#d96e42",
+  "#e3b04b",
+  "#8aa2b3",
+  "#be7a61",
+  "#93a086",
 ];
 
-const costBreakdown = [
-  { name: '人工成本', value: '45%', width: '45%', color: 'bg-primary' },
-  { name: '房租水电', value: '30%', width: '30%', color: 'bg-amber-400' },
-  { name: '耗材采购', value: '15%', width: '15%', color: 'bg-sky-500' },
-  { name: '市场投放', value: '10%', width: '10%', color: 'bg-slate-300' },
+function cn(...classes) {
+  return classes.filter(Boolean).join(" ");
+}
+
+function formatCurrency(value) {
+  return currencyFormatter.format(Number(value || 0));
+}
+
+function formatShortCurrency(value) {
+  const numeric = Number(value || 0);
+
+  if (Math.abs(numeric) >= 10000) {
+    return `¥${(numeric / 10000).toFixed(1)}万`;
+  }
+
+  return formatCurrency(numeric);
+}
+
+function formatNumber(value) {
+  return integerFormatter.format(Number(value || 0));
+}
+
+function formatPercent(value) {
+  return `${(Number(value || 0) * 100).toFixed(1)}%`;
+}
+
+function formatStoreAxisLabel(name) {
+  return String(name || "").replace(/店$/, "");
+}
+
+async function fetchJson(path, options) {
+  const response = await fetch(buildApiUrl(path), options);
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(
+      payload.message ||
+        `无法连接到财务服务，请检查系统设置中的服务地址。当前地址：${getApiBaseUrl()}`,
+    );
+  }
+
+  return payload;
+}
+
+function buildQueryString({ storeIds, periodStart, periodEnd }) {
+  const params = new URLSearchParams();
+
+  if (storeIds.length) {
+    params.set("storeIds", storeIds.join(","));
+  }
+
+  if (periodStart === "all" || periodEnd === "all") {
+    params.set("periodStart", "all");
+    params.set("periodEnd", "all");
+    return params.toString();
+  }
+
+  if (periodStart) {
+    params.set("periodStart", periodStart);
+  }
+
+  if (periodEnd) {
+    params.set("periodEnd", periodEnd);
+  }
+
+  return params.toString();
+}
+
+function GaugeDial({
+  score,
+  size = 128,
+  accent = "#d96e42",
+  caption = "健康度",
+}) {
+  const clamped = Math.max(0, Math.min(Number(score || 0), 100));
+  const radius = 46;
+  const strokeWidth = 12;
+  const circumference = 2 * Math.PI * radius;
+  const dash = (clamped / 100) * circumference;
+
+  return (
+    <div className="flex flex-col items-center gap-3">
+      <svg height={size} viewBox="0 0 120 120" width={size}>
+        <circle
+          cx="60"
+          cy="60"
+          fill="none"
+          r={radius}
+          stroke="rgba(23,20,18,0.08)"
+          strokeWidth={strokeWidth}
+        />
+        <circle
+          cx="60"
+          cy="60"
+          fill="none"
+          r={radius}
+          stroke={accent}
+          strokeDasharray={`${dash} ${circumference - dash}`}
+          strokeLinecap="round"
+          strokeWidth={strokeWidth}
+          style={{ transform: "rotate(-90deg)", transformOrigin: "60px 60px" }}
+        />
+        <circle cx="60" cy="60" fill="#fff9f4" r="37" />
+        <text
+          className="tabular-nums"
+          fill="#6d5c4f"
+          fontFamily="IBM Plex Sans, Manrope, sans-serif"
+          fontSize="24"
+          fontWeight="700"
+          textAnchor="middle"
+          x="60"
+          y="58"
+        >
+          {Math.round(clamped)}
+        </text>
+        <text
+          fill="#7a756e"
+          fontSize="11"
+          fontWeight="600"
+          textAnchor="middle"
+          x="60"
+          y="74"
+        >
+          SCORE
+        </text>
+      </svg>
+      <span className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
+        {caption}
+      </span>
+    </div>
+  );
+}
+
+function getStoreHealthMeta(score) {
+  const numeric = Math.max(0, Math.min(Number(score || 0), 100));
+
+  if (numeric >= 82) {
+    return {
+      accent: "#d96e42",
+      label: "优势",
+      soft: "rgba(253, 239, 232, 0.92)",
+      track: "rgba(217, 110, 66, 0.16)",
+    };
+  }
+
+  if (numeric >= 65) {
+    return {
+      accent: "#b78a34",
+      label: "平稳",
+      soft: "rgba(251, 244, 223, 0.96)",
+      track: "rgba(227, 176, 75, 0.24)",
+    };
+  }
+
+  return {
+    accent: "#8a7667",
+    label: "承压",
+    soft: "rgba(243, 236, 227, 0.96)",
+    track: "rgba(138, 118, 103, 0.18)",
+  };
+}
+
+function MetricCard({ label, value, detail, accent, note }) {
+  return (
+    <article className="relative overflow-hidden rounded-[22px] border border-black/5 bg-[rgba(255,251,246,0.92)] px-3.5 py-3 shadow-[0_10px_24px_rgba(22,20,18,0.05)] backdrop-blur">
+      <div
+        className="absolute bottom-3 left-0 top-3 w-[3px] rounded-full"
+        style={{ backgroundColor: accent }}
+      />
+      <div className="pl-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">
+            {label}
+          </p>
+          <span
+            className="shrink-0 rounded-full border border-black/5 px-2 py-0.5 text-[9px] font-bold tracking-[0.14em]"
+            style={{ backgroundColor: `${accent}12`, color: accent }}
+          >
+            {note}
+          </span>
+        </div>
+        <h2 className="mt-2 tabular-nums text-[1.45rem] font-bold tracking-[-0.05em] text-[#171412] lg:text-[1.58rem]">
+          {value}
+        </h2>
+        <p
+          className="mt-2 text-[11px] leading-[1.35] text-slate-500"
+          style={{
+            display: "-webkit-box",
+            overflow: "hidden",
+            WebkitBoxOrient: "vertical",
+            WebkitLineClamp: 2,
+          }}
+        >
+          {detail}
+        </p>
+      </div>
+    </article>
+  );
+}
+
+function SectionCard({
+  eyebrow,
+  title,
+  subtitle,
+  actions,
+  className,
+  children,
+  tone = "light",
+}) {
+  const eyebrowClass = tone === "dark" ? "text-[#f3a87b]" : "text-[#d96e42]";
+  const titleClass = tone === "dark" ? "text-white" : "text-[#171412]";
+  const subtitleClass = tone === "dark" ? "text-slate-300" : "text-slate-500";
+
+  return (
+    <article
+      className={cn(
+        "relative overflow-hidden rounded-[34px] border border-black/5 bg-[rgba(255,251,246,0.88)] p-6 shadow-[0_18px_60px_rgba(27,22,19,0.08)] backdrop-blur",
+        className,
+      )}
+    >
+      {(eyebrow || title || actions) && (
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            {eyebrow ? (
+              <p
+                className={cn(
+                  "text-[11px] font-bold uppercase tracking-[0.28em]",
+                  eyebrowClass,
+                )}
+              >
+                {eyebrow}
+              </p>
+            ) : null}
+            {title ? (
+              <h2
+                className={cn(
+                  "mt-2 text-xl font-extrabold tracking-[-0.04em]",
+                  titleClass,
+                )}
+              >
+                {title}
+              </h2>
+            ) : null}
+            {subtitle ? (
+              <p className={cn("mt-2 text-sm leading-6", subtitleClass)}>
+                {subtitle}
+              </p>
+            ) : null}
+          </div>
+          {actions ? <div className="shrink-0">{actions}</div> : null}
+        </div>
+      )}
+      <div className={cn(title || eyebrow ? "mt-6" : "")}>{children}</div>
+    </article>
+  );
+}
+
+function buildSeriesPoints(trend, key, width, height, padding, maxValue) {
+  if (!trend.length) {
+    return [];
+  }
+
+  return trend.map((point, index) => {
+    const usableWidth = width - padding * 2;
+    const usableHeight = height - padding * 2;
+    const x =
+      trend.length === 1
+        ? width / 2
+        : padding + (usableWidth * index) / (trend.length - 1);
+    const y = height - padding - ((point[key] || 0) / maxValue) * usableHeight;
+
+    return {
+      x,
+      y,
+      label: point.label,
+    };
+  });
+}
+
+function toPolyline(points) {
+  return points.map((point) => `${point.x},${point.y}`).join(" ");
+}
+
+function toArea(points, height, padding) {
+  if (!points.length) {
+    return "";
+  }
+
+  const first = points[0];
+  const last = points[points.length - 1];
+
+  return [
+    `M ${first.x} ${height - padding}`,
+    `L ${first.x} ${first.y}`,
+    ...points.slice(1).map((point) => `L ${point.x} ${point.y}`),
+    `L ${last.x} ${height - padding}`,
+    "Z",
+  ].join(" ");
+}
+
+
+
+
+
+function TrendChart({ trend }) {
+  if (!trend.length) {
+    return (
+      <div className="flex h-[320px] items-center justify-center rounded-[28px] bg-[#f4ede5] text-sm text-slate-500">
+        当前还没有可展示的趋势数据。
+      </div>
+    );
+  }
+
+  if (trend.length === 1) {
+    const point = trend[0];
+    const snapshotItems = [
+      { color: "#8a7667", label: "营收", value: point.revenue },
+      { color: "#d96e42", label: "成本", value: point.cost },
+      { color: "#8aa2b3", label: "净利润", value: point.profit },
+    ];
+    const maxValue = Math.max(...snapshotItems.map((item) => item.value), 1);
+
+    return (
+      <div className="rounded-[30px] bg-[#f8f2eb] p-4">
+        <div className="rounded-[24px] border border-black/5 bg-white/78 px-4 py-4">
+          <p className="text-sm leading-6 text-slate-500">
+            当前只导入了 {point.label}
+            ，还不能形成跨月趋势线，先展示这一个月的经营快照。继续补充 2025 年
+            12 月、2026 年 2 月等历史月报后，这里会自动切回趋势图。
+          </p>
+        </div>
+
+        <div className="mt-5 grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
+          <div className="rounded-[26px] bg-[linear-gradient(180deg,rgba(255,255,255,0.68),rgba(255,248,242,0.94))] p-4">
+            <div className="flex h-[250px] items-end justify-between gap-4">
+              {snapshotItems.map((item) => (
+                <div
+                  key={item.label}
+                  className="flex flex-1 flex-col items-center justify-end gap-3"
+                >
+                  <p className="tabular-nums text-xs font-bold text-slate-500">
+                    {formatShortCurrency(item.value)}
+                  </p>
+                  <div className="flex h-[180px] w-full items-end justify-center rounded-[22px] bg-white/70 px-3 py-3">
+                    <div
+                      className="w-full rounded-[18px] transition-all"
+                      style={{
+                        backgroundColor: item.color,
+                        height: `${Math.max((item.value / maxValue) * 100, 10)}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
+                    <span
+                      className="h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: item.color }}
+                    />
+                    {item.label}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {snapshotItems.map((item) => (
+              <div
+                key={item.label}
+                className="rounded-[24px] bg-white/78 px-4 py-4"
+              >
+                <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                  {item.label}
+                </p>
+                <p className="mt-2 text-xl font-bold tracking-[-0.03em] text-[#171412]">
+                  {formatCurrency(item.value)}
+                </p>
+                <div className="mt-3 h-2 rounded-full bg-[#f3ece3]">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${(item.value / maxValue) * 100}%`,
+                      backgroundColor: item.color,
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+
+            <div className="rounded-[24px] bg-[#fff7f0] px-4 py-4 text-sm leading-6 text-slate-500">
+              已识别月份：{point.label}
+              。现在显示的是单月结构快照，不是跨月趋势。
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const width = 720;
+  const height = 280;
+  const padding = 28;
+  const maxValue = Math.max(
+    ...trend.flatMap((point) => [point.revenue, point.cost, point.profit]),
+    1,
+  );
+  const revenuePoints = buildSeriesPoints(
+    trend,
+    "revenue",
+    width,
+    height,
+    padding,
+    maxValue,
+  );
+  const costPoints = buildSeriesPoints(
+    trend,
+    "cost",
+    width,
+    height,
+    padding,
+    maxValue,
+  );
+  const profitPoints = buildSeriesPoints(
+    trend,
+    "profit",
+    width,
+    height,
+    padding,
+    maxValue,
+  );
+
+  return (
+    <div className="rounded-[30px] bg-[#f8f2eb] p-4">
+      <svg
+        className="h-[260px] w-full"
+        preserveAspectRatio="none"
+        viewBox={`0 0 ${width} ${height}`}
+      >
+        {[0.25, 0.5, 0.75, 1].map((ratio) => {
+          const y = height - padding - (height - padding * 2) * ratio;
+
+          return (
+            <line
+              key={ratio}
+              stroke="rgba(23,20,18,0.08)"
+              strokeDasharray="6 10"
+              x1="0"
+              x2={width}
+              y1={y}
+              y2={y}
+            />
+          );
+        })}
+
+        <path
+          d={toArea(revenuePoints, height, padding)}
+          fill="rgba(217, 110, 66, 0.14)"
+        />
+        <polyline
+          fill="none"
+          points={toPolyline(revenuePoints)}
+          stroke="#8a7667"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="4"
+        />
+        <polyline
+          fill="none"
+          points={toPolyline(costPoints)}
+          stroke="#d96e42"
+          strokeDasharray="8 10"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="3"
+        />
+        <polyline
+          fill="none"
+          points={toPolyline(profitPoints)}
+          stroke="#8aa2b3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="3"
+        />
+
+        {revenuePoints.map((point, index) => (
+          <g key={`${point.label}-${index}`}>
+            <circle cx={point.x} cy={point.y} fill="#8a7667" r="4.5" />
+            <circle cx={point.x} cy={point.y} fill="#fff8f2" r="2" />
+          </g>
+        ))}
+      </svg>
+
+      <div className="mt-4 grid grid-cols-3 gap-3 text-xs font-semibold text-slate-500 md:grid-cols-6">
+        {trend.map((point) => (
+          <div
+            key={point.period}
+            className="rounded-2xl bg-white/70 px-3 py-2 text-center"
+          >
+            {point.label}
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-4 text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
+        <span className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-[#8a7667]" />
+          营收
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-[#d96e42]" />
+          成本
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-[#8aa2b3]" />
+          净利润
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function DonutChart({ items }) {
+  const positiveItems = items.filter((item) => item.value > 0).slice(0, 5);
+  const total = positiveItems.reduce((sum, item) => sum + item.value, 0);
+  const radius = 58;
+  const circumference = 2 * Math.PI * radius;
+  const segments = positiveItems.reduce((collection, item, index) => {
+    const ratio = total > 0 ? item.value / total : 0;
+    const dash = ratio * circumference;
+    const previousOffset = collection.length
+      ? collection[collection.length - 1].offset +
+        collection[collection.length - 1].dash
+      : 0;
+
+    collection.push({
+      color: gaugePalette[index % gaugePalette.length],
+      dash,
+      item,
+      offset: previousOffset,
+    });
+
+    return collection;
+  }, []);
+
+  return (
+    <div className="grid gap-5 lg:grid-cols-[200px_1fr] lg:items-center">
+      <div className="mx-auto">
+        <svg height="170" viewBox="0 0 180 180" width="170">
+          <circle
+            cx="90"
+            cy="90"
+            fill="none"
+            r={radius}
+            stroke="rgba(23,20,18,0.08)"
+            strokeWidth="18"
+          />
+          {segments.map((segment) => (
+            <circle
+              key={segment.item.name}
+              cx="90"
+              cy="90"
+              fill="none"
+              r={radius}
+              stroke={segment.color}
+              strokeDasharray={`${segment.dash} ${circumference - segment.dash}`}
+              strokeDashoffset={-segment.offset}
+              strokeLinecap="round"
+              strokeWidth="18"
+              style={{
+                transform: "rotate(-90deg)",
+                transformOrigin: "90px 90px",
+              }}
+            />
+          ))}
+          <circle cx="90" cy="90" fill="#fff9f4" r="48" />
+          <text
+            className="tabular-nums"
+            fill="#171412"
+            fontFamily="IBM Plex Sans, Manrope, sans-serif"
+            fontSize="18"
+            fontWeight="700"
+            textAnchor="middle"
+            x="90"
+            y="84"
+          >
+            {formatShortCurrency(total)}
+          </text>
+          <text
+            fill="#7a756e"
+            fontSize="11"
+            fontWeight="600"
+            textAnchor="middle"
+            x="90"
+            y="102"
+          >
+            COST MIX
+          </text>
+        </svg>
+      </div>
+
+      <div className="space-y-3">
+        {positiveItems.map((item, index) => (
+          <div
+            key={item.name}
+            className="flex items-center justify-between rounded-2xl bg-[#f8f2eb] px-4 py-3"
+          >
+            <div className="flex items-center gap-3">
+              <span
+                className="h-3.5 w-3.5 rounded-full"
+                style={{
+                  backgroundColor: gaugePalette[index % gaugePalette.length],
+                }}
+              />
+              <div>
+                <p className="text-sm font-semibold text-[#171412]">
+                  {item.name}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {formatPercent(item.ratio)}
+                </p>
+              </div>
+            </div>
+            <span className="tabular-nums text-sm font-bold text-[#171412]">
+              {formatCurrency(item.value)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ChannelPanel({ channels }) {
+  const maxValue = Math.max(...channels.map((channel) => channel.value), 1);
+
+  return (
+    <div className="space-y-4">
+      {channels.map((channel, index) => (
+        <div key={channel.name} className="space-y-2">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <div className="flex items-center gap-3">
+              <span
+                className="h-3 w-3 rounded-full"
+                style={{
+                  backgroundColor: gaugePalette[index % gaugePalette.length],
+                }}
+              />
+              <span className="font-semibold text-[#171412]">
+                {channel.name}
+              </span>
+            </div>
+            <span className="tabular-nums font-bold text-slate-500">
+              {formatPercent(channel.share)}
+            </span>
+          </div>
+          <div className="h-2.5 rounded-full bg-black/5">
+            <div
+              className="h-full rounded-full"
+              style={{
+                width: `${(channel.value / maxValue) * 100}%`,
+                backgroundColor: gaugePalette[index % gaugePalette.length],
+              }}
+            />
+          </div>
+          <p className="tabular-nums text-xs font-semibold text-slate-500">
+            {formatCurrency(channel.value)}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CommandCenterModal({
+  open,
+  onClose,
+  dashboard,
+  analysis,
+  selectedStoreSummary,
+  scopeModeHint,
+  dragActive,
+  onDragEnter,
+  onDragLeave,
+  onDragOver,
+  onDrop,
+  pendingFiles,
+  onChooseFile,
+  storeOverride,
+  onStoreOverrideChange,
+  switcherStores,
+  uploadState,
+  onUpload,
+}) {
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-[rgba(24,18,16,0.42)] p-3 backdrop-blur-md lg:items-center lg:p-6"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[92vh] w-full max-w-[1480px] flex-col overflow-hidden rounded-[36px] border border-white/50 bg-[linear-gradient(135deg,rgba(250,244,238,0.98),rgba(255,255,255,0.94))] shadow-[0_32px_80px_rgba(18,16,14,0.24)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="border-b border-black/5 px-5 py-5 lg:px-7">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[#d96e42]">
+                Operations Hub
+              </p>
+              <h2 className="mt-2 text-2xl font-extrabold tracking-[-0.04em] text-[#171412]">
+                上传与财务驾驶舱
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
+                月报上传中心和财务驾驶舱总览已收进这里。你可以在这个弹层里补录门店报表、查看覆盖情况和当前财务总览。
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                className="flex cursor-pointer items-center gap-2 rounded-2xl border border-[#d96e42]/20 bg-white/90 px-4 py-3 text-sm font-bold text-[#d96e42] transition hover:border-[#d96e42]/40 hover:bg-[#fff7f0]"
+                onClick={onChooseFile}
+                type="button"
+              >
+                快速选文件
+                <span className="material-symbols-outlined text-base">
+                  folder_open
+                </span>
+              </button>
+              <button
+                aria-label="关闭上传与总览面板"
+                className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl border border-black/5 bg-white/90 text-slate-500 transition hover:border-[#d96e42]/20 hover:text-[#d96e42]"
+                onClick={onClose}
+                type="button"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-3 md:grid-cols-3">
+            <div className="rounded-[22px] bg-white/82 px-4 py-4">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                当前分析
+              </p>
+              <p className="mt-2 text-lg font-bold text-[#171412]">
+                {selectedStoreSummary}
+              </p>
+              <p className="mt-1 text-sm leading-6 text-slate-500">
+                {scopeModeHint}
+              </p>
+            </div>
+            <div className="rounded-[22px] bg-white/82 px-4 py-4">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                数据覆盖
+              </p>
+              <p className="mt-2 text-lg font-bold text-[#171412]">
+                {formatNumber(dashboard?.overview?.loadedStoreCount || 0)} / 6
+              </p>
+              <p className="mt-1 text-sm text-slate-500">
+                已导入 {dashboard?.overview?.reportCount || 0} 份门店月报
+              </p>
+            </div>
+            <div className="rounded-[22px] bg-[linear-gradient(135deg,rgba(255,247,240,0.96),rgba(255,255,255,0.88))] px-4 py-4">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#d96e42]/70">
+                AI 快照
+              </p>
+              <p className="mt-2 text-sm leading-6 text-[#171412]">
+                {analysis?.overall?.summary || "等待数据载入后生成 AI 洞察。"}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-6 lg:py-6">
+          <div className="grid gap-6 xl:grid-cols-[1.12fr_0.88fr]">
+            <SectionCard
+              eyebrow="Data Intake"
+              subtitle="支持逐店上传，也支持一次性拖入多个门店的月度 Excel。文件名里带门店和月份时，系统会自动识别。"
+              title="6 店月报上传中心"
+            >
+              <div
+                className={cn(
+                  "rounded-[30px] border-2 border-dashed px-6 py-8 transition",
+                  dragActive
+                    ? "border-[#d96e42] bg-[#fcf1ee]"
+                    : "border-black/10 bg-[#f8f2eb]",
+                )}
+                onDragEnter={onDragEnter}
+                onDragLeave={onDragLeave}
+                onDragOver={onDragOver}
+                onDrop={onDrop}
+              >
+                <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <p className="text-lg font-extrabold tracking-[-0.03em] text-[#171412]">
+                      拖拽门店报表到这里，或点击上传
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-slate-500">
+                      当前门店：梅溪湖店、华创店、凯德壹店、万象城店、德思勤店、佳兆业店。
+                    </p>
+                  </div>
+                  <button
+                    className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-[#d96e42]/20 bg-white px-5 py-3 text-sm font-bold text-[#d96e42] transition hover:border-[#d96e42]/40 hover:bg-[#fcf1ee]"
+                    onClick={onChooseFile}
+                    type="button"
+                  >
+                    选择文件
+                    <span className="material-symbols-outlined text-base">
+                      folder_open
+                    </span>
+                  </button>
+                </div>
+
+                {pendingFiles.length ? (
+                  <div className="mt-6 grid gap-4 xl:grid-cols-[0.85fr_0.55fr]">
+                    <div className="space-y-3">
+                      {pendingFiles.map((file) => (
+                        <div
+                          key={`${file.name}-${file.size}`}
+                          className="flex items-center justify-between rounded-2xl bg-white/80 px-4 py-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-[#171412]">
+                              {file.name}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {(file.size / 1024).toFixed(1)} KB
+                            </p>
+                          </div>
+                          <span className="rounded-full bg-[#f3ece3] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                            Queue
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="rounded-[26px] bg-white/80 p-4">
+                      <label className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
+                        单文件门店覆盖
+                      </label>
+                      <select
+                        className="mt-3 w-full rounded-2xl border border-black/5 bg-[#f8f2eb] px-4 py-3 text-sm font-semibold text-slate-600 outline-none focus:border-[#d96e42]/30"
+                        disabled={pendingFiles.length !== 1}
+                        onChange={(event) =>
+                          onStoreOverrideChange(event.target.value)
+                        }
+                        value={storeOverride}
+                      >
+                        <option value="">自动识别门店</option>
+                        {switcherStores.map((store) => (
+                          <option key={store.storeId} value={store.storeId}>
+                            {store.storeName}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        className="mt-4 flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-[#d96e42] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#cf6137] disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={uploadState.uploading}
+                        onClick={onUpload}
+                        type="button"
+                      >
+                        {uploadState.uploading
+                          ? "正在解析报表..."
+                          : "导入并刷新面板"}
+                        <span className="material-symbols-outlined text-base">
+                          arrow_forward
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-6 rounded-[24px] bg-white/70 px-4 py-4 text-sm text-slate-500">
+                    先选择至少 1 份 Excel
+                    报表。批量上传时系统会优先根据文件名自动匹配门店。
+                  </div>
+                )}
+
+                {uploadState.message ? (
+                  <div className="mt-4 rounded-[24px] bg-white/80 px-4 py-4 text-sm text-[#171412]">
+                    {uploadState.message}
+                  </div>
+                ) : null}
+
+                {uploadState.errors.length ? (
+                  <div className="mt-4 rounded-[24px] bg-[#fcf1ee] px-4 py-4 text-sm text-[#8f5138]">
+                    {uploadState.errors.map((item) => (
+                      <p key={`${item.fileName}-${item.message}`}>
+                        {item.fileName}：{item.message}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </SectionCard>
+
+            <SectionCard
+              eyebrow="Control Tower"
+              subtitle="当前默认展示最新月份。你也可以切换到全部月份，查看跨月趋势和累计表现。"
+              title="财务驾驶舱总览"
+            >
+              <div className="grid gap-5 lg:grid-cols-[150px_1fr] lg:items-center">
+                <GaugeDial
+                  accent="#d96e42"
+                  caption={analysis?.overall?.grade || "待分析"}
+                  score={dashboard?.overview?.healthScore || 0}
+                  size={144}
+                />
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-[26px] border border-[#d96e42]/15 bg-gradient-to-br from-[#fff7f0] via-[#fffaf5] to-[#f8efe7] px-5 py-5">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#d96e42]/70">
+                      分析视角
+                    </p>
+                    <p className="mt-3 text-lg font-bold text-[#171412]">
+                      {selectedStoreSummary}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {dashboard?.appliedFilters?.periodStart ===
+                      dashboard?.appliedFilters?.periodEnd
+                        ? dashboard?.appliedFilters?.periodStart || "最新月份"
+                        : `${dashboard?.appliedFilters?.periodStart || "起始"} 至 ${
+                            dashboard?.appliedFilters?.periodEnd || "结束"
+                          }`}
+                    </p>
+                    <p className="mt-3 text-sm leading-6 text-slate-500">
+                      {scopeModeHint}
+                    </p>
+                  </div>
+                  <div className="rounded-[26px] bg-[#f8f2eb] px-5 py-5">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
+                      数据覆盖
+                    </p>
+                    <p className="mt-3 tabular-nums text-2xl font-bold tracking-[-0.05em] text-[#171412]">
+                      {formatNumber(dashboard?.overview?.loadedStoreCount || 0)}{" "}
+                      / 6
+                    </p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      已导入 {dashboard?.overview?.reportCount || 0} 份门店月报
+                    </p>
+                  </div>
+                  <div className="rounded-[26px] bg-[#f8f2eb] px-5 py-5">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
+                      最新月份
+                    </p>
+                    <p className="mt-3 text-lg font-bold text-[#171412]">
+                      {dashboard?.overview?.latestPeriod || "未导入"}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      缺少 {dashboard?.overview?.missingStoreCount || 0}{" "}
+                      家门店数据
+                    </p>
+                  </div>
+                  <div className="rounded-[26px] bg-[#f8f2eb] px-5 py-5">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
+                      AI 洞察
+                    </p>
+                    <p className="mt-3 text-sm leading-6 text-[#171412]">
+                      {analysis?.overall?.summary ||
+                        "等待数据载入后生成 AI 洞察。"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </SectionCard>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StoreScopeSwitcher({
+  stores,
+  activeStoreId,
+  activeStoreMeta,
+  expanded,
+  panelRef,
+  scopeModeLabel,
+  onSelectAllStores,
+  onToggle,
+  onStoreClick,
+}) {
+  const loadedStoreCount = stores.filter((store) => store.isLoaded).length;
+  const currentStoreLabel = activeStoreMeta?.storeName || "全部门店";
+
+  return (
+    <div ref={panelRef} className="relative">
+      <div className="flex flex-wrap items-center gap-3 rounded-[24px] border border-black/5 bg-[rgba(255,251,246,0.9)] px-4 py-3 shadow-[0_14px_36px_rgba(23,20,18,0.06)] backdrop-blur">
+        <div className="flex items-center gap-3 rounded-2xl bg-[#f8f2eb] px-3 py-2.5">
+          <span className="material-symbols-outlined text-[18px] text-[#d96e42]">
+            storefront
+          </span>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+              当前门店
+            </p>
+            <p className="text-sm font-bold text-[#171412]">
+              {currentStoreLabel}
+            </p>
+          </div>
+        </div>
+
+        <button
+          aria-expanded={expanded}
+          className={cn(
+            "group flex min-w-[220px] flex-1 cursor-pointer items-center justify-between rounded-2xl border px-4 py-3 text-left transition lg:max-w-[340px]",
+            expanded || activeStoreId !== "all"
+              ? "border-[#d96e42]/22 bg-[linear-gradient(135deg,rgba(255,247,240,0.96),rgba(255,255,255,0.92))]"
+              : "border-black/5 bg-white/88 hover:border-[#d96e42]/18 hover:bg-white",
+          )}
+          onClick={onToggle}
+          type="button"
+        >
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+              切换门店
+            </p>
+            <p className="mt-1 truncate text-sm font-bold text-[#171412]">
+              {currentStoreLabel}
+            </p>
+          </div>
+          <span
+            className={cn(
+              "material-symbols-outlined rounded-full bg-white/90 p-2 text-lg text-[#d96e42] transition duration-200",
+              expanded ? "rotate-180" : "",
+            )}
+          >
+            expand_more
+          </span>
+        </button>
+
+        <div className="rounded-2xl bg-[#fbf4e7] px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#a67a2a]">
+            模式
+          </p>
+          <p className="text-sm font-bold text-[#171412]">{scopeModeLabel}</p>
+        </div>
+
+        <div className="rounded-2xl bg-white/88 px-3 py-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+            已导入
+          </p>
+          <p className="text-sm font-bold text-[#171412]">
+            {loadedStoreCount} / {stores.length || 6}
+          </p>
+        </div>
+      </div>
+
+      {expanded ? (
+        <div className="mt-3 w-full max-w-[880px] rounded-[26px] border border-black/5 bg-[rgba(255,251,246,0.97)] p-3 shadow-[0_24px_60px_rgba(23,20,18,0.12)] backdrop-blur">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            <div>
+              <button
+                className={cn(
+                  "flex w-full cursor-pointer items-center justify-between rounded-[20px] border px-4 py-3 text-left transition",
+                  activeStoreId === "all"
+                    ? "border-[#d96e42]/28 bg-[linear-gradient(135deg,rgba(255,248,242,0.96),rgba(255,255,255,0.92))] shadow-[0_12px_30px_rgba(217,110,66,0.10)]"
+                    : "border-black/5 bg-white/88 hover:border-[#d96e42]/18 hover:bg-white",
+                )}
+                onClick={onSelectAllStores}
+                type="button"
+              >
+                <div>
+                  <p className="text-sm font-bold text-[#171412]">全部门店</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    查看 6 店汇总分析
+                  </p>
+                </div>
+                <span
+                  className={cn(
+                    "rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em]",
+                    activeStoreId === "all"
+                      ? "bg-[#d96e42] text-white"
+                      : "bg-[#f3ece3] text-slate-500",
+                  )}
+                >
+                  当前
+                </span>
+              </button>
+            </div>
+            {stores.map((store) => {
+              const isActive = activeStoreId === store.storeId;
+
+              return (
+                <button
+                  key={store.storeId}
+                  className={cn(
+                    "flex cursor-pointer items-center justify-between gap-3 rounded-[20px] border px-4 py-3 text-left transition",
+                    isActive
+                      ? "border-[#d96e42]/28 bg-[linear-gradient(135deg,rgba(255,248,242,0.96),rgba(255,255,255,0.92))] shadow-[0_12px_30px_rgba(217,110,66,0.10)]"
+                      : store.isLoaded
+                        ? "border-black/5 bg-white/88 hover:border-[#d96e42]/18 hover:bg-white"
+                        : "border-dashed border-black/10 bg-[#f8f2eb] hover:border-[#d96e42]/18 hover:bg-white",
+                  )}
+                  onClick={() => onStoreClick(store)}
+                  type="button"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-[#171412]">
+                      {store.storeName}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {store.isLoaded
+                        ? store.latestPeriod || "已导入"
+                        : "未导入报表"}
+                    </p>
+                  </div>
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em]",
+                      isActive
+                        ? "bg-[#d96e42] text-white"
+                        : store.isLoaded
+                          ? "bg-[#f3ece3] text-slate-500"
+                          : "bg-white text-[#d96e42]",
+                    )}
+                  >
+                    {isActive ? "当前" : store.isLoaded ? "切换" : "上传"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function StoreStatusCard({ store, active, onClick, onUpload }) {
+  if (!store.isLoaded) {
+    return (
+      <button
+        className="group flex cursor-pointer flex-col rounded-[28px] border border-dashed border-black/10 bg-[#f8f2eb] p-5 text-left transition hover:border-[#d96e42]/40 hover:bg-white"
+        onClick={onUpload}
+        type="button"
+      >
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-bold text-[#171412]">{store.storeName}</p>
+          <span className="rounded-full bg-white px-3 py-1 text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">
+            待上传
+          </span>
+        </div>
+        <p className="mt-4 text-sm leading-6 text-slate-500">
+          还没有导入月度体质表，点击为这家门店上传报表。
+        </p>
+        <span className="mt-6 inline-flex items-center gap-2 text-sm font-bold text-[#d96e42]">
+          上传报表
+          <span className="material-symbols-outlined text-base">upload</span>
+        </span>
+      </button>
+    );
+  }
+
+  return (
+    <button
+      className={cn(
+        "group flex cursor-pointer flex-col rounded-[30px] border p-5 text-left transition",
+        active
+          ? "border-[#d96e42]/40 bg-white shadow-[0_18px_45px_rgba(217,110,66,0.12)]"
+          : "border-black/5 bg-[rgba(255,251,246,0.72)] hover:border-black/10 hover:bg-white",
+      )}
+      onClick={onClick}
+      type="button"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-bold text-[#171412]">{store.storeName}</p>
+          <p className="mt-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+            {store.latestPeriod || "未识别月份"}
+          </p>
+        </div>
+        <span
+          className={cn(
+            "rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[0.2em]",
+            active ? "bg-[#d96e42] text-white" : "bg-[#f3ece3] text-slate-500",
+          )}
+        >
+          {active ? "已筛选" : "可查看"}
+        </span>
+      </div>
+
+      <div className="mt-6 flex items-center justify-between gap-4">
+        <GaugeDial
+          accent={
+            gaugePalette[(store.healthScore || 0) > 75 ? 2 : active ? 1 : 0]
+          }
+          caption="门店得分"
+          score={store.healthScore}
+          size={94}
+        />
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="rounded-2xl bg-[#f8f2eb] px-4 py-3">
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+              营收
+            </p>
+            <p className="tabular-nums mt-1 text-lg font-bold text-[#171412]">
+              {formatShortCurrency(store.revenue)}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-2xl bg-[#f8f2eb] px-4 py-3">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                利润率
+              </p>
+              <p className="tabular-nums mt-1 text-sm font-bold text-[#171412]">
+                {formatPercent(store.profitMargin)}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-[#f8f2eb] px-4 py-3">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                客单价
+              </p>
+              <p className="tabular-nums mt-1 text-sm font-bold text-[#171412]">
+                {formatCurrency(store.avgTicket)}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function StoreMatrixCard({ store, active, onClick, onUpload }) {
+  if (!store.isLoaded) {
+    return (
+      <button
+        className="group relative flex cursor-pointer flex-col overflow-hidden rounded-[28px] border border-dashed border-[#d7c4b6] p-4 text-left transition hover:border-[#d96e42]/40 hover:shadow-[0_24px_52px_rgba(24,20,18,0.08)]"
+        style={{
+          background:
+            "linear-gradient(145deg, rgba(255,252,248,0.98), rgba(248,239,229,0.94) 54%, rgba(245,235,226,0.9))",
+        }}
+        onClick={onUpload}
+        type="button"
+      >
+        <div className="absolute inset-[1px] rounded-[27px] border border-white/45" />
+        <div className="absolute right-[-20px] top-[-16px] h-24 w-24 rounded-full bg-white/60 blur-2xl transition group-hover:scale-110" />
+        <div className="absolute bottom-[-22px] left-[-18px] h-24 w-24 rounded-full bg-[#e3b04b]/15 blur-3xl" />
+        <div className="relative flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[15px] font-bold text-[#171412]">{store.storeName}</p>
+            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+              等待月报
+            </p>
+          </div>
+          <span className="rounded-full border border-black/5 bg-white px-2.5 py-1 text-[10px] font-bold tracking-[0.16em] text-slate-500">
+            待上传
+          </span>
+        </div>
+        <div className="relative mt-5 rounded-[22px] border border-white/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.82),rgba(255,246,238,0.74))] px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#d96e42]">
+            快速补报
+          </p>
+          <p className="mt-2 text-[13px] leading-5 text-slate-500">
+            还没有导入月报，点击后可直接为这家门店补报并纳入分析。
+          </p>
+        </div>
+        <div className="relative mt-4 flex items-center justify-between">
+          <span className="inline-flex items-center gap-2 text-[12px] font-bold text-[#d96e42]">
+            上传月报
+            <span className="material-symbols-outlined text-[16px]">
+              arrow_outward
+            </span>
+          </span>
+          <span className="inline-flex h-10 w-10 items-center justify-center rounded-[16px] border border-white/70 bg-[linear-gradient(135deg,rgba(255,255,255,0.96),rgba(255,241,233,0.88))] text-[#d96e42] shadow-[0_12px_24px_rgba(217,110,66,0.16)]">
+            <span className="material-symbols-outlined text-[18px]">upload</span>
+          </span>
+        </div>
+      </button>
+    );
+  }
+
+  const healthMeta = getStoreHealthMeta(store.healthScore);
+  const clampedScore = Math.max(0, Math.min(Number(store.healthScore || 0), 100));
+
+  return (
+    <button
+      className={cn(
+        "group relative flex cursor-pointer flex-col overflow-hidden rounded-[30px] border p-4 text-left transition",
+        active
+          ? "border-[#d96e42]/35 shadow-[0_28px_60px_rgba(217,110,66,0.14)]"
+          : "border-black/5 shadow-[0_18px_42px_rgba(22,20,18,0.07)] hover:border-black/10 hover:shadow-[0_24px_52px_rgba(22,20,18,0.09)]",
+      )}
+      style={{
+        background: active
+          ? "linear-gradient(145deg, rgba(255,255,255,0.98), rgba(255,245,238,0.96) 48%, rgba(246,238,231,0.94))"
+          : "linear-gradient(145deg, rgba(255,253,250,0.94), rgba(250,243,236,0.92) 56%, rgba(245,237,229,0.9))",
+      }}
+      onClick={onClick}
+      type="button"
+    >
+      <div className="absolute inset-[1px] rounded-[29px] border border-white/45" />
+      <div
+        className="absolute inset-x-0 top-0 h-[3px]"
+        style={{ backgroundColor: healthMeta.accent }}
+      />
+      <div
+        className="absolute right-[-22px] top-[-18px] h-28 w-28 rounded-full blur-3xl transition group-hover:scale-105"
+        style={{ backgroundColor: `${healthMeta.accent}18` }}
+      />
+      <div className="absolute bottom-[-28px] left-[-18px] h-28 w-28 rounded-full bg-[#8aa2b3]/15 blur-3xl" />
+      <div className="absolute right-10 top-16 h-16 w-16 rounded-full border border-white/25 bg-white/10 opacity-70" />
+
+      <div className="relative flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-[15px] font-bold text-[#171412]">
+            {store.storeName}
+          </p>
+          <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+            {store.latestPeriod || "未识别月份"}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span
+            className="rounded-full border border-white/60 px-2.5 py-1 text-[10px] font-bold tracking-[0.16em] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]"
+            style={{
+              background: `linear-gradient(135deg, ${healthMeta.soft}, rgba(255,255,255,0.82))`,
+              color: healthMeta.accent,
+            }}
+          >
+            {healthMeta.label}
+          </span>
+          <span
+            className={cn(
+              "rounded-full border px-2.5 py-1 text-[10px] font-bold tracking-[0.16em] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]",
+              active
+                ? "border-[#d96e42]/10 bg-[linear-gradient(135deg,#d96e42,#e39d78)] text-white"
+                : "border-white/60 bg-[linear-gradient(135deg,rgba(255,255,255,0.92),rgba(247,240,232,0.9))] text-slate-500",
+            )}
+          >
+            {active ? "当前" : "切换"}
+          </span>
+        </div>
+      </div>
+
+      <div
+        className="relative mt-5 overflow-hidden rounded-[24px] border border-white/70 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]"
+        style={{
+          background: `linear-gradient(140deg, rgba(255,255,255,0.92), ${healthMeta.soft} 54%, rgba(247,239,232,0.9))`,
+        }}
+      >
+        <div
+          className="absolute right-[-18px] top-[-10px] h-24 w-24 rounded-full blur-3xl"
+          style={{ backgroundColor: `${healthMeta.accent}1e` }}
+        />
+        <div className="absolute bottom-[-22px] left-6 h-20 w-20 rounded-full bg-white/35 blur-2xl" />
+        <div className="absolute inset-x-4 top-4 h-px bg-white/70" />
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+              健康得分
+            </p>
+            <div className="mt-2 flex items-end gap-2">
+              <span className="tabular-nums text-[2rem] font-bold tracking-[-0.06em] text-[#171412]">
+                {Math.round(clampedScore)}
+              </span>
+              <span
+                className="mb-1 rounded-full px-2 py-0.5 text-[10px] font-bold tracking-[0.14em]"
+                style={{
+                  backgroundColor: healthMeta.soft,
+                  color: healthMeta.accent,
+                }}
+              >
+                {healthMeta.label}
+              </span>
+            </div>
+          </div>
+          <span
+            className="material-symbols-outlined text-[24px]"
+            style={{ color: healthMeta.accent }}
+          >
+            monitoring
+          </span>
+        </div>
+        <div
+          className="mt-4 h-2.5 overflow-hidden rounded-full"
+          style={{
+            background: `linear-gradient(90deg, rgba(255,255,255,0.45), ${healthMeta.track})`,
+          }}
+        >
+          <div
+            className="h-full rounded-full transition-[width] duration-500"
+            style={{
+              width: `${clampedScore}%`,
+              background: `linear-gradient(90deg, ${healthMeta.accent}, rgba(255,255,255,0.85))`,
+            }}
+          />
+        </div>
+        <div className="mt-3 flex items-center justify-between text-[10px] font-medium text-slate-500">
+          <span>经营韧性</span>
+          <span className="tabular-nums text-[11px]" style={{ color: healthMeta.accent }}>
+            {clampedScore}/100
+          </span>
+        </div>
+      </div>
+
+      <div className="relative mt-3 grid grid-cols-3 gap-2">
+        <div className="rounded-[18px] bg-[#f8f2eb] px-3 py-3">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+            营收
+          </p>
+          <p className="mt-1 truncate tabular-nums text-[15px] font-bold text-[#171412]">
+            {formatShortCurrency(store.revenue)}
+          </p>
+        </div>
+        <div className="rounded-[18px] bg-[#f8f2eb] px-3 py-3">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+            利润率
+          </p>
+          <p className="mt-1 tabular-nums text-[15px] font-bold text-[#171412]">
+            {formatPercent(store.profitMargin)}
+          </p>
+        </div>
+        <div className="rounded-[18px] bg-[#f8f2eb] px-3 py-3">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+            客单价
+          </p>
+          <p className="mt-1 truncate tabular-nums text-[15px] font-bold text-[#171412]">
+            {formatCurrency(store.avgTicket)}
+          </p>
+        </div>
+      </div>
+
+      <div className="relative mt-4 flex items-center justify-between border-t border-black/5 pt-3">
+        <p className="text-[11px] text-slate-500">
+          {active ? "当前正在查看该门店分析" : "点击切换到该门店分析"}
+        </p>
+        <span
+          className="material-symbols-outlined text-[18px] transition group-hover:translate-x-0.5"
+          style={{ color: healthMeta.accent }}
+        >
+          arrow_outward
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function StoreMetricRow({ label, value, accent, hint }) {
+  return (
+    <div
+      className="relative flex items-center justify-between gap-4 overflow-hidden rounded-[20px] border border-white/65 px-3.5 py-3.5 shadow-[0_12px_28px_rgba(28,22,18,0.05),inset_0_1px_0_rgba(255,255,255,0.82)]"
+      style={{
+        background: `linear-gradient(135deg, rgba(255,255,255,0.95), ${accent}10 58%, rgba(248,242,235,0.9))`,
+      }}
+    >
+      <div
+        className="absolute bottom-3 left-0 top-3 w-[3px] rounded-full"
+        style={{ backgroundColor: accent }}
+      />
+      <div
+        className="absolute right-[-14px] top-[-12px] h-16 w-16 rounded-full blur-2xl"
+        style={{ backgroundColor: `${accent}18` }}
+      />
+      <div className="absolute inset-x-0 top-0 h-px bg-white/80" />
+
+      <div className="min-w-0 flex items-center gap-3 pl-1.5">
+        <span
+          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] border border-white/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]"
+          style={{
+            background: `linear-gradient(145deg, ${accent}20, rgba(255,255,255,0.78))`,
+          }}
+        >
+          <span
+            className="inline-flex h-2.5 w-2.5 rounded-full shadow-[0_0_0_4px_rgba(255,255,255,0.45)]"
+            style={{ backgroundColor: accent }}
+          />
+        </span>
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+            {label}
+          </p>
+          <p className="mt-1 truncate text-[11px] text-slate-500">{hint}</p>
+        </div>
+      </div>
+      <p className="relative shrink-0 tabular-nums text-[16px] font-bold tracking-[-0.03em] text-[#171412]">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function StoreMatrixCardV2({ store, active, onClick, onUpload }) {
+  if (!store.isLoaded) {
+    return (
+      <button
+        className="group relative flex cursor-pointer flex-col overflow-hidden rounded-[26px] border border-dashed border-black/10 bg-[linear-gradient(180deg,rgba(250,244,236,0.96),rgba(255,251,246,0.92))] p-4 text-left transition hover:border-[#d96e42]/35 hover:bg-white hover:shadow-[0_18px_42px_rgba(24,20,18,0.07)]"
+        onClick={onUpload}
+        type="button"
+      >
+        <div className="absolute right-[-20px] top-[-16px] h-24 w-24 rounded-full bg-white/55 blur-2xl transition group-hover:scale-110" />
+        <div className="relative flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[15px] font-bold text-[#171412]">{store.storeName}</p>
+            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+              等待月报
+            </p>
+          </div>
+          <span className="rounded-full border border-black/5 bg-white px-2.5 py-1 text-[10px] font-bold tracking-[0.16em] text-slate-500">
+            待上传
+          </span>
+        </div>
+        <div className="relative mt-5 rounded-[20px] border border-white/70 bg-white/70 px-4 py-4">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#d96e42]">
+            快速补报
+          </p>
+          <p className="mt-2 text-[13px] leading-5 text-slate-500">
+            还没有导入月报，点击后可直接为这家门店补报并纳入分析。
+          </p>
+        </div>
+        <div className="relative mt-4 flex items-center justify-between">
+          <span className="inline-flex items-center gap-2 text-[12px] font-bold text-[#d96e42]">
+            上传月报
+            <span className="material-symbols-outlined text-[16px]">
+              arrow_outward
+            </span>
+          </span>
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-[#d96e42] shadow-[0_10px_22px_rgba(217,110,66,0.14)]">
+            <span className="material-symbols-outlined text-[18px]">upload</span>
+          </span>
+        </div>
+      </button>
+    );
+  }
+
+  const healthMeta = getStoreHealthMeta(store.healthScore);
+  const clampedScore = Math.max(0, Math.min(Number(store.healthScore || 0), 100));
+
+  return (
+    <button
+      className={cn(
+        "group relative flex cursor-pointer flex-col overflow-hidden rounded-[26px] border p-4 text-left transition",
+        active
+          ? "border-[#d96e42]/35 bg-white shadow-[0_20px_44px_rgba(217,110,66,0.12)]"
+          : "border-black/5 bg-[rgba(255,251,246,0.82)] hover:border-black/10 hover:bg-white hover:shadow-[0_18px_38px_rgba(22,20,18,0.06)]",
+      )}
+      onClick={onClick}
+      type="button"
+    >
+      <div
+        className="absolute inset-x-0 top-0 h-[3px]"
+        style={{ backgroundColor: healthMeta.accent }}
+      />
+      <div
+        className="absolute right-[-22px] top-[-18px] h-28 w-28 rounded-full blur-3xl transition group-hover:scale-105"
+        style={{ backgroundColor: `${healthMeta.accent}18` }}
+      />
+
+      <div className="relative flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-[15px] font-bold text-[#171412]">
+            {store.storeName}
+          </p>
+          <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+            {store.latestPeriod || "未识别月份"}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span
+            className="rounded-full px-2.5 py-1 text-[10px] font-bold tracking-[0.16em]"
+            style={{ backgroundColor: healthMeta.soft, color: healthMeta.accent }}
+          >
+            {healthMeta.label}
+          </span>
+          <span
+            className={cn(
+              "rounded-full border border-black/5 px-2.5 py-1 text-[10px] font-bold tracking-[0.16em]",
+              active ? "bg-[#d96e42] text-white" : "bg-white text-slate-500",
+            )}
+          >
+            {active ? "当前" : "切换"}
+          </span>
+        </div>
+      </div>
+
+      <div className="relative mt-5 rounded-[22px] border border-black/5 bg-[linear-gradient(180deg,rgba(255,255,255,0.88),rgba(249,243,236,0.72))] px-4 py-4">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+              健康得分
+            </p>
+            <div className="mt-2 flex items-end gap-2">
+              <span className="tabular-nums text-[2rem] font-bold tracking-[-0.06em] text-[#171412]">
+                {Math.round(clampedScore)}
+              </span>
+              <span
+                className="mb-1 rounded-full px-2 py-0.5 text-[10px] font-bold tracking-[0.14em]"
+                style={{
+                  backgroundColor: healthMeta.soft,
+                  color: healthMeta.accent,
+                }}
+              >
+                {healthMeta.label}
+              </span>
+            </div>
+          </div>
+          <span
+            className="material-symbols-outlined text-[24px]"
+            style={{ color: healthMeta.accent }}
+          >
+            monitoring
+          </span>
+        </div>
+        <div
+          className="mt-4 h-2 overflow-hidden rounded-full"
+          style={{ backgroundColor: healthMeta.track }}
+        >
+          <div
+            className="h-full rounded-full transition-[width] duration-500"
+            style={{
+              width: `${clampedScore}%`,
+              backgroundColor: healthMeta.accent,
+            }}
+          />
+        </div>
+      </div>
+
+      <div className="relative mt-3 space-y-2.5">
+        <StoreMetricRow
+          accent="#8a7667"
+          hint="本月核算营收"
+          label="营收"
+          value={formatShortCurrency(store.revenue)}
+        />
+        <StoreMetricRow
+          accent={healthMeta.accent}
+          hint="经营效率"
+          label="利润率"
+          value={formatPercent(store.profitMargin)}
+        />
+        <StoreMetricRow
+          accent="#8aa2b3"
+          hint="平均消费单价"
+          label="客单价"
+          value={formatCurrency(store.avgTicket)}
+        />
+      </div>
+
+      <div className="relative mt-4 flex items-center justify-between border-t border-black/5 pt-3">
+        <p className="text-[11px] text-slate-500">
+          {active ? "当前正在查看该门店分析" : "点击切换到该门店分析"}
+        </p>
+        <span
+          className="material-symbols-outlined text-[18px] transition group-hover:translate-x-0.5"
+          style={{ color: healthMeta.accent }}
+        >
+          arrow_outward
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function StoreMatrixCardV3({ store, active, onClick, onUpload }) {
+  if (!store.isLoaded) {
+    return (
+      <button
+        className="group relative flex cursor-pointer flex-col overflow-hidden rounded-[30px] border border-dashed border-[#d7c4b6] p-4 text-left transition hover:border-[#d96e42]/45 hover:shadow-[0_24px_52px_rgba(24,20,18,0.08)]"
+        style={{
+          background:
+            "linear-gradient(145deg, rgba(255,252,248,0.98), rgba(248,239,229,0.94) 54%, rgba(245,235,226,0.9))",
+        }}
+        onClick={onUpload}
+        type="button"
+      >
+        <div className="absolute inset-[1px] rounded-[29px] border border-white/45" />
+        <div className="absolute right-[-20px] top-[-16px] h-24 w-24 rounded-full bg-white/60 blur-2xl transition group-hover:scale-110" />
+        <div className="absolute bottom-[-22px] left-[-18px] h-24 w-24 rounded-full bg-[#e3b04b]/15 blur-3xl" />
+
+        <div className="relative flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[15px] font-bold text-[#171412]">{store.storeName}</p>
+            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+              等待月报
+            </p>
+          </div>
+          <span className="rounded-full border border-white/70 bg-[linear-gradient(135deg,rgba(255,255,255,0.92),rgba(247,240,232,0.9))] px-2.5 py-1 text-[10px] font-bold tracking-[0.16em] text-slate-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+            待上传
+          </span>
+        </div>
+
+        <div className="relative mt-5 overflow-hidden rounded-[22px] border border-white/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.82),rgba(255,246,238,0.74))] px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
+          <div className="absolute right-[-16px] top-[-10px] h-20 w-20 rounded-full bg-[#d96e42]/12 blur-2xl" />
+          <p className="relative text-[10px] font-bold uppercase tracking-[0.18em] text-[#d96e42]">
+            快速补报
+          </p>
+          <p className="relative mt-2 text-[13px] leading-5 text-slate-500">
+            还没有导入月报，点击后可直接为这家门店补报并纳入分析。
+          </p>
+        </div>
+
+        <div className="relative mt-4 flex items-center justify-between">
+          <span className="inline-flex items-center gap-2 text-[12px] font-bold text-[#d96e42]">
+            上传月报
+            <span className="material-symbols-outlined text-[16px]">
+              arrow_outward
+            </span>
+          </span>
+          <span className="inline-flex h-10 w-10 items-center justify-center rounded-[16px] border border-white/70 bg-[linear-gradient(135deg,rgba(255,255,255,0.96),rgba(255,241,233,0.88))] text-[#d96e42] shadow-[0_12px_24px_rgba(217,110,66,0.16)]">
+            <span className="material-symbols-outlined text-[18px]">upload</span>
+          </span>
+        </div>
+      </button>
+    );
+  }
+
+  const healthMeta = getStoreHealthMeta(store.healthScore);
+  const clampedScore = Math.max(0, Math.min(Number(store.healthScore || 0), 100));
+
+  return (
+    <button
+      className={cn(
+        "group relative flex cursor-pointer flex-col overflow-hidden rounded-[30px] border p-4 text-left transition",
+        active
+          ? "border-[#d96e42]/35 shadow-[0_28px_60px_rgba(217,110,66,0.14)]"
+          : "border-black/5 shadow-[0_18px_42px_rgba(22,20,18,0.07)] hover:border-black/10 hover:shadow-[0_24px_52px_rgba(22,20,18,0.09)]",
+      )}
+      style={{
+        background: active
+          ? "linear-gradient(145deg, rgba(255,255,255,0.98), rgba(255,245,238,0.96) 48%, rgba(246,238,231,0.94))"
+          : "linear-gradient(145deg, rgba(255,253,250,0.94), rgba(250,243,236,0.92) 56%, rgba(245,237,229,0.9))",
+      }}
+      onClick={onClick}
+      type="button"
+    >
+      <div className="absolute inset-[1px] rounded-[29px] border border-white/45" />
+      <div
+        className="absolute inset-x-0 top-0 h-[3px]"
+        style={{ backgroundColor: healthMeta.accent }}
+      />
+      <div
+        className="absolute right-[-22px] top-[-18px] h-28 w-28 rounded-full blur-3xl transition group-hover:scale-105"
+        style={{ backgroundColor: `${healthMeta.accent}18` }}
+      />
+      <div className="absolute bottom-[-28px] left-[-18px] h-28 w-28 rounded-full bg-[#8aa2b3]/15 blur-3xl" />
+      <div className="absolute right-10 top-16 h-16 w-16 rounded-full border border-white/25 bg-white/10 opacity-70" />
+
+      <div className="relative flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-[15px] font-bold text-[#171412]">
+            {store.storeName}
+          </p>
+          <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+            {store.latestPeriod || "未识别月份"}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span
+            className="rounded-full border border-white/60 px-2.5 py-1 text-[10px] font-bold tracking-[0.16em] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]"
+            style={{
+              background: `linear-gradient(135deg, ${healthMeta.soft}, rgba(255,255,255,0.82))`,
+              color: healthMeta.accent,
+            }}
+          >
+            {healthMeta.label}
+          </span>
+          <span
+            className={cn(
+              "rounded-full border px-2.5 py-1 text-[10px] font-bold tracking-[0.16em] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]",
+              active
+                ? "border-[#d96e42]/10 bg-[linear-gradient(135deg,#d96e42,#e39d78)] text-white"
+                : "border-white/60 bg-[linear-gradient(135deg,rgba(255,255,255,0.92),rgba(247,240,232,0.9))] text-slate-500",
+            )}
+          >
+            {active ? "当前" : "切换"}
+          </span>
+        </div>
+      </div>
+
+      <div
+        className="relative mt-5 overflow-hidden rounded-[24px] border border-white/70 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]"
+        style={{
+          background: `linear-gradient(140deg, rgba(255,255,255,0.92), ${healthMeta.soft} 54%, rgba(247,239,232,0.9))`,
+        }}
+      >
+        <div
+          className="absolute right-[-18px] top-[-10px] h-24 w-24 rounded-full blur-3xl"
+          style={{ backgroundColor: `${healthMeta.accent}1e` }}
+        />
+        <div className="absolute bottom-[-22px] left-6 h-20 w-20 rounded-full bg-white/35 blur-2xl" />
+        <div className="absolute inset-x-4 top-4 h-px bg-white/70" />
+
+        <div className="relative flex items-end justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+              健康得分
+            </p>
+            <div className="mt-2 flex items-end gap-2">
+              <span className="tabular-nums text-[2rem] font-bold tracking-[-0.06em] text-[#171412]">
+                {Math.round(clampedScore)}
+              </span>
+              <span
+                className="mb-1 rounded-full px-2 py-0.5 text-[10px] font-bold tracking-[0.14em]"
+                style={{
+                  backgroundColor: healthMeta.soft,
+                  color: healthMeta.accent,
+                }}
+              >
+                {healthMeta.label}
+              </span>
+            </div>
+          </div>
+          <span
+            className="material-symbols-outlined text-[24px]"
+            style={{ color: healthMeta.accent }}
+          >
+            monitoring
+          </span>
+        </div>
+
+        <div
+          className="mt-4 h-2.5 overflow-hidden rounded-full"
+          style={{
+            background: `linear-gradient(90deg, rgba(255,255,255,0.45), ${healthMeta.track})`,
+          }}
+        >
+          <div
+            className="h-full rounded-full transition-[width] duration-500"
+            style={{
+              width: `${clampedScore}%`,
+              background: `linear-gradient(90deg, ${healthMeta.accent}, rgba(255,255,255,0.85))`,
+            }}
+          />
+        </div>
+        <div className="mt-3 flex items-center justify-between text-[10px] font-medium text-slate-500">
+          <span>经营韧性</span>
+          <span className="tabular-nums text-[11px]" style={{ color: healthMeta.accent }}>
+            {clampedScore}/100
+          </span>
+        </div>
+      </div>
+
+      <div className="relative mt-3 space-y-2.5">
+        <StoreMetricRow
+          accent="#8a7667"
+          hint="本月核算营收"
+          label="营收"
+          value={formatShortCurrency(store.revenue)}
+        />
+        <StoreMetricRow
+          accent={healthMeta.accent}
+          hint="经营效率"
+          label="利润率"
+          value={formatPercent(store.profitMargin)}
+        />
+        <StoreMetricRow
+          accent="#8aa2b3"
+          hint="平均消费单价"
+          label="客单价"
+          value={formatCurrency(store.avgTicket)}
+        />
+      </div>
+
+      <div className="relative mt-4 flex items-center justify-between border-t border-white/55 pt-3">
+        <p className="text-[11px] text-slate-500">
+          {active ? "当前正在查看该门店分析" : "点击切换到该门店分析"}
+        </p>
+        <span
+          className="material-symbols-outlined text-[18px] transition group-hover:translate-x-0.5"
+          style={{ color: healthMeta.accent }}
+        >
+          arrow_outward
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function StoreSectionBadge({ loaded, total }) {
+  return (
+    <div className="inline-flex items-center gap-2 rounded-full border border-black/6 bg-[#f7f1ea] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+      <span className="inline-flex h-2 w-2 rounded-full bg-[#d96e42]" />
+      {loaded} / {total} 已导入
+    </div>
+  );
+}
+
+function StoreMetricLine({ label, value, accent }) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-t border-black/6 py-2.5 first:border-t-0 first:pt-0 last:pb-0">
+      <div className="flex min-w-0 items-center gap-2">
+        <span
+          className="inline-flex h-1.5 w-1.5 shrink-0 rounded-full"
+          style={{ backgroundColor: accent }}
+        />
+        <span className="truncate text-[11px] font-semibold text-slate-500">
+          {label}
+        </span>
+      </div>
+      <span className="shrink-0 tabular-nums text-[14px] font-bold text-[#171412]">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+
+
+
+
+
+const storeOverviewBarPalette = [
+  "#8a7667",
+  "#d96e42",
+  "#e3b04b",
+  "#8aa2b3",
+  "#93a086",
+  "#be7a61",
 ];
 
-const transactions = [
-  {
-    date: '2026-03-08 14:20',
-    category: '金牌头疗套餐',
-    status: '已完成',
-    statusClassName: 'bg-emerald-50 text-emerald-600',
-    amount: '+398 元',
-  },
-  {
-    date: '2026-03-08 11:05',
-    category: '精油补货',
-    status: '已完成',
-    statusClassName: 'bg-emerald-50 text-emerald-600',
-    amount: '-2,450 元',
-    amountClassName: 'text-rose-600',
-  },
-  {
-    date: '2026-03-07 18:45',
-    category: '年度 VIP 储值',
-    status: '处理中',
-    statusClassName: 'bg-amber-50 text-amber-600',
-    amount: '+5,000 元',
-  },
-];
 
-const insights = [
-  {
-    title: '利润率继续改善',
-    body: '头疗核心项目占比提升后，高毛利项目的拉动作用更加明显。',
-  },
-  {
-    title: '成本控制仍有空间',
-    body: '耗材采购可进一步集中到月度集中采购，降低零散补货频次。',
-  },
-  {
-    title: '下月收入预测',
-    body: '预计可达到 142,000 元，前提是周末高峰时段排班稳定。',
-  },
-];
+
+function StoreOverviewLineChart(props) {
+  return <StoreComparisonCharts {...props} />;
+}
+function StoreMatrixCardV4({ store, active, onClick, onUpload }) {
+  if (!store.isLoaded) {
+    return (
+      <button
+        className="group relative flex cursor-pointer flex-col rounded-[20px] border border-dashed border-[#d8cec4] bg-[#fbf8f4] p-3.5 text-left transition hover:border-[#d96e42]/45 hover:bg-white"
+        onClick={onUpload}
+        type="button"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-[14px] font-bold tracking-[-0.02em] text-[#171412]">
+              {store.storeName}
+            </p>
+            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+              未导入
+            </p>
+          </div>
+          <span className="material-symbols-outlined text-[18px] text-[#d96e42]">
+            upload
+          </span>
+        </div>
+        <div className="mt-3 border-t border-black/6 pt-3">
+          <p className="text-[11px] text-slate-500">上传月报后纳入门店分析</p>
+        </div>
+      </button>
+    );
+  }
+
+  const healthMeta = getStoreHealthMeta(store.healthScore);
+  const clampedScore = Math.max(0, Math.min(Number(store.healthScore || 0), 100));
+
+  return (
+    <button
+      className={cn(
+        "group relative flex cursor-pointer flex-col rounded-[20px] border bg-white p-3.5 text-left transition",
+        active
+          ? "border-[#171412]/12 shadow-[0_14px_30px_rgba(20,18,16,0.08)]"
+          : "border-black/6 shadow-[0_8px_20px_rgba(20,18,16,0.04)] hover:border-black/10 hover:shadow-[0_12px_26px_rgba(20,18,16,0.06)]",
+      )}
+      onClick={onClick}
+      type="button"
+    >
+      <div
+        className="absolute left-0 top-0 h-full w-[3px] rounded-l-[20px]"
+        style={{ backgroundColor: active ? "#171412" : healthMeta.accent }}
+      />
+
+      <div className="flex items-start justify-between gap-3 pl-1">
+        <div className="min-w-0">
+          <p className="truncate text-[14px] font-bold tracking-[-0.02em] text-[#171412]">
+            {store.storeName}
+          </p>
+          <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+            {store.latestPeriod || "未识别月份"}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {active ? (
+            <span className="inline-flex h-2 w-2 rounded-full bg-[#171412]" />
+          ) : null}
+          <span className="inline-flex items-center gap-1 rounded-full bg-[#f6f2ec] px-2.5 py-1 text-[11px] font-bold text-[#171412]">
+            <span style={{ color: healthMeta.accent }}>{Math.round(clampedScore)}</span>
+            <span className="text-slate-400">分</span>
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3 pl-1">
+        <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+          <span>健康度</span>
+          <span style={{ color: healthMeta.accent }}>{healthMeta.label}</span>
+        </div>
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#eee7df]">
+          <div
+            className="h-full rounded-full transition-[width] duration-500"
+            style={{
+              width: `${clampedScore}%`,
+              backgroundColor: healthMeta.accent,
+            }}
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 pl-1">
+        <StoreMetricLine
+          accent="#d96e42"
+          label="营收"
+          value={formatShortCurrency(store.revenue)}
+        />
+        <StoreMetricLine
+          accent="#e3b04b"
+          label="利润率"
+          value={formatPercent(store.profitMargin)}
+        />
+        <StoreMetricLine
+          accent="#8aa2b3"
+          label="客单价"
+          value={formatCurrency(store.avgTicket)}
+        />
+      </div>
+    </button>
+  );
+}
+
+function ComparisonPanel({ stores, activeStoreId, metric }) {
+  if (!stores.length) {
+    return (
+      <p className="text-sm text-slate-500">当前筛选下没有可对比的门店。</p>
+    );
+  }
+
+  const width = 760;
+  const height = 290;
+  const padding = { top: 34, right: 18, bottom: 62, left: 18 };
+  const baselineY = height - padding.bottom;
+  const usableWidth = width - padding.left - padding.right;
+  const usableHeight = height - padding.top - padding.bottom;
+  const rankedStores = [...stores].sort(
+    (left, right) =>
+      Number(right[metric.key] || 0) - Number(left[metric.key] || 0),
+  );
+  const maxValue = Math.max(
+    ...rankedStores.map((store) => Math.max(Number(store[metric.key] || 0), 0)),
+    1,
+  );
+  const columnWidth = usableWidth / Math.max(rankedStores.length, 1);
+  const barWidth = Math.min(72, columnWidth * 0.56);
+
+  return (
+    <div className="rounded-[24px] bg-[#fcfaf7] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">
+            跨店柱状图
+          </p>
+          <p className="mt-1 text-sm font-bold text-[#171412]">
+            按 {metric.label} 查看各门店差距
+          </p>
+        </div>
+        <span className="rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-500">
+          最高值 {metric.formatter(maxValue)}
+        </span>
+      </div>
+
+      <div className="mt-4">
+        <svg
+          className="h-[290px] w-full"
+          preserveAspectRatio="none"
+          viewBox={`0 0 ${width} ${height}`}
+        >
+          {[0.25, 0.5, 0.75, 1].map((ratio) => {
+            const y = baselineY - usableHeight * ratio;
+
+            return (
+              <line
+                key={ratio}
+                stroke="rgba(23,20,18,0.08)"
+                strokeDasharray="5 8"
+                x1={padding.left}
+                x2={width - padding.right}
+                y1={y}
+                y2={y}
+              />
+            );
+          })}
+
+          <line
+            stroke="rgba(23,20,18,0.12)"
+            x1={padding.left}
+            x2={width - padding.right}
+            y1={baselineY}
+            y2={baselineY}
+          />
+
+          {rankedStores.map((store, index) => {
+            const value = Math.max(Number(store[metric.key] || 0), 0);
+            const barHeight = maxValue > 0 ? (value / maxValue) * usableHeight : 0;
+            const x = padding.left + columnWidth * index + (columnWidth - barWidth) / 2;
+            const y = baselineY - barHeight;
+            const active = activeStoreId === store.storeId;
+            const barColor =
+              storeOverviewBarPalette[index % storeOverviewBarPalette.length];
+
+            return (
+              <g key={store.storeId}>
+                <text
+                  fill={active ? "#171412" : "#8e887f"}
+                  fontSize="10.5"
+                  fontWeight={active ? "700" : "600"}
+                  textAnchor="middle"
+                  x={x + barWidth / 2}
+                  y={Math.max(y - 8, padding.top - 4)}
+                >
+                  {metric.formatter(value)}
+                </text>
+                <rect
+                  fill={barColor}
+                  fillOpacity={active ? "0.98" : "0.78"}
+                  height={barHeight}
+                  rx="10"
+                  stroke={active ? "#171412" : barColor}
+                  strokeWidth={active ? "1.5" : "0"}
+                  width={barWidth}
+                  x={x}
+                  y={y}
+                />
+                <rect
+                  fill="rgba(255,255,255,0.24)"
+                  height={Math.min(10, barHeight)}
+                  rx="10"
+                  width={barWidth}
+                  x={x}
+                  y={y}
+                />
+                <text
+                  fill={active ? "#171412" : "#7d786f"}
+                  fontSize="10.5"
+                  fontWeight={active ? "700" : "600"}
+                  textAnchor="middle"
+                  x={x + barWidth / 2}
+                  y={height - 18}
+                >
+                  {formatStoreAxisLabel(store.storeName)}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {rankedStores.map((store, index) => {
+          const isActive = activeStoreId === store.storeId;
+
+          return (
+            <div
+              key={store.storeId}
+              className={cn(
+                "rounded-[18px] border px-3 py-3 transition",
+                isActive
+                  ? "border-[#d96e42]/20 bg-[linear-gradient(135deg,rgba(255,248,242,0.96),rgba(255,255,255,0.92))]"
+                  : "border-black/5 bg-white/82",
+              )}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                  <span
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white"
+                    style={{
+                      backgroundColor:
+                        storeOverviewBarPalette[index % storeOverviewBarPalette.length],
+                    }}
+                  >
+                    {index + 1}
+                  </span>
+                    <p className="truncate text-sm font-bold text-[#171412]">
+                      {store.storeName}
+                    </p>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    利润率 {formatPercent(store.profitMargin)} · 健康度{" "}
+                    {Math.round(store.healthScore || 0)} 分
+                  </p>
+                </div>
+                <p className="tabular-nums shrink-0 text-sm font-bold text-[#171412]">
+                  {metric.formatter(store[metric.key])}
+                </p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AiList({ title, icon, items, tone = "default" }) {
+  const toneClass =
+    tone === "risk"
+      ? "border-[#f4d3c8] bg-[#fcf1ee] text-[#7e5141]"
+      : tone === "action"
+        ? "border-[#f2ddba] bg-[#fbf4e7] text-[#7a5c2d]"
+        : "border-[#ebe1d7] bg-white text-slate-600";
+  const headerClass =
+    tone === "risk"
+      ? "text-[#c46b48]"
+      : tone === "action"
+        ? "text-[#a67a2a]"
+        : "text-slate-400";
+
+  return (
+    <div className={cn("rounded-[28px] border p-5", toneClass)}>
+      <div
+        className={cn(
+          "flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.22em]",
+          headerClass,
+        )}
+      >
+        <span className="material-symbols-outlined text-base">{icon}</span>
+        {title}
+      </div>
+      <div className="mt-4 space-y-3">
+        {items.length ? (
+          items.map((item) => (
+            <p key={item} className="text-sm leading-6">
+              {item}
+            </p>
+          ))
+        ) : (
+          <p className="text-sm leading-6 text-slate-400">当前没有额外内容。</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AiStoreCard({ item }) {
+  return (
+    <article className="rounded-[30px] border border-black/5 bg-[rgba(255,251,246,0.86)] p-6 shadow-[0_18px_45px_rgba(22,20,18,0.07)] backdrop-blur">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#d96e42]">
+            Store AI
+          </p>
+          <h3 className="mt-2 text-xl font-extrabold tracking-[-0.04em] text-[#171412]">
+            {item.storeName}
+          </h3>
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            {item.summary}
+          </p>
+        </div>
+        <GaugeDial
+          accent={item.healthScore >= 75 ? "#e3b04b" : "#d96e42"}
+          caption={item.grade}
+          score={item.healthScore}
+          size={86}
+        />
+      </div>
+
+      <div className="mt-6 grid gap-4 md:grid-cols-3">
+        <div className="rounded-[24px] bg-[#f8f2eb] p-4">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+            优势
+          </p>
+          <div className="mt-3 space-y-2 text-sm leading-6 text-[#171412]">
+            {(item.highlights.length
+              ? item.highlights
+              : ["当前无明显优势项。"]
+            ).map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
+        </div>
+        <div className="rounded-[24px] bg-[#fcf1ee] p-4">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#d96e42]">
+            风险
+          </p>
+          <div className="mt-3 space-y-2 text-sm leading-6 text-[#171412]">
+            {(item.risks.length ? item.risks : ["当前无明显风险项。"]).map(
+              (line) => (
+                <p key={line}>{line}</p>
+              ),
+            )}
+          </div>
+        </div>
+        <div className="rounded-[24px] bg-[#f4eee6] p-4">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+            动作
+          </p>
+          <div className="mt-3 space-y-2 text-sm leading-6 text-[#171412]">
+            {(item.actions.length
+              ? item.actions
+              : ["继续保持当前经营节奏。"]
+            ).map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
 
 export default function Financials() {
+  const fileInputRef = useRef(null);
+  const scopePanelRef = useRef(null);
+
+  const [dashboard, setDashboard] = useState(null);
+  const [referenceDashboard, setReferenceDashboard] = useState(null);
+  const [analysis, setAnalysis] = useState(null);
+  const [activeStoreId, setActiveStoreId] = useState("all");
+  const [storeScopeOpen, setStoreScopeOpen] = useState(false);
+  const [commandCenterOpen, setCommandCenterOpen] = useState(false);
+  const [periodStart, setPeriodStart] = useState("");
+  const [periodEnd, setPeriodEnd] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [pendingFiles, setPendingFiles] = useState([]);
+  const [storeOverride, setStoreOverride] = useState("");
+  const [uploadState, setUploadState] = useState({
+    uploading: false,
+    message: "",
+    errors: [],
+  });
+  const [pageState, setPageState] = useState({ loading: true, error: "" });
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [dragActive, setDragActive] = useState(false);
+
+  const deferredSearch = useDeferredValue(searchQuery.trim());
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadData() {
+      setPageState((current) => ({ ...current, loading: true, error: "" }));
+
+      try {
+        const activeStoreIds = activeStoreId === "all" ? [] : [activeStoreId];
+        const query = buildQueryString({
+          storeIds: activeStoreIds,
+          periodStart,
+          periodEnd,
+        });
+        const referenceQuery = buildQueryString({
+          storeIds: [],
+          periodStart,
+          periodEnd,
+        });
+        const dashboardPath = query
+          ? `/api/financials/dashboard?${query}`
+          : "/api/financials/dashboard";
+        const aiBody = {
+          storeIds: activeStoreIds,
+          periodStart: periodStart || null,
+          periodEnd: periodEnd || null,
+        };
+        const referencePath = referenceQuery
+          ? `/api/financials/dashboard?${referenceQuery}`
+          : "/api/financials/dashboard";
+
+        const [dashboardPayload, aiPayload, referencePayload] =
+          await Promise.all([
+            fetchJson(dashboardPath),
+            fetchJson("/api/financials/ai-analysis", {
+              body: JSON.stringify(aiBody),
+              headers: { "Content-Type": "application/json" },
+              method: "POST",
+            }),
+            fetchJson(referencePath),
+          ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        setDashboard(dashboardPayload);
+        setReferenceDashboard(referencePayload);
+        setAnalysis(aiPayload);
+        setPageState({ loading: false, error: "" });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        setPageState({ loading: false, error: error.message });
+      }
+    }
+
+    loadData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeStoreId, periodEnd, periodStart, refreshToken]);
+
+  useEffect(() => {
+    if (!storeScopeOpen) {
+      return undefined;
+    }
+
+    function handlePointerDown(event) {
+      if (
+        scopePanelRef.current &&
+        !scopePanelRef.current.contains(event.target)
+      ) {
+        setStoreScopeOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [storeScopeOpen]);
+
+  useEffect(() => {
+    if (!commandCenterOpen) {
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function handleEscape(event) {
+      if (event.key === "Escape") {
+        setCommandCenterOpen(false);
+      }
+    }
+
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [commandCenterOpen]);
+
+  function selectFiles(files) {
+    const validFiles = Array.from(files || []).filter((file) =>
+      /\.(xlsx|xls|csv)$/i.test(file.name || ""),
+    );
+
+    if (!validFiles.length) {
+      return;
+    }
+
+    setPendingFiles(validFiles);
+    setUploadState({ uploading: false, message: "", errors: [] });
+  }
+
+  function handleFileChange(event) {
+    selectFiles(event.target.files);
+  }
+
+  function handleDrag(event) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (event.type === "dragenter" || event.type === "dragover") {
+      setDragActive(true);
+    } else if (event.type === "dragleave") {
+      setDragActive(false);
+    }
+  }
+
+  function handleDrop(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragActive(false);
+    selectFiles(event.dataTransfer.files);
+  }
+
+  async function handleUpload() {
+    if (!pendingFiles.length) {
+      return;
+    }
+
+    const nextStoreId = storeOverride;
+    const formData = new FormData();
+    pendingFiles.forEach((file) => formData.append("files", file));
+
+    if (storeOverride && pendingFiles.length === 1) {
+      formData.append("storeId", storeOverride);
+    }
+
+    setUploadState({ uploading: true, message: "", errors: [] });
+
+    try {
+      const result = await fetchJson("/api/financials/upload", {
+        body: formData,
+        method: "POST",
+      });
+
+      setUploadState({
+        uploading: false,
+        message: `已导入 ${result.ingested.length} 份报表。`,
+        errors: result.errors || [],
+      });
+      setPendingFiles([]);
+      setStoreOverride("");
+
+      if (nextStoreId) {
+        setActiveStoreId(nextStoreId);
+      }
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+
+      startTransition(() => {
+        setRefreshToken((current) => current + 1);
+      });
+    } catch (error) {
+      setUploadState({ uploading: false, message: error.message, errors: [] });
+    }
+  }
+
+  function openCommandCenter() {
+    setCommandCenterOpen(true);
+  }
+
+  function toggleStoreScopeOpen() {
+    setStoreScopeOpen((current) => !current);
+  }
+
+  function handleSelectAllStores() {
+    setActiveStoreId("all");
+    setStoreScopeOpen(false);
+  }
+
+  function handleScopeStoreClick(store) {
+    if (!store.isLoaded) {
+      setStoreOverride(store.storeId);
+      fileInputRef.current?.click();
+      return;
+    }
+
+    setActiveStoreId(store.storeId);
+    setStoreScopeOpen(false);
+  }
+
+  function handlePeriodStartChange(value) {
+    if (value === "all") {
+      setPeriodStart("all");
+      setPeriodEnd("all");
+      return;
+    }
+
+    setPeriodStart(value);
+
+    if (periodEnd === "all" || (periodEnd && periodEnd < value)) {
+      setPeriodEnd(value);
+    }
+  }
+
+  function handlePeriodEndChange(value) {
+    if (value === "all") {
+      setPeriodStart("all");
+      setPeriodEnd("all");
+      return;
+    }
+
+    setPeriodEnd(value);
+
+    if (periodStart === "all" || (periodStart && periodStart > value)) {
+      setPeriodStart(value);
+    }
+  }
+
+  const availablePeriods =
+    referenceDashboard?.availablePeriods || dashboard?.availablePeriods || [];
+  const activePeriodStart =
+    periodStart ||
+    dashboard?.appliedFilters?.periodStart ||
+    referenceDashboard?.appliedFilters?.periodStart ||
+    "all";
+  const activePeriodEnd =
+    periodEnd ||
+    dashboard?.appliedFilters?.periodEnd ||
+    referenceDashboard?.appliedFilters?.periodEnd ||
+    "all";
+  const switcherStores =
+    referenceDashboard?.storeStatus || dashboard?.storeStatus || [];
+  const loadedStoreCount = switcherStores.filter((store) => store.isLoaded).length;
+  const activeStoreMeta =
+    activeStoreId === "all"
+      ? null
+      : switcherStores.find((store) => store.storeId === activeStoreId) || null;
+  const searchedStoreStatus = switcherStores.filter((store) =>
+    deferredSearch ? store.storeName.includes(deferredSearch) : true,
+  );
+  const searchedItems = (dashboard?.topCostItems || []).filter((item) => {
+    if (!deferredSearch) {
+      return true;
+    }
+
+    return `${item.categoryName}${item.name}${item.notes}`.includes(
+      deferredSearch,
+    );
+  });
+  const searchedAiStores = (analysis?.stores || []).filter((store) =>
+    deferredSearch ? store.storeName.includes(deferredSearch) : true,
+  );
+  const selectedStoreSummary = activeStoreMeta?.storeName || "全部门店";
+  const scopeModeLabel = activeStoreMeta ? "单店分析" : "全店分析";
+  const scopeModeHint = activeStoreMeta
+    ? `当前聚焦 ${activeStoreMeta.storeName}，核心指标与 AI 洞察已经切到单店视角，同时保留全店基准对比。`
+    : "当前显示 6 家门店汇总、跨店排名和整体 AI 洞察。";
+  const aiOverviewTitle = activeStoreMeta
+    ? `${activeStoreMeta.storeName} AI 分析`
+    : "全店 AI 分析";
+  const aiOverviewSubtitle = activeStoreMeta
+    ? `当前为 ${activeStoreMeta.storeName} 的单店分析，AI 结论会围绕这家门店的经营表现展开。`
+    : "根据你当前的月份筛选，系统自动生成整体诊断和行动建议。";
+  const storeAiTitle = activeStoreMeta
+    ? `${activeStoreMeta.storeName} 门店 AI 卡`
+    : "单店 AI 分析";
+  const storeAiSubtitle = activeStoreMeta
+    ? "当前仅展示选中门店的 AI 诊断卡，上方仍保留全店维度的基准视角。"
+    : "这里会逐店生成 AI 诊断卡。只要门店报表上传完整，每家店都会得到自己的经营结论、风险和动作建议。";
+
   return (
     <AppShell
-      title="财务数据"
-      subtitle="统一到首页的框架下，减少切换抖动，同时保留财务分析所需的信息密度。"
       actions={
         <>
           <div className="relative min-w-[240px] flex-1 lg:w-80 lg:flex-none">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+            <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
               search
             </span>
             <input
-              className="w-full rounded-2xl border border-primary/10 bg-white py-3 pl-11 pr-4 text-sm outline-none transition focus:border-primary/40 focus:ring-2 focus:ring-primary/10 dark:bg-slate-900"
-              placeholder="搜索报表、流水或科目"
+              className="w-full rounded-2xl border border-black/5 bg-white/85 py-3 pl-11 pr-4 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#d96e42]/30 focus:ring-2 focus:ring-[#d96e42]/10"
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="搜索门店、成本细项、渠道"
               type="text"
+              value={searchQuery}
             />
           </div>
-          <button className="rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-primary/30 hover:text-primary dark:bg-slate-900 dark:text-slate-200">
-            本月
-          </button>
-          <button className="rounded-2xl bg-primary px-4 py-3 text-sm font-bold text-white shadow-lg shadow-primary/20 transition hover:bg-primary/90">
-            导出报表
+
+          <select
+            className="cursor-pointer rounded-2xl border border-black/5 bg-white/85 px-4 py-3 text-sm font-semibold text-slate-600 outline-none transition focus:border-[#d96e42]/30"
+            onChange={(event) => handlePeriodStartChange(event.target.value)}
+            value={activePeriodStart}
+          >
+            <option value="all">全部月份</option>
+            {availablePeriods.map((period) => (
+              <option key={`start-${period}`} value={period}>
+                {period}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="cursor-pointer rounded-2xl border border-black/5 bg-white/85 px-4 py-3 text-sm font-semibold text-slate-600 outline-none transition focus:border-[#d96e42]/30"
+            onChange={(event) => handlePeriodEndChange(event.target.value)}
+            value={activePeriodEnd}
+          >
+            <option value="all">全部月份</option>
+            {availablePeriods.map((period) => (
+              <option key={`end-${period}`} value={period}>
+                {period}
+              </option>
+            ))}
+          </select>
+
+          <button
+            className="flex cursor-pointer items-center gap-2 rounded-2xl bg-[#d96e42] px-4 py-3 text-sm font-bold text-white shadow-[0_18px_40px_rgba(217,110,66,0.22)] transition hover:bg-[#cf6137]"
+            onClick={openCommandCenter}
+            type="button"
+          >
+            上传与总览
+            <span className="material-symbols-outlined text-base">
+              dashboard_customize
+            </span>
           </button>
         </>
       }
+      breadcrumb="经营系统"
+      subtitle="上传 6 家门店的月度体质表，系统会自动生成门店经营仪表盘、跨店对比和 AI 财务洞察。"
+      title="财务数据罗盘"
       toolbar={
-        <div className="flex flex-wrap items-center gap-3">
-          {['总览', '收入', '支出', '利润', 'AI 洞察'].map((item, index) => (
-            <button
-              key={item}
-              className={
-                index === 0
-                  ? 'rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-primary/20'
-                  : 'rounded-full border border-primary/10 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-primary/30 hover:text-primary dark:bg-slate-900 dark:text-slate-300'
-              }
-            >
-              {item}
-            </button>
-          ))}
-        </div>
+        <StoreScopeSwitcher
+          activeStoreId={activeStoreId}
+          activeStoreMeta={activeStoreMeta}
+          expanded={storeScopeOpen}
+          onSelectAllStores={handleSelectAllStores}
+          onStoreClick={handleScopeStoreClick}
+          onToggle={toggleStoreScopeOpen}
+          panelRef={scopePanelRef}
+          scopeModeLabel={scopeModeLabel}
+          stores={switcherStores}
+        />
       }
     >
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {metrics.map((metric) => (
-          <article
-            key={metric.label}
-            className="rounded-[28px] border border-primary/10 bg-white p-6 shadow-sm shadow-primary/5 dark:bg-slate-900"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                  {metric.label}
-                </p>
-                <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-900 dark:text-slate-100">
-                  {metric.value}
-                </h2>
-              </div>
-              <span className={`rounded-full px-3 py-1 text-xs font-bold ${metric.toneClassName}`}>
-                {metric.change}
-              </span>
-            </div>
-            <p className="mt-5 text-sm text-slate-500 dark:text-slate-400">{metric.detail}</p>
-          </article>
-        ))}
+      <input
+        accept=".xlsx,.xls,.csv"
+        className="hidden"
+        multiple
+        onChange={handleFileChange}
+        ref={fileInputRef}
+        type="file"
+      />
+      <CommandCenterModal
+        analysis={analysis}
+        dashboard={dashboard}
+        dragActive={dragActive}
+        onChooseFile={() => fileInputRef.current?.click()}
+        onClose={() => setCommandCenterOpen(false)}
+        onDragEnter={handleDrag}
+        onDragLeave={handleDrag}
+        onDragOver={handleDrag}
+        onDrop={handleDrop}
+        onStoreOverrideChange={setStoreOverride}
+        onUpload={handleUpload}
+        open={commandCenterOpen}
+        pendingFiles={pendingFiles}
+        scopeModeHint={scopeModeHint}
+        selectedStoreSummary={selectedStoreSummary}
+        storeOverride={storeOverride}
+        switcherStores={switcherStores}
+        uploadState={uploadState}
+      />
+      {pageState.error ? (
+        <div className="rounded-[28px] border border-[#d96e42]/20 bg-[#fcf1ee] px-6 py-5 text-sm text-[#8f5138]">
+          {pageState.error}
+        </div>
+      ) : null}
+
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          accent="#8a7667"
+          detail="按当前筛选门店和月份汇总的核算总实收。"
+          label="核算营收"
+          note={
+            dashboard?.overview?.selectedStoreCount
+              ? `${dashboard.overview.selectedStoreCount} 店`
+              : "汇总"
+          }
+          value={formatShortCurrency(dashboard?.overview?.revenue)}
+        />
+        <MetricCard
+          accent="#d96e42"
+          detail="已自动扣除管理费、平台手续费和各项门店成本。"
+          label="净利润"
+          note={formatPercent(dashboard?.overview?.profitMargin)}
+          value={formatShortCurrency(dashboard?.overview?.profit)}
+        />
+        <MetricCard
+          accent="#e3b04b"
+          detail="直接读取报表中的月总客数，便于后续看客单和客成本。"
+          label="月总客数"
+          note={`${formatNumber(dashboard?.overview?.newMembers || 0)} 新增会员`}
+          value={formatNumber(dashboard?.overview?.customerCount)}
+        />
+        <MetricCard
+          accent="#8aa2b3"
+          detail="用于观察平台依赖、私域转化和渠道结构变化。"
+          label="平台收入占比"
+          note={`${formatCurrency(dashboard?.overview?.savingsAmount || 0)} 储蓄`}
+          value={formatPercent(dashboard?.overview?.platformRevenueShare)}
+        />
       </section>
 
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.7fr_1fr]">
-        <article className="rounded-[32px] border border-primary/10 bg-white p-6 shadow-sm shadow-primary/5 dark:bg-slate-900">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div>
-              <h2 className="text-lg font-black tracking-tight text-slate-900 dark:text-slate-100">
-                月度营收走势
-              </h2>
-              <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                过去 6 个月营收保持增长，假日营销与会员复购带来的拉动明显。
-              </p>
-            </div>
-            <div className="flex gap-2 rounded-full bg-background-light p-1 dark:bg-slate-800">
-              <button className="rounded-full bg-white px-4 py-2 text-xs font-bold text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100">
-                按月
-              </button>
-              <button className="rounded-full px-4 py-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
-                按季
-              </button>
-            </div>
-          </div>
+      <section className="grid gap-6 xl:grid-cols-[1.6fr_0.95fr]">
+        <SectionCard
+          eyebrow="Trend Board"
+          subtitle={
+            dashboard?.trend?.length > 1
+              ? "支持单店跨月追踪，也支持多店累计趋势。"
+              : "当前只识别到一个月份，继续补齐历史月报后会自动生成环比趋势。"
+          }
+          title="营收 / 成本 / 净利润趋势"
+        >
+          <TrendChart trend={dashboard?.trend || []} />
+        </SectionCard>
 
-          <div className="mt-8 h-72 rounded-[28px] bg-gradient-to-br from-primary/10 via-white to-white p-4 dark:from-primary/10 dark:via-slate-900 dark:to-slate-900">
-            <svg className="h-full w-full" preserveAspectRatio="none" viewBox="0 0 900 280">
-              <defs>
-                <linearGradient id="financialRevenueGradient" x1="0%" x2="0%" y1="0%" y2="100%">
-                  <stop offset="0%" stopColor="rgba(182, 134, 12, 0.25)" />
-                  <stop offset="100%" stopColor="rgba(182, 134, 12, 0)" />
-                </linearGradient>
-              </defs>
-              <g stroke="#e2e8f0" strokeDasharray="5 7">
-                <line x1="0" x2="900" y1="230" y2="230" />
-                <line x1="0" x2="900" y1="170" y2="170" />
-                <line x1="0" x2="900" y1="110" y2="110" />
-                <line x1="0" x2="900" y1="50" y2="50" />
-              </g>
-              <path
-                d="M0,225 C120,200 200,215 300,160 C390,112 470,76 560,88 C650,100 760,62 900,28 L900,280 L0,280 Z"
-                fill="url(#financialRevenueGradient)"
-              />
-              <path
-                d="M0,225 C120,200 200,215 300,160 C390,112 470,76 560,88 C650,100 760,62 900,28"
-                fill="none"
-                stroke="#b6860c"
-                strokeLinecap="round"
-                strokeWidth="4"
-              />
-            </svg>
+        <div className="grid gap-6">
+          <SectionCard
+            eyebrow="Cost Structure"
+            subtitle="按开支大类聚合，快速识别本月最重的成本杠杆。"
+            title="成本结构盘"
+          >
+            <DonutChart items={dashboard?.costBreakdown || []} />
+          </SectionCard>
 
-            <div className="mt-4 grid grid-cols-6 text-center text-xs font-semibold text-slate-400">
-              <span>10 月</span>
-              <span>11 月</span>
-              <span>12 月</span>
-              <span>1 月</span>
-              <span>2 月</span>
-              <span>3 月</span>
-            </div>
-          </div>
-        </article>
+          <SectionCard
+            eyebrow="Channel Mix"
+            subtitle="渠道收入能帮助判断平台抽成压力和私域转化空间。"
+            title="渠道结构"
+          >
+            <ChannelPanel channels={dashboard?.channels || []} />
+          </SectionCard>
+        </div>
+      </section>
 
-        <article className="rounded-[32px] border border-primary/10 bg-white p-6 shadow-sm shadow-primary/5 dark:bg-slate-900">
-          <div>
-            <h2 className="text-lg font-black tracking-tight text-slate-900 dark:text-slate-100">
-              成本结构
-            </h2>
-            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-              支出集中在人工与固定成本，材料采购波动相对可控。
-            </p>
-          </div>
+      <section className="grid gap-6">
+        <SectionCard
+          className="rounded-[26px] bg-[rgba(255,252,248,0.9)] p-5 shadow-[0_16px_34px_rgba(22,20,18,0.05)]"
+          actions={
+            <StoreSectionBadge
+              loaded={loadedStoreCount}
+              total={switcherStores.length}
+            />
+          }
+          subtitle="把门店概览和跨店对比收进一个分析方块里。上方看折线轮廓，下方直接看柱状图和结构占比。"
+          title="门店概览与跨店对比"
+        >
+          <StoreOverviewLineChart
+            activeStoreId={activeStoreId}
+            stores={searchedStoreStatus}
+          />
+        </SectionCard>
+      </section>
 
-          <div className="mt-8 space-y-5">
-            {costBreakdown.map((item) => (
-              <div key={item.name} className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <span className={`h-3 w-3 rounded-full ${item.color}`} />
-                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+      <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+        <SectionCard
+          eyebrow="Cost Drilldown"
+          subtitle="按细分项查看最大成本开口，方便继续追查采购、推广、平台费或福利费。"
+          title="重点成本细项"
+        >
+          <div className="space-y-3">
+            {searchedItems.length ? (
+              searchedItems.map((item) => (
+                <div
+                  key={`${item.categoryName}-${item.name}`}
+                  className="flex items-start justify-between gap-4 rounded-[24px] bg-[#f8f2eb] px-4 py-4"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-[#171412]">
                       {item.name}
-                    </span>
+                    </p>
+                    <p className="mt-1 text-xs font-bold uppercase tracking-[0.16em] text-slate-400">
+                      {item.categoryName}
+                    </p>
+                    {item.notes ? (
+                      <p className="mt-2 text-sm leading-6 text-slate-500">
+                        {item.notes}
+                      </p>
+                    ) : null}
                   </div>
-                  <span className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                    {item.value}
+                  <span className="tabular-nums shrink-0 text-sm font-bold text-[#171412]">
+                    {formatCurrency(item.value)}
                   </span>
                 </div>
-                <div className="h-2 rounded-full bg-slate-100 dark:bg-slate-800">
-                  <div className={`h-full rounded-full ${item.color}`} style={{ width: item.width }} />
+              ))
+            ) : (
+              <div className="rounded-[24px] bg-[#f8f2eb] px-4 py-4 text-sm text-slate-500">
+                没有命中搜索条件的成本细项。
+              </div>
+            )}
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          className="border-[#d96e42]/10 bg-[linear-gradient(135deg,rgba(255,249,242,0.94),rgba(255,252,248,0.88))]"
+          eyebrow="AI Overview"
+          subtitle={aiOverviewSubtitle}
+          tone="light"
+          title={aiOverviewTitle}
+        >
+          <div className="space-y-6">
+            <div className="rounded-[28px] border border-[#eadfd3] bg-white/85 p-5">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#d96e42]/70">
+                    Overall Summary
+                  </p>
+                  <p className="mt-3 text-base leading-7 text-slate-600">
+                    {analysis?.overall?.summary || "等待 AI 分析。"}
+                  </p>
                 </div>
+                <GaugeDial
+                  accent="#d96e42"
+                  caption={analysis?.overall?.grade || "AI"}
+                  score={analysis?.overall?.healthScore || 0}
+                  size={120}
+                />
               </div>
-            ))}
-          </div>
-        </article>
-      </section>
-
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.7fr_1fr]">
-        <article className="overflow-hidden rounded-[32px] border border-primary/10 bg-white shadow-sm shadow-primary/5 dark:bg-slate-900">
-          <div className="flex items-center justify-between border-b border-primary/5 px-6 py-5">
-            <div>
-              <h2 className="text-lg font-black tracking-tight text-slate-900 dark:text-slate-100">
-                最近流水
-              </h2>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                快速查看收入、采购与储值变化，减少切页后重新适应布局的成本。
-              </p>
             </div>
-            <button className="text-sm font-bold text-primary transition hover:opacity-80">
-              查看全部
-            </button>
-          </div>
 
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs font-bold uppercase tracking-[0.16em] text-slate-500 dark:bg-slate-800/50 dark:text-slate-400">
-                <tr>
-                  <th className="px-6 py-4">日期</th>
-                  <th className="px-6 py-4">项目</th>
-                  <th className="px-6 py-4">状态</th>
-                  <th className="px-6 py-4 text-right">金额</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-primary/5 dark:divide-slate-800">
-                {transactions.map((transaction) => (
-                  <tr
-                    key={`${transaction.date}-${transaction.category}`}
-                    className="transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
-                  >
-                    <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{transaction.date}</td>
-                    <td className="px-6 py-4 font-semibold text-slate-900 dark:text-slate-100">
-                      {transaction.category}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-bold ${transaction.statusClassName}`}
-                      >
-                        {transaction.status}
-                      </span>
-                    </td>
-                    <td
-                      className={`px-6 py-4 text-right font-bold ${
-                        transaction.amountClassName || 'text-slate-900 dark:text-slate-100'
-                      }`}
-                    >
-                      {transaction.amount}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="grid gap-4 lg:grid-cols-3">
+              <AiList
+                icon="award_star"
+                items={analysis?.overall?.highlights || []}
+                title="亮点"
+              />
+              <AiList
+                icon="warning"
+                items={analysis?.overall?.risks || []}
+                title="风险"
+                tone="risk"
+              />
+              <AiList
+                icon="trending_up"
+                items={analysis?.overall?.actions || []}
+                title="动作"
+                tone="action"
+              />
+            </div>
           </div>
-        </article>
+        </SectionCard>
+      </section>
 
-        <article className="rounded-[32px] border border-primary/10 bg-slate-900 p-6 text-white shadow-xl shadow-slate-900/10">
-          <div className="flex items-center gap-2 text-primary">
-            <span className="material-symbols-outlined">auto_awesome</span>
-            <h2 className="text-sm font-black uppercase tracking-[0.18em]">AI 财务洞察</h2>
+      <SectionCard
+        eyebrow="Store AI"
+        subtitle={storeAiSubtitle}
+        title={storeAiTitle}
+      >
+        {pageState.loading ? (
+          <div className="rounded-[28px] bg-[#f8f2eb] px-5 py-8 text-sm text-slate-500">
+            正在生成门店 AI 洞察...
           </div>
-
-          <div className="mt-6 space-y-4">
-            {insights.map((insight) => (
-              <div key={insight.title} className="rounded-[24px] border border-white/10 bg-white/5 p-4">
-                <h3 className="text-sm font-bold text-white">{insight.title}</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-300">{insight.body}</p>
-              </div>
+        ) : searchedAiStores.length ? (
+          <div className="grid gap-6 xl:grid-cols-2">
+            {searchedAiStores.map((item) => (
+              <AiStoreCard key={item.storeId} item={item} />
             ))}
           </div>
-
-          <button className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-bold text-white transition hover:bg-primary/90">
-            生成详细优化方案
-            <span className="material-symbols-outlined text-base">arrow_forward</span>
-          </button>
-        </article>
-      </section>
+        ) : (
+          <div className="rounded-[28px] bg-[#f8f2eb] px-5 py-8 text-sm text-slate-500">
+            当前筛选下没有可展示的门店 AI 分析。
+          </div>
+        )}
+      </SectionCard>
     </AppShell>
   );
 }

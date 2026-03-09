@@ -1,9 +1,10 @@
-import { Routes, Route } from 'react-router-dom';
-import Workspace from './pages/Workspace';
-import Dashboard from './pages/Dashboard';
-import KnowledgeBase from './pages/KnowledgeBase';
-import Financials from './pages/Financials';
-import Scheduling from './pages/Scheduling';
+import { Routes, Route } from "react-router-dom";
+import Workspace from "./pages/Workspace";
+import Dashboard from "./pages/Dashboard";
+import KnowledgeBase from "./pages/KnowledgeBase";
+import Financials from "./pages/Financials";
+import Scheduling from "./pages/Scheduling";
+import Settings from "./pages/Settings";
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
       <Route path="/knowledge" element={<KnowledgeBase />} />
       <Route path="/financials" element={<Financials />} />
       <Route path="/scheduling" element={<Scheduling />} />
+      <Route path="/settings" element={<Settings />} />
     </Routes>
   );
 }

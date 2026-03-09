@@ -3,6 +3,10 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    color-scheme: light;
+  }
+
   * {
     box-sizing: border-box;
   }
@@ -17,9 +21,13 @@
   body {
     margin: 0;
     overflow: hidden;
-    background: #f8f7f6;
+    background:
+      radial-gradient(circle at top left, rgba(217, 111, 63, 0.08), transparent 28%),
+      radial-gradient(circle at top right, rgba(42, 55, 67, 0.06), transparent 32%),
+      linear-gradient(180deg, #ddd4cb 0%, #eee6de 16%, #f7f2ec 100%);
     color: #0f172a;
-    font-family: Inter, "Noto Sans SC", sans-serif;
+    font-family: "Manrope", "Noto Sans SC", sans-serif;
+    text-rendering: optimizeLegibility;
   }
 }
 
@@ -47,12 +55,17 @@
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(182, 134, 12, 0.2);
-    border-radius: 10px;
+    background: rgba(217, 110, 66, 0.25);
+    border-radius: 9999px;
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: rgba(182, 134, 12, 0.4);
+    background: rgba(217, 110, 66, 0.45);
+  }
+
+  .tabular-nums {
+    font-family: "IBM Plex Sans", "Manrope", "Noto Sans SC", sans-serif;
+    font-variant-numeric: tabular-nums;
   }
 }
 
