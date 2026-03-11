@@ -906,7 +906,237 @@ function normalizeNarrativeList(items, fallbackItems = [], limit = 3) {
   return normalized.length ? normalized : fallbackItems;
 }
 
-function mergeNarrativeAnalysis(fallbackAnalysis, llmAnalysis, agentMeta) {
+const STORE_COMPARISON_METRICS = [
+  {
+    key: 'profitMargin',
+    aliases: ['利润率'],
+    highTokens: ['高于', '高过', '偏高', '更高', '较高'],
+    lowTokens: ['低于', '低过', '偏低', '更低', '较低'],
+    formatter: percent,
+    tolerance: 0.0005,
+  },
+  {
+    key: 'avgTicket',
+    aliases: ['客单价', '客单'],
+    highTokens: ['高于', '高过', '偏高', '更高', '较高'],
+    lowTokens: ['低于', '低过', '偏低', '更低', '较低'],
+    formatter: currency,
+    tolerance: 0.5,
+  },
+  {
+    key: 'avgCustomerCost',
+    aliases: ['单客成本', '单客费用', '单客花费'],
+    highTokens: ['高于', '高过', '偏高', '更高', '较高'],
+    lowTokens: ['低于', '低过', '偏低', '更低', '较低'],
+    formatter: currency,
+    tolerance: 0.5,
+  },
+  {
+    key: 'platformRevenueShare',
+    aliases: ['平台占比', '平台收入占比', '平台订单占比'],
+    highTokens: ['高于', '高过', '偏高', '更高', '较高'],
+    lowTokens: ['低于', '低过', '偏低', '更低', '较低'],
+    formatter: percent,
+    tolerance: 0.0005,
+  },
+];
+
+function getAverageReferenceForStore(storeId, financialContext = {}) {
+  if (
+    financialContext.peerComparison?.focusStore?.storeId === storeId &&
+    financialContext.peerComparison?.samePeriodAverage
+  ) {
+    return {
+      label: '同周期门店均值',
+      values: financialContext.peerComparison.samePeriodAverage,
+    };
+  }
+
+  if (financialContext.overallMetrics) {
+    return {
+      label: '当前筛选门店均值',
+      values: financialContext.overallMetrics,
+    };
+  }
+
+  return null;
+}
+
+function containsAnyKeyword(text, keywords = []) {
+  return keywords.some((keyword) => text.includes(keyword));
+}
+
+function hasDirectionalMismatch(text, storeBenchmark, averageReference) {
+  const normalized = normalizeText(text, 120);
+
+  if (
+    !normalized ||
+    !storeBenchmark ||
+    !averageReference?.values ||
+    !/(平均|均值)/.test(normalized)
+  ) {
+    return false;
+  }
+
+  for (const metric of STORE_COMPARISON_METRICS) {
+    if (!containsAnyKeyword(normalized, metric.aliases)) {
+      continue;
+    }
+
+    const storeValue = Number(storeBenchmark[metric.key]);
+    const averageValue = Number(averageReference.values[metric.key]);
+
+    if (!Number.isFinite(storeValue) || !Number.isFinite(averageValue)) {
+      continue;
+    }
+
+    const gap = storeValue - averageValue;
+
+    if (Math.abs(gap) <= metric.tolerance) {
+      continue;
+    }
+
+    if (containsAnyKeyword(normalized, metric.highTokens) && gap < 0) {
+      return true;
+    }
+
+    if (containsAnyKeyword(normalized, metric.lowTokens) && gap > 0) {
+      return true;
+    }
+
+    if (
+      metric.key === 'avgCustomerCost' &&
+      normalized.includes('成本控制') &&
+      /较好|良好|优秀|不错|更好/.test(normalized) &&
+      gap > metric.tolerance
+    ) {
+      return true;
+    }
+
+    if (
+      metric.key === 'avgCustomerCost' &&
+      normalized.includes('成本控制') &&
+      /承压|较差|偏弱|不佳|压力/.test(normalized) &&
+      gap < -metric.tolerance
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function sanitizeStoreNarrativeText(
+  value,
+  fallbackValue,
+  storeBenchmark,
+  averageReference,
+  maxLength = 72,
+) {
+  const normalized = normalizeText(value, maxLength);
+
+  if (!normalized) {
+    return fallbackValue;
+  }
+
+  return hasDirectionalMismatch(normalized, storeBenchmark, averageReference)
+    ? fallbackValue
+    : normalized;
+}
+
+function sanitizeStoreNarrativeList(
+  items,
+  fallbackItems,
+  storeBenchmark,
+  averageReference,
+  limit = 3,
+) {
+  const sanitized = dedupeList(
+    (items || [])
+      .map((item) =>
+        sanitizeStoreNarrativeText(
+          item,
+          '',
+          storeBenchmark,
+          averageReference,
+          72,
+        ),
+      )
+      .filter(Boolean),
+    limit,
+  );
+
+  return sanitized.length ? sanitized : fallbackItems;
+}
+
+function buildVerifiedStoreComparisonEvidence(storeBenchmark, averageReference) {
+  if (!storeBenchmark || !averageReference?.values) {
+    return [];
+  }
+
+  const metrics = [
+    {
+      key: 'avgCustomerCost',
+      label: '单客成本',
+      formatter: currency,
+    },
+    {
+      key: 'avgTicket',
+      label: '客单价',
+      formatter: currency,
+    },
+    {
+      key: 'profitMargin',
+      label: '利润率',
+      formatter: percent,
+    },
+  ];
+
+  return metrics
+    .map((metric) => {
+      const storeValue = Number(storeBenchmark[metric.key]);
+      const averageValue = Number(averageReference.values[metric.key]);
+
+      if (!Number.isFinite(storeValue) || !Number.isFinite(averageValue)) {
+        return '';
+      }
+
+      if (Math.abs(storeValue - averageValue) < 0.0005) {
+        return `${metric.label} ${metric.formatter(storeValue)}，与${averageReference.label}基本持平。`;
+      }
+
+      return `${metric.label} ${metric.formatter(storeValue)}，${
+        storeValue > averageValue ? '高于' : '低于'
+      }${averageReference.label} ${metric.formatter(averageValue)}。`;
+    })
+    .filter(Boolean)
+    .slice(0, 2);
+}
+
+function mergeStoreEvidence(store, llmStore, storeBenchmark, averageReference) {
+  const verifiedEvidence = buildVerifiedStoreComparisonEvidence(
+    storeBenchmark,
+    averageReference,
+  );
+  const llmEvidence = sanitizeStoreNarrativeList(
+    llmStore?.evidence,
+    [],
+    storeBenchmark,
+    averageReference,
+    3,
+  );
+
+  return dedupeList(
+    [
+      ...verifiedEvidence,
+      ...llmEvidence,
+      ...((store.evidence || []).map((item) => normalizeText(item, 72)).filter(Boolean)),
+    ],
+    4,
+  );
+}
+
+function mergeNarrativeAnalysis(fallbackAnalysis, llmAnalysis, agentMeta, financialContext = {}) {
   const merged = {
     ...fallbackAnalysis,
     agent: agentMeta,
@@ -962,21 +1192,65 @@ function mergeNarrativeAnalysis(fallbackAnalysis, llmAnalysis, agentMeta) {
       .filter((store) => store?.storeId)
       .map((store) => [store.storeId, store]),
   );
+  const storeBenchmarkMap = new Map(
+    (financialContext.storeBenchmarks || [])
+      .filter((store) => store?.storeId)
+      .map((store) => [store.storeId, store]),
+  );
 
   merged.stores = fallbackAnalysis.stores.map((store) => {
     const llmStore = llmStoreMap.get(store.storeId);
+    const storeBenchmark = storeBenchmarkMap.get(store.storeId) || null;
+    const averageReference = getAverageReferenceForStore(
+      store.storeId,
+      financialContext,
+    );
 
     if (!llmStore) {
-      return store;
+      return {
+        ...store,
+        evidence: mergeStoreEvidence(
+          store,
+          null,
+          storeBenchmark,
+          averageReference,
+        ),
+      };
     }
 
     return {
       ...store,
-      summary: normalizeText(llmStore.summary, 72) || store.summary,
-      highlights: normalizeNarrativeList(llmStore.highlights, store.highlights),
-      risks: normalizeNarrativeList(llmStore.risks, store.risks),
-      actions: normalizeNarrativeList(llmStore.actions, store.actions),
-      evidence: normalizeNarrativeList(llmStore.evidence, store.evidence || []),
+      summary: sanitizeStoreNarrativeText(
+        llmStore.summary,
+        store.summary,
+        storeBenchmark,
+        averageReference,
+        72,
+      ),
+      highlights: sanitizeStoreNarrativeList(
+        llmStore.highlights,
+        store.highlights,
+        storeBenchmark,
+        averageReference,
+      ),
+      risks: sanitizeStoreNarrativeList(
+        llmStore.risks,
+        store.risks,
+        storeBenchmark,
+        averageReference,
+      ),
+      actions: sanitizeStoreNarrativeList(
+        llmStore.actions,
+        store.actions,
+        storeBenchmark,
+        averageReference,
+      ),
+      evidence: mergeStoreEvidence(
+        store,
+        llmStore,
+        storeBenchmark,
+        averageReference,
+      ),
       priority: normalizePriority(llmStore.priority || store.priority),
     };
   });
@@ -1040,7 +1314,7 @@ async function buildAiAnalysis(reports, filters = {}, options = {}) {
         model: llmResult.model,
       }),
       generatedBy: 'zhipu-live-analysis',
-    });
+    }, financialContext);
   } catch (error) {
     return {
       ...fallbackAnalysis,

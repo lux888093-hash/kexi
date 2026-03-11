@@ -314,11 +314,21 @@ async function requestJson(path, options) {
   return payload;
 }
 
-function AgentMessage({ message, agent }) {
+function AgentMessage({ message, agent, currentModel = "", currentProvider = "" }) {
   const isUser = message.role === "user";
   const meta = message.meta || {};
   const live =
     meta.mode === "llm" || meta.mode === "live-ready" || meta.mode === "live";
+  const providerLabel =
+    meta.provider === "zhipu" ? "智谱" : meta.provider || currentProvider || "Model";
+  const currentModelHint =
+    !isUser &&
+    currentModel &&
+    meta.model &&
+    meta.model !== currentModel &&
+    meta.mode === "llm"
+      ? ` · 当前配置 ${currentModel}`
+      : "";
 
   return (
     <div
@@ -368,9 +378,7 @@ function AgentMessage({ message, agent }) {
           ) : null}
           {!isUser && meta.model ? (
             <span className="rounded-full border border-primary/10 bg-white px-2 py-1 text-[10px] font-semibold text-slate-500">
-              {(meta.provider === "zhipu" ? "智谱" : meta.provider || "Model") +
-                " · " +
-                meta.model}
+              {`本条回复 · ${providerLabel} / ${meta.model}${currentModelHint}`}
             </span>
           ) : null}
         </div>
@@ -402,6 +410,8 @@ export default function Workspace() {
   const [activeAgentId, setActiveAgentId] = useState("financial_analyst");
   const [threads, setThreads] = useState(() => buildInitialThreads());
   const [inputValue, setInputValue] = useState("");
+  const [runtimeModel, setRuntimeModel] = useState("");
+  const [runtimeProvider, setRuntimeProvider] = useState("");
   const scrollRef = useRef(null);
 
   const activeAgent =
@@ -418,6 +428,36 @@ export default function Workspace() {
 
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [activeAgentId, activeThread.messages.length, activeThread.pending]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadRuntimeSettings() {
+      try {
+        const settings = await requestJson("/api/system/settings");
+
+        if (cancelled) {
+          return;
+        }
+
+        setRuntimeProvider(settings.llmProvider || "");
+        setRuntimeModel(settings.zhipuModel || "");
+      } catch {
+        if (cancelled) {
+          return;
+        }
+
+        setRuntimeProvider("");
+        setRuntimeModel("");
+      }
+    }
+
+    void loadRuntimeSettings();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function sendMessage(prefill = "") {
     const message = String(prefill || inputValue).trim();
@@ -472,6 +512,11 @@ export default function Workspace() {
           note: result.agent?.note || "",
         },
       };
+
+      if (result.agent?.mode === "llm" && result.agent?.provider === "zhipu") {
+        setRuntimeProvider("zhipu");
+        setRuntimeModel(result.agent?.model || runtimeModel);
+      }
 
       setThreads((current) => ({
         ...current,
@@ -529,6 +574,11 @@ export default function Workspace() {
             <div className="rounded-full border border-primary/10 bg-white/70 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
               {activeAgent.badge}
             </div>
+            {activeAgentId === "financial_analyst" && runtimeModel ? (
+              <div className="rounded-full border border-[#d96e42]/15 bg-[#fff7f0] px-3 py-1 text-xs font-semibold text-[#b4542e]">
+                {`当前配置：${runtimeProvider === "zhipu" ? "智谱" : runtimeProvider || "Model"} / ${runtimeModel}`}
+              </div>
+            ) : null}
           </div>
         </header>
 
@@ -607,6 +657,8 @@ export default function Workspace() {
               <AgentMessage
                 key={message.id}
                 agent={activeAgent}
+                currentModel={runtimeModel}
+                currentProvider={runtimeProvider}
                 message={message}
               />
             ))}
