@@ -2210,40 +2210,55 @@ function ComparisonPanel({ stores, activeStoreId, metric }) {
 }
 
 function AiList({ title, icon, items, tone = "default" }) {
-  const toneClass =
-    tone === "risk"
-      ? "border-[#f4d3c8] bg-[#fcf1ee] text-[#7e5141]"
-      : tone === "action"
-        ? "border-[#f2ddba] bg-[#fbf4e7] text-[#7a5c2d]"
-        : "border-[#ebe1d7] bg-white text-slate-600";
-  const headerClass =
-    tone === "risk"
-      ? "text-[#c46b48]"
-      : tone === "action"
-        ? "text-[#a67a2a]"
-        : "text-slate-400";
+  const toneStyles = {
+    default: {
+      card: "border-black/5 bg-white/70 shadow-[0_4px_16px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.04)]",
+      header: "bg-slate-50 text-slate-600 border-slate-100",
+      icon: "text-slate-400",
+      text: "text-slate-600",
+      bullet: "bg-slate-200"
+    },
+    risk: {
+      card: "border-[#d96e42]/10 bg-[#fff5f2]/80 shadow-[0_4px_16px_rgba(217,110,66,0.03)] hover:shadow-[0_8px_24px_rgba(217,110,66,0.06)]",
+      header: "bg-[#fcf1ee] text-[#b4542e] border-[#f4d3c8]",
+      icon: "text-[#d96e42]",
+      text: "text-[#8f5138]",
+      bullet: "bg-[#d96e42]/40"
+    },
+    action: {
+      card: "border-[#e3b04b]/10 bg-[#fbf4df]/60 shadow-[0_4px_16px_rgba(227,176,75,0.03)] hover:shadow-[0_8px_24px_rgba(227,176,75,0.06)]",
+      header: "bg-[#f4eee6] text-[#927231] border-[#f2ddba]",
+      icon: "text-[#e3b04b]",
+      text: "text-[#7a5c2d]",
+      bullet: "bg-[#e3b04b]/40"
+    }
+  };
+
+  const style = toneStyles[tone] || toneStyles.default;
 
   return (
-    <div className={cn("rounded-[28px] border p-5", toneClass)}>
-      <div
-        className={cn(
-          "flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.22em]",
-          headerClass,
-        )}
-      >
-        <span className="material-symbols-outlined text-base">{icon}</span>
-        {title}
+    <div className={cn("flex flex-col rounded-[24px] border backdrop-blur-md transition-all duration-300", style.card)}>
+      <div className={cn("flex items-center gap-2.5 rounded-t-[24px] border-b px-5 py-3.5", style.header)}>
+        <span className={cn("material-symbols-outlined text-[18px]", style.icon)}>{icon}</span>
+        <span className="text-[12px] font-bold uppercase tracking-[0.15em]">{title}</span>
       </div>
-      <div className="mt-4 space-y-3">
-        {items.length ? (
-          items.map((item) => (
-            <p key={item} className="text-sm leading-6">
-              {item}
-            </p>
-          ))
-        ) : (
-          <p className="text-sm leading-6 text-slate-400">当前没有额外内容。</p>
-        )}
+      <div className="p-5 flex-1">
+        <div className="space-y-3.5">
+          {items.length ? (
+            items.map((item, index) => (
+              <div key={index} className="flex items-start gap-3 group">
+                <div className={cn("mt-2 h-1.5 w-1.5 shrink-0 rounded-full transition-transform group-hover:scale-150", style.bullet)} />
+                <p className={cn("text-[14px] leading-relaxed", style.text)}>
+                  {item}
+                </p>
+              </div>
+            ))
+          ) : (
+            <div className="flex items-center justify-center h-full py-4">
+              <p className="text-[13px] text-slate-400 italic">当前没有额外内容。</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -2253,100 +2268,131 @@ function AiStoreCard({ item }) {
   const priorityMeta =
     item.priority === "high"
       ? {
-          label: "Priority High",
-          className: "border-[#d96e42]/20 bg-[#fff1eb] text-[#b4542e]",
+          label: "High Priority",
+          dot: "bg-red-500",
+          badge: "bg-red-50 text-red-700 border-red-100",
         }
       : item.priority === "low"
         ? {
-            label: "Priority Low",
-            className: "border-[#8aa2b3]/20 bg-[#eef4f7] text-[#587486]",
+            label: "Low Priority",
+            dot: "bg-blue-400",
+            badge: "bg-blue-50 text-blue-700 border-blue-100",
           }
         : {
-            label: "Priority Mid",
-            className: "border-[#e3b04b]/20 bg-[#fbf4df] text-[#927231]",
+            label: "Normal Priority",
+            dot: "bg-amber-400",
+            badge: "bg-amber-50 text-amber-700 border-amber-100",
           };
 
   return (
-    <article className="rounded-[30px] border border-black/5 bg-[rgba(255,251,246,0.86)] p-6 shadow-[0_18px_45px_rgba(22,20,18,0.07)] backdrop-blur">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#d96e42]">
-            Store AI
-          </p>
-          <div
-            className={cn(
-              "mt-3 inline-flex rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em]",
-              priorityMeta.className,
-            )}
-          >
-            <span className="rounded-full">
-              {priorityMeta.label}
+    <article className="group relative overflow-hidden rounded-[28px] border border-black/5 bg-white p-7 shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all hover:shadow-[0_16px_40px_rgba(0,0,0,0.08)]">
+      {/* Decorative background gradient */}
+      <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-gradient-to-br from-[#d96e42]/5 to-transparent blur-3xl transition-transform group-hover:scale-110" />
+
+      <div className="relative z-10 flex items-start justify-between gap-6">
+        <div className="flex-1">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#f8f2eb] to-[#f4eee6] text-[#d96e42] shadow-sm">
+              <span className="material-symbols-outlined text-[20px]">storefront</span>
             </span>
+            <div>
+              <h3 className="text-[22px] font-bold tracking-tight text-[#171412]">
+                {item.storeName}
+              </h3>
+              <div className="mt-1 flex items-center gap-2">
+                <div
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider",
+                    priorityMeta.badge,
+                  )}
+                >
+                  <span className={cn("h-1.5 w-1.5 rounded-full", priorityMeta.dot)} />
+                  {priorityMeta.label}
+                </div>
+              </div>
+            </div>
           </div>
-          <h3 className="mt-2 text-xl font-extrabold tracking-[-0.04em] text-[#171412]">
-            {item.storeName}
-          </h3>
-          <p className="mt-2 text-sm leading-6 text-slate-500">
+          <p className="mt-5 text-[15px] leading-relaxed text-slate-600 border-l-2 border-[#d96e42]/20 pl-4">
             {item.summary}
           </p>
         </div>
-        <GaugeDial
-          accent={item.healthScore >= 75 ? "#e3b04b" : "#d96e42"}
-          caption={item.grade}
-          score={item.healthScore}
-          size={86}
-        />
+        <div className="shrink-0 bg-white/50 p-2 rounded-2xl border border-black/5 backdrop-blur-sm shadow-sm">
+          <GaugeDial
+            accent={item.healthScore >= 75 ? "#4ade80" : item.healthScore >= 60 ? "#fbbf24" : "#f87171"}
+            caption={item.grade}
+            score={item.healthScore}
+            size={90}
+          />
+        </div>
       </div>
 
-      <div className="mt-6 grid gap-4 md:grid-cols-3">
-        <div className="rounded-[24px] bg-[#f8f2eb] p-4">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
-            优势
-          </p>
-          <div className="mt-3 space-y-2 text-sm leading-6 text-[#171412]">
-            {(item.highlights.length
-              ? item.highlights
-              : ["当前无明显优势项。"]
-            ).map((line) => (
-              <p key={line}>{line}</p>
+      <div className="relative z-10 mt-8 grid gap-4 sm:grid-cols-3">
+        <div className="flex flex-col rounded-[20px] bg-slate-50 p-5 border border-slate-100 transition-colors hover:bg-slate-100/50">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="material-symbols-outlined text-[18px] text-emerald-500">check_circle</span>
+            <p className="text-[12px] font-bold uppercase tracking-wider text-slate-700">
+              优势
+            </p>
+          </div>
+          <div className="space-y-2.5 text-[13px] leading-relaxed text-slate-600">
+            {(item.highlights.length ? item.highlights : ["当前无明显优势项。"]).map((line, idx) => (
+              <p key={idx} className="flex items-start gap-2">
+                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-emerald-400" />
+                <span>{line}</span>
+              </p>
             ))}
           </div>
         </div>
-        <div className="rounded-[24px] bg-[#fcf1ee] p-4">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#d96e42]">
-            风险
-          </p>
-          <div className="mt-3 space-y-2 text-sm leading-6 text-[#171412]">
-            {(item.risks.length ? item.risks : ["当前无明显风险项。"]).map(
-              (line) => (
-                <p key={line}>{line}</p>
-              ),
-            )}
+        
+        <div className="flex flex-col rounded-[20px] bg-red-50/50 p-5 border border-red-100/50 transition-colors hover:bg-red-50">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="material-symbols-outlined text-[18px] text-red-500">warning</span>
+            <p className="text-[12px] font-bold uppercase tracking-wider text-red-700">
+              风险
+            </p>
+          </div>
+          <div className="space-y-2.5 text-[13px] leading-relaxed text-red-900/80">
+            {(item.risks.length ? item.risks : ["当前无明显风险项。"]).map((line, idx) => (
+              <p key={idx} className="flex items-start gap-2">
+                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-red-400" />
+                <span>{line}</span>
+              </p>
+            ))}
           </div>
         </div>
-        <div className="rounded-[24px] bg-[#f4eee6] p-4">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
-            动作
-          </p>
-          <div className="mt-3 space-y-2 text-sm leading-6 text-[#171412]">
-            {(item.actions.length
-              ? item.actions
-              : ["继续保持当前经营节奏。"]
-            ).map((line) => (
-              <p key={line}>{line}</p>
+
+        <div className="flex flex-col rounded-[20px] bg-amber-50/50 p-5 border border-amber-100/50 transition-colors hover:bg-amber-50">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="material-symbols-outlined text-[18px] text-amber-500">lightbulb</span>
+            <p className="text-[12px] font-bold uppercase tracking-wider text-amber-700">
+              动作
+            </p>
+          </div>
+          <div className="space-y-2.5 text-[13px] leading-relaxed text-amber-900/80">
+            {(item.actions.length ? item.actions : ["继续保持当前经营节奏。"]).map((line, idx) => (
+              <p key={idx} className="flex items-start gap-2">
+                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-amber-400" />
+                <span>{line}</span>
+              </p>
             ))}
           </div>
         </div>
       </div>
 
       {(item.evidence?.length || 0) > 0 ? (
-        <div className="mt-4 rounded-[24px] border border-black/5 bg-white/75 p-4">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
-            Evidence
-          </p>
-          <div className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
-            {item.evidence.map((line) => (
-              <p key={line}>{line}</p>
+        <div className="relative z-10 mt-5 rounded-[20px] bg-slate-50/80 p-5 border border-slate-100/80 text-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="material-symbols-outlined text-[16px] text-slate-400">find_in_page</span>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              Data Evidence
+            </p>
+          </div>
+          <div className="space-y-2 text-[13px] leading-relaxed text-slate-600">
+            {item.evidence.map((line, idx) => (
+              <p key={idx} className="flex items-start gap-2">
+                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-300" />
+                <span>{line}</span>
+              </p>
             ))}
           </div>
         </div>
@@ -3012,24 +3058,34 @@ export default function Financials() {
               searchedItems.map((item) => (
                 <div
                   key={`${item.categoryName}-${item.name}`}
-                  className="flex items-start justify-between gap-4 rounded-[24px] bg-[#f8f2eb] px-4 py-4"
+                  className="group flex items-start justify-between gap-4 rounded-[20px] border border-black/5 bg-white/60 p-5 shadow-[0_2px_10px_rgba(0,0,0,0.02)] backdrop-blur-md transition-all hover:bg-white hover:shadow-[0_8px_20px_rgba(0,0,0,0.04)]"
                 >
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-[#171412]">
-                      {item.name}
-                    </p>
-                    <p className="mt-1 text-xs font-bold uppercase tracking-[0.16em] text-slate-400">
-                      {item.categoryName}
-                    </p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#f8f2eb] text-[#d96e42]">
+                        <span className="material-symbols-outlined text-[16px]">receipt_long</span>
+                      </div>
+                      <div>
+                        <p className="text-[15px] font-semibold text-[#171412] group-hover:text-[#d96e42] transition-colors">
+                          {item.name}
+                        </p>
+                        <p className="mt-0.5 text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">
+                          {item.categoryName}
+                        </p>
+                      </div>
+                    </div>
                     {item.notes ? (
-                      <p className="mt-2 text-sm leading-6 text-slate-500">
+                      <div className="mt-3 ml-11 rounded-xl bg-slate-50/50 p-3 text-[13px] leading-relaxed text-slate-500 border border-slate-100/50">
                         {item.notes}
-                      </p>
+                      </div>
                     ) : null}
                   </div>
-                  <span className="tabular-nums shrink-0 text-sm font-bold text-[#171412]">
-                    {formatCurrency(item.value)}
-                  </span>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className="tabular-nums shrink-0 text-[16px] font-bold text-[#171412]">
+                      {formatCurrency(item.value)}
+                    </span>
+                    <span className="text-[10px] font-medium text-slate-400 bg-slate-100/50 px-2 py-0.5 rounded-full">Cost</span>
+                  </div>
                 </div>
               ))
             ) : (
@@ -3048,35 +3104,50 @@ export default function Financials() {
           title={aiOverviewTitle}
         >
           <div className="space-y-6">
-            <div className="rounded-[28px] border border-[#eadfd3] bg-white/85 p-5">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#d96e42]/70">
-                    Overall Summary
-                  </p>
-                  <div className="mt-3">
+            <div className="relative overflow-hidden rounded-[32px] border border-black/5 bg-gradient-to-br from-white via-white to-[#fff8f5] p-8 shadow-[0_8px_30px_rgba(217,110,66,0.04)]">
+              {/* Background accent */}
+              <div className="absolute -right-32 -top-32 h-96 w-96 rounded-full bg-gradient-to-br from-[#d96e42]/10 to-transparent blur-3xl" />
+              
+              <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-8">
+                <div className="flex-1">
+                  <div className="flex flex-wrap items-center gap-3 mb-4">
+                    <div className="flex items-center gap-1.5 rounded-full bg-[#fff1eb] px-3 py-1 text-[#d96e42] border border-[#d96e42]/20">
+                      <span className="material-symbols-outlined text-[14px]">auto_awesome</span>
+                      <span className="text-[11px] font-bold uppercase tracking-[0.15em]">AI Overview</span>
+                    </div>
                     <AiRuntimeBadge agent={analysis?.agent} />
                   </div>
+                  
+                  <h3 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#171412] leading-tight mb-4">
+                    {analysis?.overall?.summary || "等待 AI 分析..."}
+                  </h3>
+
                   {analysis?.overall?.ownerBrief ? (
-                    <div className="mt-3 rounded-[22px] border border-[#f1d9cb] bg-[#fff6f0] px-4 py-4">
-                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#d96e42]">
-                        Owner Brief
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">
+                    <div className="mt-6 rounded-[24px] border-l-4 border-[#d96e42] bg-white p-5 shadow-sm">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="material-symbols-outlined text-[18px] text-[#d96e42]">record_voice_over</span>
+                        <p className="text-[12px] font-bold uppercase tracking-[0.15em] text-slate-800">
+                          老板速读 (Owner Brief)
+                        </p>
+                      </div>
+                      <p className="text-[15px] leading-relaxed text-slate-600 font-medium">
                         {analysis.overall.ownerBrief}
                       </p>
                     </div>
                   ) : null}
-                  <p className="mt-3 text-base leading-7 text-slate-600">
-                    {analysis?.overall?.summary || "等待 AI 分析。"}
-                  </p>
                 </div>
-                <GaugeDial
-                  accent="#d96e42"
-                  caption={analysis?.overall?.grade || "AI"}
-                  score={analysis?.overall?.healthScore || 0}
-                  size={120}
-                />
+                
+                <div className="shrink-0 self-center md:self-start bg-white rounded-3xl p-4 shadow-[0_8px_24px_rgba(0,0,0,0.04)] border border-black/5">
+                  <div className="flex flex-col items-center gap-2">
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Health Score</span>
+                    <GaugeDial
+                      accent={analysis?.overall?.healthScore >= 75 ? "#4ade80" : analysis?.overall?.healthScore >= 60 ? "#fbbf24" : "#f87171"}
+                      caption={analysis?.overall?.grade || "AI"}
+                      score={analysis?.overall?.healthScore || 0}
+                      size={140}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 
