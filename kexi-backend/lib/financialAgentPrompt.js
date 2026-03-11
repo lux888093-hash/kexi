@@ -1,0 +1,355 @@
+const FINANCIAL_ANALYST_AGENT_NAME = 'Kexi 财务分析师 Agent';
+const FINANCIAL_ANALYST_AGENT_VERSION = 'financial-analyst-v1.0.0';
+
+const OUTPUT_SCHEMA_EXAMPLE = {
+  overall: {
+    ownerBrief: '给老板看的 1 段摘要。',
+    summary: '一句话总结当前筛选范围内的经营财务结论。',
+    rankingSnapshot: ['排名结论 1', '排名结论 2'],
+    anomalies: ['异常点 1', '异常点 2'],
+    plan30d: ['30天动作 1', '30天动作 2'],
+    highlights: ['亮点 1', '亮点 2'],
+    risks: ['风险 1', '风险 2'],
+    actions: ['动作 1', '动作 2'],
+    diagnosis: ['诊断 1', '诊断 2'],
+    dataGaps: ['数据缺口 1'],
+  },
+  stores: [
+    {
+      storeId: 'store-id',
+      summary: '一句话总结该门店的经营财务状态。',
+      highlights: ['亮点 1', '亮点 2'],
+      risks: ['风险 1', '风险 2'],
+      actions: ['动作 1', '动作 2'],
+      evidence: ['关键依据示例 1', '关键依据示例 2'],
+      priority: 'high',
+    },
+  ],
+};
+
+function uniqueStrings(values = []) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function getZhipuModelCandidates(preferredModel = '') {
+  return uniqueStrings([
+    preferredModel,
+    process.env.ZHIPU_MODEL,
+    'glm-5',
+    'glm-4.7',
+    'glm-4.6',
+    'glm-4.5',
+    'glm-4.7-flash',
+    'glm-4.7',
+    'glm-4-flash-250414',
+    'glm-4-flash',
+  ]);
+}
+
+function buildFinancialAnalystSystemPrompt() {
+  return `
+你是 ${FINANCIAL_ANALYST_AGENT_NAME}，服务于连锁头疗/美业门店经营团队。
+
+你的身份不是聊天助手，而是一名一流的财务分析师兼经营分析顾问。你的目标是基于系统提供的结构化财务数据，输出可执行、可落地、可验证的经营财务结论。
+
+你必须具备并显式遵守以下能力与规则：
+1. 财务诊断能力：收入、成本、利润、利润率、客单价、单客成本、渠道结构、会员拉新、门店横向对比。
+2. 根因分析能力：从成本大类、重点成本项、渠道依赖、门店差异中识别主要驱动因素。
+3. 管理建议能力：给出优先级明确的经营动作，而不是空泛建议。
+4. 数据约束能力：只允许使用输入 JSON 中出现的数据，不允许捏造、外推或补造任何数字。
+5. 趋势克制能力：如果样本月份少于 2 个，禁止输出“明显上升/下降趋势”类结论，必须明确说明样本不足。
+6. 证据表达能力：每个重要判断尽量点出对应指标或结构，比如利润率、平台占比、客单价、单客成本、重点成本项。
+7. 风险意识：如果证据不足，只能说“需要补充数据验证”，不能伪装成确定结论。
+8. 数字化表达能力：每一条 highlights / risks / actions / evidence 尽量包含具体指标、门店名、成本项或渠道名，避免空话。
+9. 经营落地能力：动作建议要能直接落到门店经营或财务管理动作，优先使用“先做什么、重点盯什么、优化什么”的表达。
+
+请遵守以下输出规范：
+- 只输出 JSON，不要输出 Markdown，不要输出代码块。
+- 所有文本使用简体中文。
+- overall.ownerBrief 要站在老板/财务总监视角，先说最大问题，再说优先盯哪家店。
+- summary 控制在 60 字以内。
+- highlights、risks、actions、diagnosis、dataGaps 每项最多 3 条。
+- rankingSnapshot、anomalies、plan30d 每项最多 3 条。
+- highlights、risks、actions、diagnosis、evidence 尽量每条都带一个具体数值或明确对象。
+- stores 中必须尽量覆盖输入里的门店；如果某门店证据不足，也要保留并明确说明。
+- priority 只能是 high / medium / low。
+- 禁止输出“加强管理”“优化成本结构”这类没有对象、没有抓手的空泛结论。
+
+你的内部分析顺序应为：
+1. 先看数据完整性与时间范围。
+2. 再看整体盈利能力和结构性问题。
+3. 再看门店间差异、异常点和潜在根因。
+4. 最后输出优先级清晰的经营动作。
+`.trim();
+}
+
+function buildFinancialAnalystUserPrompt(context) {
+  return `
+请基于下面的连锁门店财务数据上下文，生成“整体财务分析 + 门店级财务分析”。
+
+重点要求：
+1. 如果平台收入占比过高，要明确提示渠道依赖风险。
+2. 如果利润率偏低，要优先从成本结构、单客经济模型、渠道费用三类角度解释。
+3. 如果门店之间差异明显，要指出“谁最好、谁承压、差异可能来自哪里”。
+4. 动作建议必须具体，能落到门店经营动作或财务管理动作。
+5. 不要重复输入中的长数字列表，要浓缩成管理层能直接看懂的判断。
+6. overall.highlights / risks / diagnosis 至少有 2 条带具体指标。
+7. stores[*].evidence 至少给 2 条，并尽量引用该门店的利润率、平台占比、客单价、单客成本、重点成本项。
+8. 如果只看到单月样本，必须在 diagnosis 或 dataGaps 里明确写出“当前仅有单月，趋势判断受限”。
+9. overall.rankingSnapshot 必须尽量体现“营收第一 / 利润率第一 / 重点关注门店”。
+10. overall.plan30d 必须是未来 30 天内可执行的动作，不要空泛口号。
+
+输出 JSON 结构示例：
+${JSON.stringify(OUTPUT_SCHEMA_EXAMPLE, null, 2)}
+
+财务数据上下文如下：
+${JSON.stringify(context, null, 2)}
+`.trim();
+}
+
+function percent(value) {
+  return `${(Number(value || 0) * 100).toFixed(1)}%`;
+}
+
+function currency(value) {
+  return `¥${Number(value || 0).toLocaleString('zh-CN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  })}`;
+}
+
+function requiresDetailedAnswer(question = '') {
+  return /为什么|为何|原因|分析|详细|展开|拆解|具体|优先|整改|建议|怎么改|30天|行动/.test(
+    String(question || ''),
+  );
+}
+
+function isExactLookupQuestion(question = '') {
+  return /多少|金额|占比|比例|费用|花费|成本|支出|收入|营收|利润|利润率|水电|租金|房租|手续费|物业费|明细|数据|列一下|列出|分别|各门店|所有门店|各店|每个门店|总实收/.test(
+    String(question || ''),
+  ) && !requiresDetailedAnswer(question);
+}
+
+function isGreetingOnly(question = '') {
+  const normalized = String(question || '')
+    .trim()
+    .toLowerCase();
+
+  if (!normalized) {
+    return false;
+  }
+
+  return /^(你好|您好|哈喽|嗨|hello|hi|hey|在吗|早上好|中午好|晚上好|谢谢|感谢|收到|好的|ok|okay)[!！.。?？~～]*$/.test(
+    normalized,
+  );
+}
+
+function asksForPriorityStore(question = '') {
+  return /哪家店|哪一家店|最该|优先整改|先整改|先改哪家|先盯哪家|最值得优先|整改优先级/.test(
+    String(question || ''),
+  );
+}
+
+function buildVerifiedFactsBlock(context = {}) {
+  const facts = [];
+  const retrievedFacts = Array.isArray(context.retrievedFacts)
+    ? context.retrievedFacts
+    : typeof context.retrievedFacts === 'string' && context.retrievedFacts.trim()
+      ? [context.retrievedFacts.trim()]
+      : [];
+  const snapshot = context.reportSnapshots?.[0];
+  const summary = snapshot?.summary;
+  const topCategory = snapshot?.topCostCategories?.[0];
+  const topItem = snapshot?.topCostItems?.[0];
+  const storeBenchmarks = Array.isArray(context.storeBenchmarks)
+    ? [...context.storeBenchmarks]
+    : [];
+
+  facts.push(...retrievedFacts);
+
+  if (context.scope?.selectedStoreCount > 1 && context.overallMetrics) {
+    facts.push(
+      `当前分析范围：${context.scope.selectedStoreCount} 家门店，最新周期 ${
+        context.scope.latestPeriod || '未知'
+      }，整体营收 ${currency(context.overallMetrics.revenue)}，利润率 ${percent(
+        context.overallMetrics.profitMargin,
+      )}，平台占比 ${percent(context.overallMetrics.platformRevenueShare)}。`,
+    );
+  }
+
+  if (snapshot && summary) {
+    facts.push(
+      `${snapshot.storeName} ${snapshot.periodLabel}：营收 ${currency(
+        summary.recognizedRevenue,
+      )}，净利润 ${currency(summary.profit)}，利润率 ${percent(
+        summary.profitMargin,
+      )}，客单价 ${currency(summary.avgTicket)}，单客成本 ${currency(
+        summary.avgCustomerCost,
+      )}，平台占比 ${percent(summary.platformRevenueShare)}。`,
+    );
+  }
+
+  if (topCategory) {
+    facts.push(
+      `已核验重点成本：${topCategory.name} 占比 ${percent(topCategory.ratio)}。`,
+    );
+  }
+
+  if (topItem) {
+    facts.push(`已核验重点成本项：${topItem.name} 金额 ${currency(topItem.amount)}。`);
+  }
+
+  if (Array.isArray(context.peerComparison?.comparisonHighlights)) {
+    facts.push(...context.peerComparison.comparisonHighlights);
+  }
+
+  if (Array.isArray(context.rankingSnapshotCandidates)) {
+    facts.push(...context.rankingSnapshotCandidates);
+  }
+
+  if (Array.isArray(context.anomalyCandidates)) {
+    facts.push(...context.anomalyCandidates.slice(0, 2));
+  }
+
+  if (storeBenchmarks.length > 1) {
+    const watchStores = [...storeBenchmarks]
+      .sort((left, right) => {
+        if (left.healthScore !== right.healthScore) {
+          return left.healthScore - right.healthScore;
+        }
+
+        return left.profitMargin - right.profitMargin;
+      })
+      .slice(0, 3)
+      .map(
+        (store) =>
+          `${store.storeName}：健康度 ${store.healthScore} 分，利润率 ${percent(
+            store.profitMargin,
+          )}，平台占比 ${percent(store.platformRevenueShare)}，客单价 ${currency(
+            store.avgTicket,
+          )}，单客成本 ${currency(store.avgCustomerCost)}。`,
+      );
+
+    facts.push(...watchStores);
+  }
+
+  return facts.filter(Boolean).slice(0, 12).join('\n');
+}
+
+function buildFinancialAnalystChatSystemPrompt() {
+  return `
+你是 ${FINANCIAL_ANALYST_AGENT_NAME} 的首页问答模式。
+
+你的角色是连锁门店财务分析师，不是泛泛聊天助手。回答必须像经营分析复盘，直接、具体、可执行。
+
+必须遵守：
+1. 只能基于提供的财务上下文回答，不得编造任何数字或结论。
+2. 永远优先回答“最新一条用户消息”。历史对话只作为参考，不是当前要继续展开的任务。
+3. 如果最新消息只是问候、感谢、确认、寒暄，不要继续上一轮财务分析；请简短回应，并给出 2 到 4 个可继续提问的财务问题。
+4. 默认输出中等偏详细的分析，不要压缩成一句话；除非用户明确要求简短，否则通常输出 280 到 700 字。
+5. 如果用户问“为什么某店利润低/高”“该先整改什么”“未来 30 天抓什么”，优先按“结论、原因拆解、关键证据、横向对比、优先动作”组织回答。
+6. 如果上下文里存在 peerComparison，必须使用同周期门店对比，明确说明该店相对平均值或对标门店差在哪里。
+7. 禁止引用任何上下文里没有出现的行业阈值、经验值、健康线、常规水平；判断高低只能基于同周期平均、门店排名、对标门店或上下文已经给出的 comparisonHighlights。
+8. 重要判断尽量带具体指标，例如利润率、平台占比、客单价、单客成本、健康度、重点成本项、渠道占比。
+9. 如果只有单月样本，必须单独说明趋势判断受限，但不能因此省略原因分析和动作建议。
+10. 动作建议必须有顺序、有抓手，优先使用“先做什么、盯什么指标、多久复盘”这类表达。
+11. 不要自行发明整改目标值、行业标准值或阈值，例如“平台占比降到 70% 以下”“利润率达到 30%”；除非这些数字已经出现在上下文里。
+12. 使用简体中文 Markdown 输出，不要输出 JSON，不要输出表格。
+13. 对于详细分析，优先使用这种 Markdown 结构：
+## 结论
+## 原因拆解
+## 关键证据
+## 横向对比
+## 优先动作
+必要时可省略不适用的小节，但整体排版要清晰。
+`.trim();
+}
+
+function buildFinancialAnalystChatContextPrompt(context = {}) {
+  const verifiedFactsBlock = buildVerifiedFactsBlock(context);
+
+  return `
+以下是当前对话唯一可引用的财务事实来源。请先参考“已核验事实”，再按需参考完整 JSON。不要大段复述 JSON。
+
+## 已核验事实
+${verifiedFactsBlock || '无'}
+
+## 财务上下文 JSON
+${JSON.stringify(context, null, 2)}
+`.trim();
+}
+
+function buildFinancialAnalystChatUserPrompt({ question, context }) {
+  const detailed = requiresDetailedAnswer(question);
+  const greetingOnly = isGreetingOnly(question);
+  const priorityStoreQuestion = asksForPriorityStore(question);
+  const exactLookupQuestion = isExactLookupQuestion(question);
+  const responseRequirements = exactLookupQuestion
+    ? `如果这是精确取数或逐店列数问题，请只基于已核验事实回答：
+查询结果：先说清月份、指标和门店范围。
+明细：逐条列出真实数值，不要遗漏门店。
+同期摘要：只允许写最高、最低、均值这类直接可验证结论。
+说明：明确这是直接查原始月报得出的结果。
+禁止写“证据 1 / 证据 2”。
+禁止写“需重点关注”“明显偏高”这类主观判断，除非用户明确要求分析。`
+    : detailed
+      ? `请按下面结构回答，并尽量完整展开：
+结论：先直接回答用户问题。
+原因拆解：至少 3 条，优先覆盖渠道结构、单客经济模型、重点成本项。
+关键依据：至少列 4 个具体指标或事实，使用无序列表，不要写“证据 1 / 证据 2”。
+横向对比：如果有 peerComparison，必须写 1 到 2 条同周期门店对比。
+优先动作：给 3 条按优先级排序的动作，明确先后顺序和关注指标。
+数据限制：如果只有单月样本，单独说明趋势判断受限。`
+      : `请给出清晰但不敷衍的经营分析，至少包含：结论、2 到 3 条关键依据（使用无序列表，不要写“证据 1 / 证据 2”）、1 到 3 条动作建议。`;
+
+  if (greetingOnly) {
+    return `
+当前用户最新消息只是问候或寒暄：
+${question}
+
+请只回应这条最新消息，不要延续上一轮财务分析。
+请用 Markdown 简短回复：
+- 先礼貌问候一句。
+- 再用一句话说明你能分析门店利润、成本、渠道和整改优先级。
+- 最后给出 3 个可直接点击/复制继续提问的问题，使用无序列表。
+`.trim();
+  }
+
+  return `
+请只回答“当前用户最新消息”，不要续写上一轮话题。
+
+当前用户最新消息：
+${question}
+
+输出要求：
+1. 不要复述整段原始 JSON，要把数据压缩成管理层能直接读懂的判断。
+2. 每个关键判断都尽量绑定具体数字、门店名、渠道名或成本项。
+3. 如果上下文里有 peerComparison，请优先利用 comparisonHighlights、samePeriodAverage、focusStoreRanks、leaders、peerStores 做横向比较。
+4. 不允许补充“行业通常应该是多少”“健康阈值是多少”这类上下文之外的判断。
+5. 如果你自己的推导和“已核验事实”冲突，以已核验事实为准，不要改写方向。
+6. 使用 Markdown 排版，至少合理使用二级标题、项目符号或编号列表、加粗强调。
+7. 不要只给笼统结论，尤其不要只回答一句“平台占比高所以利润低”。
+8. 不要自行给出上下文之外的整改目标值、行业标准值或阈值。
+9. ${
+    priorityStoreQuestion
+      ? '这是一个“优先整改哪家店”的排序问题。你必须明确点名 1 家最优先门店，判断依据优先使用健康度、利润率、平台占比、客单价、单客成本和 rankingSnapshotCandidates；不要自行编造整改目标值。'
+      : responseRequirements
+  }
+10. ${
+    priorityStoreQuestion
+      ? '如果存在第二优先级门店，可以作为补充单独说明，但不要模糊主结论。'
+      : '如果证据不足，要明确说明依据有限，不要把推测写成确定事实。'
+  }
+`.trim();
+}
+
+module.exports = {
+  FINANCIAL_ANALYST_AGENT_NAME,
+  FINANCIAL_ANALYST_AGENT_VERSION,
+  buildFinancialAnalystSystemPrompt,
+  buildFinancialAnalystChatContextPrompt,
+  buildFinancialAnalystChatSystemPrompt,
+  buildFinancialAnalystChatUserPrompt,
+  buildFinancialAnalystUserPrompt,
+  getZhipuModelCandidates,
+};

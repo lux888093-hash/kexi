@@ -7,6 +7,7 @@ const SETTINGS_FILE = path.join(DATA_DIR, 'app-settings.json');
 const DEFAULT_SETTINGS = {
   llmProvider: 'zhipu',
   zhipuApiKey: '',
+  zhipuModel: 'glm-5',
   updatedAt: null,
 };
 
@@ -55,6 +56,7 @@ function getPublicSettings() {
   return {
     llmProvider: settings.llmProvider,
     hasZhipuApiKey: Boolean(settings.zhipuApiKey),
+    zhipuModel: settings.zhipuModel,
     updatedAt: settings.updatedAt,
     zhipuApiKeyMasked: maskApiKey(settings.zhipuApiKey),
   };

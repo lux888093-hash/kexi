@@ -7,9 +7,19 @@ const STORE_REGISTRY = [
   { id: 'jiazhaoye', name: '佳兆业店' },
 ];
 
-const STORE_ALIASES = STORE_REGISTRY.flatMap((store) => [
-  [store.name, store.id],
-  [store.name.replace('店', ''), store.id],
+const STORE_ALIASES = new Map([
+  ['梅溪湖店', 'meixihu'],
+  ['梅溪湖', 'meixihu'],
+  ['华创店', 'huachuang'],
+  ['华创', 'huachuang'],
+  ['凯德壹店', 'kaideyi'],
+  ['凯德壹', 'kaideyi'],
+  ['万象城店', 'wanxiangcheng'],
+  ['万象城', 'wanxiangcheng'],
+  ['德思勤店', 'desiqin'],
+  ['德思勤', 'desiqin'],
+  ['佳兆业店', 'jiazhaoye'],
+  ['佳兆业', 'jiazhaoye'],
 ]);
 
 function cleanText(value) {
@@ -22,7 +32,7 @@ function cleanText(value) {
 
 function normalizeKey(value) {
   return cleanText(value)
-    .replace(/[：:]/g, '')
+    .replace(/[，。！？、,.!?：:（）()【】[\]'"“”‘’]/g, '')
     .replace(/\s+/g, '')
     .toLowerCase();
 }
@@ -40,7 +50,7 @@ function resolveStore(input) {
     }
   }
 
-  for (const [alias, storeId] of STORE_ALIASES) {
+  for (const [alias, storeId] of STORE_ALIASES.entries()) {
     if (normalizedInput.includes(normalizeKey(alias))) {
       return STORE_REGISTRY.find((store) => store.id === storeId) || null;
     }
@@ -51,7 +61,7 @@ function resolveStore(input) {
 
 function inferPeriod(input) {
   const text = cleanText(input);
-  const match = text.match(/(20\d{2})年\s*([1-9]|1[0-2])月/);
+  const match = text.match(/(20\d{2})\s*年\s*(0?[1-9]|1[0-2])\s*月?/);
 
   if (!match) {
     return null;
@@ -65,12 +75,14 @@ function formatPeriodLabel(period) {
     return '未识别月份';
   }
 
-  const [year, month] = period.split('-');
+  const [year, month] = String(period).split('-');
   return `${year}年${Number(month)}月`;
 }
 
 function sortPeriods(periods = []) {
-  return [...new Set(periods.filter(Boolean))].sort((left, right) => left.localeCompare(right));
+  return [...new Set(periods.filter(Boolean))].sort((left, right) =>
+    left.localeCompare(right),
+  );
 }
 
 module.exports = {

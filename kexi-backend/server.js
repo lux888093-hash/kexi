@@ -7,6 +7,7 @@ require('dotenv').config();
 const {
   ensureSettingsFile,
   getPublicSettings,
+  readSettings,
   updateSettings,
 } = require('./lib/appSettings');
 const { STORE_REGISTRY } = require('./lib/financialConstants');
@@ -19,6 +20,7 @@ const {
   ingestWorkbook,
   listReports,
 } = require('./lib/financialStore');
+const { buildWorkspaceAgentReply } = require('./lib/agentChat');
 
 const app = express();
 const PORT = process.env.PORT || 3101;
@@ -89,7 +91,7 @@ app.get('/api/system/settings', (_request, response) => {
 });
 
 app.put('/api/system/settings', (request, response) => {
-  const { llmProvider, zhipuApiKey } = request.body || {};
+  const { llmProvider, zhipuApiKey, zhipuModel } = request.body || {};
   const nextSettings = {};
 
   if (typeof llmProvider === 'string' && llmProvider.trim()) {
@@ -98,6 +100,10 @@ app.put('/api/system/settings', (request, response) => {
 
   if (typeof zhipuApiKey === 'string') {
     nextSettings.zhipuApiKey = zhipuApiKey.trim();
+  }
+
+  if (typeof zhipuModel === 'string' && zhipuModel.trim()) {
+    nextSettings.zhipuModel = zhipuModel.trim();
   }
 
   updateSettings(nextSettings);
@@ -185,10 +191,45 @@ app.post('/api/financials/upload', upload.array('files', 12), (request, response
   });
 });
 
-app.post('/api/financials/ai-analysis', (request, response) => {
-  const reports = listReports();
-  const analysis = buildAiAnalysis(reports, parseFilters(request.body || {}));
-  response.json(analysis);
+app.post('/api/financials/ai-analysis', async (request, response) => {
+  try {
+    const reports = listReports();
+    const analysis = await buildAiAnalysis(reports, parseFilters(request.body || {}), {
+      settings: readSettings(),
+    });
+    response.json(analysis);
+  } catch (error) {
+    response.status(500).json({
+      message: error.message || 'AI 财务分析失败，请检查后端日志。',
+    });
+  }
+});
+
+app.post('/api/agents/chat', async (request, response) => {
+  try {
+    const { agentId, history, message } = request.body || {};
+
+    if (!String(message || '').trim()) {
+      response.status(400).json({
+        message: '请输入你要发送的内容。',
+      });
+      return;
+    }
+
+    const payload = await buildWorkspaceAgentReply({
+      agentId: agentId || 'default',
+      history: Array.isArray(history) ? history : [],
+      message: String(message).trim(),
+      reports: listReports(),
+      settings: readSettings(),
+    });
+
+    response.json(payload);
+  } catch (error) {
+    response.status(500).json({
+      message: error.message || '首页智能体问答失败，请检查后端日志。',
+    });
+  }
 });
 
 app.listen(PORT, () => {

@@ -6,6 +6,15 @@ const DATA_DIR = path.join(__dirname, '..', 'data');
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
 const DATA_FILE = path.join(DATA_DIR, 'financial-reports.json');
 const WORKSPACE_DIR = path.resolve(__dirname, '..', '..');
+const IGNORED_WORKSPACE_DIRS = new Set([
+  '.git',
+  'node_modules',
+  'dist',
+  'build',
+  'coverage',
+  'uploads',
+  'data',
+]);
 
 function ensureDirectories() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -56,23 +65,67 @@ function ingestWorkbook(filePath, options = {}) {
   return upsertReport(report);
 }
 
+function collectWorkspaceWorkbookCandidates(dir, collection = []) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+
+  entries.forEach((entry) => {
+    const fullPath = path.join(dir, entry.name);
+
+    if (entry.isDirectory()) {
+      if (IGNORED_WORKSPACE_DIRS.has(entry.name)) {
+        return;
+      }
+
+      collectWorkspaceWorkbookCandidates(fullPath, collection);
+      return;
+    }
+
+    if (
+      /\.(xlsx|xls|csv)$/i.test(entry.name) &&
+      !entry.name.startsWith('~$')
+    ) {
+      collection.push(fullPath);
+    }
+  });
+
+  return collection;
+}
+
+function getWorkspaceWorkbookPriority(filePath) {
+  const relativePath = path.relative(WORKSPACE_DIR, filePath);
+  let priority = 0;
+
+  if (relativePath.includes('珂溪1月体质检测表')) {
+    priority += 20;
+  }
+
+  if (relativePath.includes('体质表')) {
+    priority += 10;
+  }
+
+  return priority;
+}
+
 function bootstrapWorkspaceReports() {
   ensureDirectories();
+  const candidates = collectWorkspaceWorkbookCandidates(WORKSPACE_DIR).sort(
+    (left, right) => {
+      const priorityDelta =
+        getWorkspaceWorkbookPriority(left) - getWorkspaceWorkbookPriority(right);
 
-  const candidates = fs
-    .readdirSync(WORKSPACE_DIR, { withFileTypes: true })
-    .filter(
-      (entry) =>
-        entry.isFile() &&
-        /\.(xlsx|xls|csv)$/i.test(entry.name) &&
-        !entry.name.startsWith('~$'),
-    )
-    .map((entry) => path.join(WORKSPACE_DIR, entry.name));
+      if (priorityDelta !== 0) {
+        return priorityDelta;
+      }
+
+      return left.localeCompare(right);
+    },
+  );
 
   for (const candidate of candidates) {
     try {
       ingestWorkbook(candidate, {
         originalName: path.basename(candidate),
+        sourceRelativePath: path.relative(WORKSPACE_DIR, candidate),
         uploadedAt: fs.statSync(candidate).mtime.toISOString(),
       });
     } catch (error) {

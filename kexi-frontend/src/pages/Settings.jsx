@@ -23,6 +23,14 @@ function cn(...classes) {
   return classes.filter(Boolean).join(" ");
 }
 
+const ZHIPU_MODEL_OPTIONS = [
+  { value: "glm-5", label: "GLM-5", description: "推荐，推理最强" },
+  { value: "glm-4.7", label: "GLM-4.7", description: "强推理，速度更稳" },
+  { value: "glm-4.6", label: "GLM-4.6", description: "稳定，适合复杂分析" },
+  { value: "glm-4.7-flash", label: "GLM-4.7-Flash", description: "更快更省" },
+  { value: "glm-4-flash-250414", label: "GLM-4-Flash-250414", description: "兼容回退" },
+];
+
 function StatusBadge({ status, children }) {
   const className =
     status === "success"
@@ -59,6 +67,7 @@ function FieldShell({ label, hint, children }) {
 
 export default function Settings() {
   const [apiBaseUrl, setApiBaseUrl] = useState(getApiBaseUrl());
+  const [zhipuModel, setZhipuModel] = useState("glm-5");
   const [zhipuApiKey, setZhipuApiKey] = useState("");
   const [maskedKey, setMaskedKey] = useState("");
   const [hasStoredKey, setHasStoredKey] = useState(false);
@@ -90,6 +99,7 @@ export default function Settings() {
       ]);
 
       setApiBaseUrl(normalized);
+      setZhipuModel(settings.zhipuModel || "glm-5");
       setMaskedKey(settings.zhipuApiKeyMasked || "");
       setHasStoredKey(Boolean(settings.hasZhipuApiKey));
       setUpdatedAt(settings.updatedAt || "");
@@ -126,6 +136,7 @@ export default function Settings() {
     const normalized = saveApiBaseUrl(apiBaseUrl);
     const payload = {
       llmProvider: "zhipu",
+      zhipuModel,
     };
 
     if (zhipuApiKey.trim()) {
@@ -145,6 +156,7 @@ export default function Settings() {
         method: "PUT",
       });
 
+      setZhipuModel(result.settings?.zhipuModel || zhipuModel);
       setMaskedKey(result.settings?.zhipuApiKeyMasked || "");
       setHasStoredKey(Boolean(result.settings?.hasZhipuApiKey));
       setUpdatedAt(result.settings?.updatedAt || "");
@@ -181,6 +193,7 @@ export default function Settings() {
       const payload = await requestJson(normalized, "/api/system/settings", {
         body: JSON.stringify({
           llmProvider: "zhipu",
+          zhipuModel,
           zhipuApiKey: "",
         }),
         headers: { "Content-Type": "application/json" },
@@ -188,6 +201,7 @@ export default function Settings() {
       });
 
       setMaskedKey(payload.settings?.zhipuApiKeyMasked || "");
+      setZhipuModel(payload.settings?.zhipuModel || zhipuModel);
       setHasStoredKey(Boolean(payload.settings?.hasZhipuApiKey));
       setUpdatedAt(payload.settings?.updatedAt || "");
       setZhipuApiKey("");
@@ -241,8 +255,8 @@ export default function Settings() {
                 后端服务地址
               </h2>
               <p className="mt-2 text-sm leading-6 text-slate-500">
-                财务数据、AI 分析和上传都依赖这个地址。默认是本机
-                `http://localhost:3101`。
+                财务数据、AI 分析和上传都依赖这个地址。系统会优先按当前页面主机自动推断，
+                本地打开时默认是 `http://localhost:3101`。
               </p>
             </div>
             <StatusBadge status={connection.status}>
@@ -256,7 +270,7 @@ export default function Settings() {
 
           <div className="mt-6 space-y-5">
             <FieldShell
-              hint="如果后端部署在别的机器或端口，把地址改成对应的完整 http 地址。"
+              hint="如果你不是在部署机本地打开页面，不要用 localhost；请改成部署机的 IP 或域名加端口。"
               label="服务地址"
             >
               <input
@@ -327,6 +341,23 @@ export default function Settings() {
           </div>
 
           <div className="mt-6 space-y-5">
+            <FieldShell
+              hint="财务分析师会优先使用这里选中的智谱模型；如果当前模型不可用，后端会自动回退。"
+              label="智谱模型"
+            >
+              <select
+                className="w-full rounded-2xl border border-black/5 bg-white/90 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-[#d96e42]/30 focus:ring-2 focus:ring-[#d96e42]/10"
+                onChange={(event) => setZhipuModel(event.target.value)}
+                value={zhipuModel}
+              >
+                {ZHIPU_MODEL_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {`${option.label} · ${option.description}`}
+                  </option>
+                ))}
+              </select>
+            </FieldShell>
+
             <FieldShell
               hint={
                 hasStoredKey
@@ -413,6 +444,14 @@ export default function Settings() {
               </p>
               <p className="mt-2 break-all text-sm font-semibold text-[#171412]">
                 {getApiBaseUrl()}
+              </p>
+            </div>
+            <div className="rounded-[24px] bg-[#f8f2eb] px-4 py-4">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                当前智谱模型
+              </p>
+              <p className="mt-2 break-all text-sm font-semibold text-[#171412]">
+                {zhipuModel}
               </p>
             </div>
           </div>

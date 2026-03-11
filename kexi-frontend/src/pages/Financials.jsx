@@ -59,7 +59,20 @@ function formatStoreAxisLabel(name) {
 }
 
 async function fetchJson(path, options) {
-  const response = await fetch(buildApiUrl(path), options);
+  let response;
+
+  try {
+    response = await fetch(buildApiUrl(path), options);
+  } catch {
+    const apiBaseUrl = getApiBaseUrl();
+    const localhostHint = apiBaseUrl.includes("localhost")
+      ? " 如果你不是在部署机本地打开页面，请把系统设置里的服务地址改成部署机 IP 或域名。"
+      : "";
+    throw new Error(
+      `无法连接到财务服务，请检查系统设置中的服务地址。当前地址：${apiBaseUrl}${localhostHint}`,
+    );
+  }
+
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
@@ -2237,6 +2250,22 @@ function AiList({ title, icon, items, tone = "default" }) {
 }
 
 function AiStoreCard({ item }) {
+  const priorityMeta =
+    item.priority === "high"
+      ? {
+          label: "Priority High",
+          className: "border-[#d96e42]/20 bg-[#fff1eb] text-[#b4542e]",
+        }
+      : item.priority === "low"
+        ? {
+            label: "Priority Low",
+            className: "border-[#8aa2b3]/20 bg-[#eef4f7] text-[#587486]",
+          }
+        : {
+            label: "Priority Mid",
+            className: "border-[#e3b04b]/20 bg-[#fbf4df] text-[#927231]",
+          };
+
   return (
     <article className="rounded-[30px] border border-black/5 bg-[rgba(255,251,246,0.86)] p-6 shadow-[0_18px_45px_rgba(22,20,18,0.07)] backdrop-blur">
       <div className="flex items-start justify-between gap-4">
@@ -2244,6 +2273,16 @@ function AiStoreCard({ item }) {
           <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#d96e42]">
             Store AI
           </p>
+          <div
+            className={cn(
+              "mt-3 inline-flex rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em]",
+              priorityMeta.className,
+            )}
+          >
+            <span className="rounded-full">
+              {priorityMeta.label}
+            </span>
+          </div>
           <h3 className="mt-2 text-xl font-extrabold tracking-[-0.04em] text-[#171412]">
             {item.storeName}
           </h3>
@@ -2299,7 +2338,53 @@ function AiStoreCard({ item }) {
           </div>
         </div>
       </div>
+
+      {(item.evidence?.length || 0) > 0 ? (
+        <div className="mt-4 rounded-[24px] border border-black/5 bg-white/75 p-4">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+            Evidence
+          </p>
+          <div className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
+            {item.evidence.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </article>
+  );
+}
+
+function AiRuntimeBadge({ agent }) {
+  const live = agent?.mode === "llm";
+  const badgeClass = live
+    ? "border-[#d96e42]/20 bg-[#fff3ec] text-[#b4542e]"
+    : "border-[#8a7667]/20 bg-[#f4eee6] text-[#6b5a4d]";
+
+  return (
+    <div className="mb-4 space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={cn(
+            "rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em]",
+            badgeClass,
+          )}
+        >
+          {live ? "Live AI" : "Fallback"}
+        </span>
+        {agent?.model ? (
+          <span className="rounded-full border border-black/5 bg-white px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
+            {agent.model}
+          </span>
+        ) : null}
+      </div>
+      {agent?.statusLine ? (
+        <p className="text-xs font-semibold text-slate-500">{agent.statusLine}</p>
+      ) : null}
+      {agent?.note ? (
+        <p className="text-xs leading-5 text-slate-500">{agent.note}</p>
+      ) : null}
+    </div>
   );
 }
 
@@ -2386,7 +2471,6 @@ function PeriodSelector({ value, options, onChange, label }) {
 export default function Financials() {
   const fileInputRef = useRef(null);
   const scopePanelRef = useRef(null);
-
   const [dashboard, setDashboard] = useState(null);
   const [referenceDashboard, setReferenceDashboard] = useState(null);
   const [analysis, setAnalysis] = useState(null);
@@ -2404,6 +2488,10 @@ export default function Financials() {
     errors: [],
   });
   const [pageState, setPageState] = useState({ loading: true, error: "" });
+  const [analysisState, setAnalysisState] = useState({
+    loading: true,
+    error: "",
+  });
   const [refreshToken, setRefreshToken] = useState(0);
   const [dragActive, setDragActive] = useState(false);
 
@@ -2414,6 +2502,8 @@ export default function Financials() {
 
     async function loadData() {
       setPageState((current) => ({ ...current, loading: true, error: "" }));
+      setAnalysisState({ loading: true, error: "" });
+      setAnalysis(null);
 
       try {
         const activeStoreIds = activeStoreId === "all" ? [] : [activeStoreId];
@@ -2439,16 +2529,10 @@ export default function Financials() {
           ? `/api/financials/dashboard?${referenceQuery}`
           : "/api/financials/dashboard";
 
-        const [dashboardPayload, aiPayload, referencePayload] =
-          await Promise.all([
-            fetchJson(dashboardPath),
-            fetchJson("/api/financials/ai-analysis", {
-              body: JSON.stringify(aiBody),
-              headers: { "Content-Type": "application/json" },
-              method: "POST",
-            }),
-            fetchJson(referencePath),
-          ]);
+        const [dashboardPayload, referencePayload] = await Promise.all([
+          fetchJson(dashboardPath),
+          fetchJson(referencePath),
+        ]);
 
         if (cancelled) {
           return;
@@ -2456,14 +2540,42 @@ export default function Financials() {
 
         setDashboard(dashboardPayload);
         setReferenceDashboard(referencePayload);
-        setAnalysis(aiPayload);
         setPageState({ loading: false, error: "" });
+
+        try {
+          const aiPayload = await fetchJson("/api/financials/ai-analysis", {
+            body: JSON.stringify(aiBody),
+            headers: { "Content-Type": "application/json" },
+            method: "POST",
+          });
+
+          if (cancelled) {
+            return;
+          }
+
+          setAnalysis(aiPayload);
+          setAnalysisState({ loading: false, error: "" });
+        } catch (error) {
+          if (cancelled) {
+            return;
+          }
+
+          setAnalysis(null);
+          setAnalysisState({
+            loading: false,
+            error: error.message || "AI 分析暂时不可用。",
+          });
+        }
       } catch (error) {
         if (cancelled) {
           return;
         }
 
+        setDashboard(null);
+        setReferenceDashboard(null);
+        setAnalysis(null);
         setPageState({ loading: false, error: error.message });
+        setAnalysisState({ loading: false, error: "" });
       }
     }
 
@@ -2942,6 +3054,19 @@ export default function Financials() {
                   <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#d96e42]/70">
                     Overall Summary
                   </p>
+                  <div className="mt-3">
+                    <AiRuntimeBadge agent={analysis?.agent} />
+                  </div>
+                  {analysis?.overall?.ownerBrief ? (
+                    <div className="mt-3 rounded-[22px] border border-[#f1d9cb] bg-[#fff6f0] px-4 py-4">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#d96e42]">
+                        Owner Brief
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">
+                        {analysis.overall.ownerBrief}
+                      </p>
+                    </div>
+                  ) : null}
                   <p className="mt-3 text-base leading-7 text-slate-600">
                     {analysis?.overall?.summary || "等待 AI 分析。"}
                   </p>
@@ -2974,6 +3099,40 @@ export default function Financials() {
                 tone="action"
               />
             </div>
+
+            <div className="grid gap-4 lg:grid-cols-3">
+              <AiList
+                icon="leaderboard"
+                items={analysis?.overall?.rankingSnapshot || []}
+                title="Ranking"
+              />
+              <AiList
+                icon="crisis_alert"
+                items={analysis?.overall?.anomalies || []}
+                title="Anomalies"
+                tone="risk"
+              />
+              <AiList
+                icon="event_note"
+                items={analysis?.overall?.plan30d || []}
+                title="30D Plan"
+                tone="action"
+              />
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <AiList
+                icon="lab_profile"
+                items={analysis?.overall?.diagnosis || []}
+                title="Diagnosis"
+              />
+              <AiList
+                icon="inventory_2"
+                items={analysis?.overall?.dataGaps || []}
+                title="Data Gaps"
+                tone="risk"
+              />
+            </div>
           </div>
         </SectionCard>
       </section>
@@ -2983,9 +3142,13 @@ export default function Financials() {
         subtitle={storeAiSubtitle}
         title={storeAiTitle}
       >
-        {pageState.loading ? (
+        {analysisState.loading ? (
           <div className="rounded-[28px] bg-[#f8f2eb] px-5 py-8 text-sm text-slate-500">
             正在生成门店 AI 洞察...
+          </div>
+        ) : analysisState.error ? (
+          <div className="rounded-[28px] border border-[#d96e42]/20 bg-[#fcf1ee] px-5 py-8 text-sm text-[#8f5138]">
+            {analysisState.error}
           </div>
         ) : searchedAiStores.length ? (
           <div className="grid gap-6 xl:grid-cols-2">

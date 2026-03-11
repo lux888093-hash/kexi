@@ -34,7 +34,11 @@ function toPercent(value) {
 
 function parseChannelBreakdown(text) {
   const source = cleanText(text);
-  const matches = [...source.matchAll(/(微信银联支付宝|现金|美团|抖音)\s*[：:]\s*([-\d,.]+)/g)];
+  const matches = [
+    ...source.matchAll(
+      /(微信银联支付宝|现金|美团|抖音)\s*[：:]\s*([-\d,.]+)/g,
+    ),
+  ];
 
   return matches.reduce((channels, match) => {
     channels[match[1]] = toNumber(match[2]);
@@ -44,6 +48,138 @@ function parseChannelBreakdown(text) {
 
 function sanitizeCategoryName(value) {
   return cleanText(value).replace(/[：:]+$/g, '');
+}
+
+function sanitizeMetricLabel(value) {
+  return cleanText(value).replace(/[：:]+$/g, '');
+}
+
+function isNumericLikeValue(value) {
+  const text = cleanText(value);
+
+  if (!text) {
+    return false;
+  }
+
+  return /^-?[\d,.]+%?$/.test(text);
+}
+
+function inferMetricValueType(label, rawValue) {
+  if (String(rawValue || '').includes('%')) {
+    return 'percent';
+  }
+
+  if (/(利润率|占比|比例|比重)/.test(label)) {
+    return 'percent';
+  }
+
+  if (/(客数|会员数|人数)/.test(label)) {
+    return 'count';
+  }
+
+  if (/(实收|金额|开支|成本|费用|利润|客单价|客成本|管理费)/.test(label)) {
+    return 'amount';
+  }
+
+  return 'number';
+}
+
+function extractMetricPairsFromRow(row, rowIndex, source) {
+  const metrics = [];
+
+  for (let columnIndex = 0; columnIndex < row.length; columnIndex += 1) {
+    const label = sanitizeMetricLabel(row[columnIndex]);
+
+    if (!label) {
+      continue;
+    }
+
+    let valueIndex = -1;
+
+    for (
+      let cursor = columnIndex + 1;
+      cursor < row.length && cursor <= columnIndex + 2;
+      cursor += 1
+    ) {
+      const candidate = cleanText(row[cursor]);
+
+      if (!candidate) {
+        continue;
+      }
+
+      if (!isNumericLikeValue(candidate)) {
+        break;
+      }
+
+      valueIndex = cursor;
+      break;
+    }
+
+    if (valueIndex === -1) {
+      continue;
+    }
+
+    const rawValue = cleanText(row[valueIndex]);
+    const valueType = inferMetricValueType(label, rawValue);
+    const numericValue = valueType === 'percent' ? toPercent(rawValue) : toNumber(rawValue);
+
+    metrics.push({
+      label,
+      rawValue,
+      numericValue,
+      valueType,
+      source,
+      rowIndex,
+      columnIndex,
+      valueColumnIndex: valueIndex,
+    });
+
+    columnIndex = valueIndex;
+  }
+
+  return metrics;
+}
+
+function extractSummaryMetrics(rows) {
+  const detailIndex = rows.findIndex((row) =>
+    sanitizeMetricLabel(row[0]).startsWith('明细数据'),
+  );
+  const footerIndex = rows.findIndex((row) =>
+    sanitizeMetricLabel(row[0]).startsWith('总结'),
+  );
+  const headerEnd = detailIndex === -1 ? 8 : detailIndex;
+  const headerMetrics = rows
+    .slice(0, headerEnd)
+    .flatMap((row, rowIndex) => extractMetricPairsFromRow(row, rowIndex, 'header'));
+  const footerMetrics =
+    footerIndex === -1
+      ? []
+      : rows
+          .slice(footerIndex + 1, footerIndex + 8)
+          .flatMap((row, offset) =>
+            extractMetricPairsFromRow(row, footerIndex + 1 + offset, 'footer'),
+          );
+
+  return [...headerMetrics, ...footerMetrics];
+}
+
+function getMetricValue(metrics, matchers, options = {}) {
+  const tests = Array.isArray(matchers) ? matchers : [matchers];
+  const source = options.source || null;
+  const matches = metrics.filter((metric) => {
+    if (source && metric.source !== source) {
+      return false;
+    }
+
+    return tests.some((matcher) =>
+      matcher instanceof RegExp
+        ? matcher.test(metric.label)
+        : metric.label.includes(String(matcher)),
+    );
+  });
+  const selected = matches[matches.length - 1];
+
+  return selected ? selected.numericValue : 0;
 }
 
 function extractHeaderContext(rows) {
@@ -56,69 +192,45 @@ function extractHeaderContext(rows) {
 }
 
 function parseSummary(rows) {
+  const summaryMetrics = extractSummaryMetrics(rows);
+  const channels = rows
+    .slice(0, 8)
+    .reduce((collection, row) => {
+      row.forEach((cell) => {
+        const text = cleanText(cell);
+
+        if (/(微信银联支付宝|美团|抖音|现金)/.test(text)) {
+          Object.assign(collection, parseChannelBreakdown(text));
+        }
+      });
+
+      return collection;
+    }, {});
+
   const summary = {
-    customerCount: 0,
-    recognizedRevenue: 0,
-    grossRevenue: 0,
-    savingsAmount: 0,
-    totalCost: 0,
-    avgTicket: 0,
-    avgCustomerCost: 0,
-    newMembers: 0,
-    projectRevenue: 0,
-    managementFee: 0,
-    profit: 0,
-    profitMargin: 0,
-    channels: {},
+    customerCount: getMetricValue(summaryMetrics, /^月总客数/),
+    recognizedRevenue:
+      getMetricValue(summaryMetrics, /^核算总实收/) ||
+      getMetricValue(summaryMetrics, /^月度总实收/, { source: 'footer' }),
+    grossRevenue: getMetricValue(summaryMetrics, /^月度总实收/, {
+      source: 'header',
+    }),
+    savingsAmount: getMetricValue(summaryMetrics, /^储蓄金额/),
+    totalCost:
+      getMetricValue(summaryMetrics, /^月总开支/) ||
+      getMetricValue(summaryMetrics, /^月度总开支/),
+    avgTicket: getMetricValue(summaryMetrics, /^月平均客单价/),
+    avgCustomerCost: getMetricValue(summaryMetrics, /^月平均客成本/),
+    newMembers: getMetricValue(summaryMetrics, /^新增会员数/),
+    projectRevenue: getMetricValue(summaryMetrics, /^项目实收/),
+    managementFee: getMetricValue(summaryMetrics, /^管理公司费/),
+    profit: getMetricValue(summaryMetrics, /^月报表利润/),
+    profitMargin:
+      getMetricValue(summaryMetrics, /^利润率$/) ||
+      getMetricValue(summaryMetrics, /^月报表利润率/),
+    machineRevenue: getMetricValue(summaryMetrics, /^机机乐总实收/),
+    channels,
   };
-
-  for (const row of rows.slice(0, 8)) {
-    const cells = row.map(cleanText);
-
-    cells.forEach((cell, index) => {
-      if (!cell) {
-        return;
-      }
-
-      if (cell.startsWith('月总客数')) {
-        summary.customerCount = toNumber(row[index + 1]);
-      } else if (cell.startsWith('核算总实收')) {
-        summary.recognizedRevenue = toNumber(row[index + 1]);
-      } else if (cell.startsWith('储蓄金额')) {
-        summary.savingsAmount = toNumber(row[index + 1]);
-      } else if (cell.startsWith('月度总实收')) {
-        summary.grossRevenue = toNumber(row[index + 1]);
-      } else if (cell.startsWith('月总开支')) {
-        summary.totalCost = toNumber(row[index + 1]);
-      } else if (cell.startsWith('月平均客单价')) {
-        summary.avgTicket = toNumber(row[index + 1]);
-      } else if (cell.startsWith('月平均客成本')) {
-        summary.avgCustomerCost = toNumber(row[index + 1]);
-      } else if (cell.startsWith('新增会员数')) {
-        summary.newMembers = toNumber(row[index + 1]);
-      } else if (cell.includes('微信银联支付宝')) {
-        summary.channels = parseChannelBreakdown(cell);
-      } else if (cell.includes('项目实收')) {
-        summary.projectRevenue = toNumber(row[index + 2] ?? row[index + 1]);
-      }
-    });
-  }
-
-  for (const row of rows) {
-    const label = cleanText(row[0]);
-
-    if (label.startsWith('月度总实收')) {
-      summary.recognizedRevenue = toNumber(row[3] ?? row[1]) || summary.recognizedRevenue;
-    } else if (label.startsWith('月度总开支')) {
-      summary.totalCost = toNumber(row[3] ?? row[1]) || summary.totalCost;
-    } else if (label.startsWith('管理公司费')) {
-      summary.managementFee = toNumber(row[3] ?? row[1]);
-    } else if (label.startsWith('月报表利润率')) {
-      summary.profitMargin = toPercent(row[3] ?? row[1]);
-    } else if (label.startsWith('月报表利润')) {
-      summary.profit = toNumber(row[3] ?? row[1]);
-    }
-  }
 
   if (!summary.profit) {
     summary.profit = summary.recognizedRevenue - summary.totalCost;
@@ -132,27 +244,44 @@ function parseSummary(rows) {
     summary.grossRevenue = summary.recognizedRevenue;
   }
 
-  return summary;
+  return {
+    summary,
+    summaryMetrics,
+  };
 }
 
 function parseCategories(rows, totalCost) {
-  const headerIndex = rows.findIndex((row) => cleanText(row[0]) === '开支项分类汇总金额');
+  const headerIndex = rows.findIndex(
+    (row) => cleanText(row[0]) === '开支项分类汇总金额',
+  );
 
   if (headerIndex === -1) {
-    return [];
+    return {
+      categories: [],
+      sectionMeta: {
+        headerIndex: -1,
+        endIndex: -1,
+        parsedCategoryCount: 0,
+        parsedItemCount: 0,
+      },
+    };
   }
 
   const categories = [];
   let currentCategory = null;
+  let endIndex = rows.length;
 
-  for (const row of rows.slice(headerIndex + 1)) {
+  for (let rowIndex = headerIndex + 1; rowIndex < rows.length; rowIndex += 1) {
+    const row = rows[rowIndex];
     const firstCell = cleanText(row[0]);
 
     if (firstCell.startsWith('合计')) {
+      endIndex = rowIndex;
       break;
     }
 
     if (firstCell.startsWith('总结')) {
+      endIndex = rowIndex;
       break;
     }
 
@@ -183,10 +312,11 @@ function parseCategories(rows, totalCost) {
       costPerCustomer: toNumber(row[5]),
       notes: cleanText(row[7]),
       previousMonthHint: cleanText(row[8]),
+      sourceRowIndex: rowIndex,
     });
   }
 
-  return categories.map((category) => {
+  const normalizedCategories = categories.map((category) => {
     const amount = category.items.reduce((sum, item) => sum + item.amount, 0);
 
     return {
@@ -196,6 +326,19 @@ function parseCategories(rows, totalCost) {
       items: category.items.sort((left, right) => Math.abs(right.amount) - Math.abs(left.amount)),
     };
   });
+
+  return {
+    categories: normalizedCategories,
+    sectionMeta: {
+      headerIndex,
+      endIndex,
+      parsedCategoryCount: normalizedCategories.length,
+      parsedItemCount: normalizedCategories.reduce(
+        (sum, category) => sum + category.items.length,
+        0,
+      ),
+    },
+  };
 }
 
 function parseWorkbook(filePath, options = {}) {
@@ -218,16 +361,24 @@ function parseWorkbook(filePath, options = {}) {
   }
 
   if (!period) {
-    throw new Error('无法从文件名或表头识别月份，请确保文件名包含“2026年1月”这类时间信息。');
+    throw new Error(
+      '无法从文件名或表头识别月份，请确认文件名包含“2026年1月”这类时间信息。',
+    );
   }
 
-  const summary = parseSummary(rows);
-  const categories = parseCategories(rows, summary.totalCost);
+  const { summary, summaryMetrics } = parseSummary(rows);
+  const { categories, sectionMeta } = parseCategories(rows, summary.totalCost);
   const channelEntries = Object.entries(summary.channels);
   const platformRevenue =
     (summary.channels['美团'] || 0) + (summary.channels['抖音'] || 0);
   const channelTotal = channelEntries.reduce((sum, [, value]) => sum + value, 0);
   const platformRevenueBase = channelTotal || summary.grossRevenue || summary.recognizedRevenue;
+  const lineItems = categories.flatMap((category) =>
+    category.items.map((item) => ({
+      categoryName: category.name,
+      ...item,
+    })),
+  );
 
   return {
     id: `${store.id}-${period}`,
@@ -237,6 +388,7 @@ function parseWorkbook(filePath, options = {}) {
     periodLabel: formatPeriodLabel(period),
     sheetName,
     sourceFileName: options.originalName || path.basename(filePath),
+    sourceRelativePath: options.sourceRelativePath || '',
     uploadedAt: options.uploadedAt || new Date().toISOString(),
     headerTitle: context.header,
     summary: {
@@ -251,14 +403,15 @@ function parseWorkbook(filePath, options = {}) {
       value,
       share: channelTotal > 0 ? value / channelTotal : 0,
     })),
+    summaryMetrics,
     categories,
-    topCostItems: categories
-      .flatMap((category) =>
-        category.items.map((item) => ({
-          categoryName: category.name,
-          ...item,
-        })),
-      )
+    lineItems,
+    parseAudit: {
+      workbookRowCount: rows.length,
+      parsedSummaryMetricCount: summaryMetrics.length,
+      ...sectionMeta,
+    },
+    topCostItems: [...lineItems]
       .sort((left, right) => Math.abs(right.amount) - Math.abs(left.amount))
       .slice(0, 12),
   };
