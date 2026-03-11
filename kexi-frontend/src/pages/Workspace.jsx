@@ -406,6 +406,8 @@ function AgentMessage({ message, agent, currentModel = "", currentProvider = "" 
   );
 }
 
+const generateMessageId = () => new Date().getTime() + Math.random().toString(36).substring(2, 6);
+
 export default function Workspace() {
   const [activeAgentId, setActiveAgentId] = useState("financial_analyst");
   const [threads, setThreads] = useState(() => buildInitialThreads());
@@ -466,8 +468,10 @@ export default function Workspace() {
       return;
     }
 
+    const timestampId = generateMessageId();
+
     const userMessage = {
-      id: `${activeAgentId}-user-${Date.now()}`,
+      id: `${activeAgentId}-user-${timestampId}`,
       role: "user",
       content: message,
     };
@@ -501,7 +505,7 @@ export default function Workspace() {
       });
 
       const assistantMessage = {
-        id: `${activeAgentId}-assistant-${Date.now()}`,
+        id: `${activeAgentId}-assistant-${generateMessageId()}`,
         role: "assistant",
         content: result.reply || "当前没有返回可展示的内容。",
         meta: {
@@ -528,7 +532,7 @@ export default function Workspace() {
       }));
     } catch (error) {
       const assistantMessage = {
-        id: `${activeAgentId}-assistant-error-${Date.now()}`,
+        id: `${activeAgentId}-assistant-error-${generateMessageId()}`,
         role: "assistant",
         content: error.message,
         meta: {
@@ -582,8 +586,8 @@ export default function Workspace() {
           </div>
         </header>
 
-        <div className="px-8 pt-6">
-          <div className="flex items-center gap-3 overflow-x-auto pb-2">
+        <div className="px-8 pt-6 w-full flex justify-center">
+          <div className="flex items-center justify-start sm:justify-center gap-3 overflow-x-auto pb-2 scrollbar-hide w-full max-w-4xl px-2">
             {AGENTS.map((agent) => {
               const active = agent.id === activeAgentId;
 

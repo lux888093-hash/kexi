@@ -2543,6 +2543,10 @@ export default function Financials() {
 
   const deferredSearch = useDeferredValue(searchQuery.trim());
 
+  const fetchAnalysis = () => {
+    setRefreshToken((r) => r + 1);
+  };
+
   useEffect(() => {
     let cancelled = false;
 
@@ -2898,16 +2902,38 @@ export default function Financials() {
             />
           </div>
 
-          <button
-            className="flex cursor-pointer items-center gap-2 rounded-2xl bg-[#d96e42] px-4 py-3 text-sm font-bold text-white shadow-[0_18px_40px_rgba(217,110,66,0.22)] transition hover:bg-[#cf6137]"
-            onClick={openCommandCenter}
-            type="button"
-          >
-            上传与总览
-            <span className="material-symbols-outlined text-base">
-              dashboard_customize
-            </span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              className="group relative flex cursor-pointer items-center gap-2 overflow-hidden rounded-2xl bg-[#171412] px-4 py-3 text-sm font-bold text-white shadow-[0_12px_30px_rgba(23,20,18,0.2)] transition-all hover:scale-[1.02] hover:shadow-[0_16px_40px_rgba(23,20,18,0.3)] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100"
+              onClick={fetchAnalysis}
+              disabled={analysisState.loading}
+              type="button"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000 ease-in-out" />
+              {analysisState.loading ? (
+                <>
+                  <span className="material-symbols-outlined text-base animate-spin">sync</span>
+                  分析中...
+                </>
+              ) : (
+                <>
+                  <span className="material-symbols-outlined text-base text-[#d96e42]">auto_awesome</span>
+                  生成 AI 分析
+                </>
+              )}
+            </button>
+
+            <button
+              className="flex cursor-pointer items-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-[#171412] border border-black/5 shadow-[0_4px_16px_rgba(0,0,0,0.04)] transition-all hover:bg-slate-50 hover:border-black/10 hover:shadow-[0_8px_24px_rgba(0,0,0,0.06)]"
+              onClick={openCommandCenter}
+              type="button"
+            >
+              <span className="material-symbols-outlined text-base text-slate-500">
+                dashboard_customize
+              </span>
+              上传与总览
+            </button>
+          </div>
         </>
       }
       breadcrumb="经营系统"
@@ -3053,41 +3079,70 @@ export default function Financials() {
           subtitle="按细分项查看最大成本开口，方便继续追查采购、推广、平台费或福利费。"
           title="重点成本细项"
         >
-          <div className="space-y-3">
+          <div className="space-y-4">
             {searchedItems.length ? (
-              searchedItems.map((item) => (
+              searchedItems.map((item) => {
+                const searchStr = `${item.categoryName || ''} ${item.name || ''}`.toLowerCase();
+                let iconMeta = { icon: 'receipt_long', color: 'text-[#d96e42]', bg: 'group-hover:bg-[#fff9f5]', border: 'border-black/5' };
+                
+                if (searchStr.includes('手工') || searchStr.includes('头疗师') || searchStr.includes('技师') || searchStr.includes('提成') || searchStr.includes('钟费')) {
+                  iconMeta = { icon: 'spa', color: 'text-rose-500', bg: 'group-hover:bg-rose-50', border: 'border-rose-100' };
+                } else if (searchStr.includes('管理') || searchStr.includes('店长') || searchStr.includes('行政')) {
+                  iconMeta = { icon: 'manage_accounts', color: 'text-indigo-500', bg: 'group-hover:bg-indigo-50', border: 'border-indigo-100' };
+                } else if (searchStr.includes('房租') || searchStr.includes('水电') || searchStr.includes('物业')) {
+                  iconMeta = { icon: 'home_work', color: 'text-blue-500', bg: 'group-hover:bg-blue-50', border: 'border-blue-100' };
+                } else if (searchStr.includes('营销') || searchStr.includes('推广') || searchStr.includes('平台') || searchStr.includes('美团') || searchStr.includes('抖音') || searchStr.includes('大众点评')) {
+                  iconMeta = { icon: 'campaign', color: 'text-amber-500', bg: 'group-hover:bg-amber-50', border: 'border-amber-100' };
+                } else if (searchStr.includes('采购') || searchStr.includes('进货') || searchStr.includes('耗材') || searchStr.includes('产品') || searchStr.includes('材料') || searchStr.includes('物料')) {
+                  iconMeta = { icon: 'inventory_2', color: 'text-emerald-500', bg: 'group-hover:bg-emerald-50', border: 'border-emerald-100' };
+                } else if (searchStr.includes('福利') || searchStr.includes('团建') || searchStr.includes('社保') || searchStr.includes('公积金')) {
+                  iconMeta = { icon: 'redeem', color: 'text-violet-500', bg: 'group-hover:bg-violet-50', border: 'border-violet-100' };
+                } else if (searchStr.includes('薪') || searchStr.includes('工资') || searchStr.includes('薪酬') || searchStr.includes('保底')) {
+                  iconMeta = { icon: 'payments', color: 'text-teal-500', bg: 'group-hover:bg-teal-50', border: 'border-teal-100' };
+                }
+
+                return (
                 <div
                   key={`${item.categoryName}-${item.name}`}
-                  className="group flex items-start justify-between gap-4 rounded-[20px] border border-black/5 bg-white/60 p-5 shadow-[0_2px_10px_rgba(0,0,0,0.02)] backdrop-blur-md transition-all hover:bg-white hover:shadow-[0_8px_20px_rgba(0,0,0,0.04)]"
+                  className="group relative flex flex-col justify-center min-h-[90px] rounded-[24px] border border-[#eadfd3]/50 bg-[#faf7f2]/50 p-5 shadow-[0_2px_8px_rgba(22,20,18,0.02)] transition-all duration-300 hover:bg-white hover:border-[#d96e42]/20 hover:shadow-[0_12px_24px_rgba(217,110,66,0.06)]"
                 >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#f8f2eb] text-[#d96e42]">
-                        <span className="material-symbols-outlined text-[16px]">receipt_long</span>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-4 min-w-0">
+                      <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white shadow-sm border transition-transform group-hover:scale-105 ${iconMeta.color} ${iconMeta.border} ${iconMeta.bg}`}>
+                        <span className="material-symbols-outlined text-[22px]">{iconMeta.icon}</span>
                       </div>
-                      <div>
-                        <p className="text-[15px] font-semibold text-[#171412] group-hover:text-[#d96e42] transition-colors">
-                          {item.name}
-                        </p>
-                        <p className="mt-0.5 text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">
-                          {item.categoryName}
-                        </p>
+                      <div className="flex flex-col justify-center">
+                        <div className="flex items-center gap-2">
+                          <p className="text-[16px] font-bold text-[#171412] truncate">
+                            {item.name}
+                          </p>
+                          <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100/80 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                            {item.categoryName}
+                          </span>
+                        </div>
+                        {item.notes ? (
+                          <p className="mt-1 text-[13px] text-slate-500 line-clamp-1 pr-4">
+                            {item.notes}
+                          </p>
+                        ) : (
+                          <p className="mt-1 text-[13px] text-slate-400 italic">
+                            无附加备注
+                          </p>
+                        )}
                       </div>
                     </div>
-                    {item.notes ? (
-                      <div className="mt-3 ml-11 rounded-xl bg-slate-50/50 p-3 text-[13px] leading-relaxed text-slate-500 border border-slate-100/50">
-                        {item.notes}
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <span className="tabular-nums shrink-0 text-[16px] font-bold text-[#171412]">
-                      {formatCurrency(item.value)}
-                    </span>
-                    <span className="text-[10px] font-medium text-slate-400 bg-slate-100/50 px-2 py-0.5 rounded-full">Cost</span>
+                    <div className="flex flex-col items-end justify-center shrink-0">
+                      <span className="tabular-nums text-[18px] font-extrabold text-[#171412]">
+                        {formatCurrency(item.value)}
+                      </span>
+                      <span className="sm:hidden mt-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                        {item.categoryName}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              ))
+                );
+              })
             ) : (
               <div className="rounded-[24px] bg-[#f8f2eb] px-4 py-4 text-sm text-slate-500">
                 没有命中搜索条件的成本细项。

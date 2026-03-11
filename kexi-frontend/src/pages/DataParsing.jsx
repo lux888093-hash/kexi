@@ -7,28 +7,26 @@ const MONTHS = ["2026年1月", "2026年2月", "2026年3月", "2026年4月"];
 export default function DataParsing() {
   const [selectedStore, setSelectedStore] = useState("华创店");
   const [selectedMonth, setSelectedMonth] = useState("2026年1月");
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState([
+    {
+      id: "init-msg-1",
+      sender: "ai",
+      text: `您好！我是 **珂溪 AI 洞察助手**。
+
+  请在右上角确认当前的**门店**和**月份**。您可以随时向我发送指令修改报表参数，或在下方点击 **"+"** 上传当月相关源文件（如营业报表、出入库登记表等），我将为您进行深度解析并生成《体质检测表》。`,
+    }
+  ]);
   const [isTyping, setIsTyping] = useState(false);
   const [inputText, setInputText] = useState("");
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
 
-  // Initialize chat
-  useEffect(() => {
-    setMessages([
-      {
-        id: Date.now(),
-        sender: "ai",
-        text: `您好！我是 **珂溪 AI 洞察助手**。
-
-请在右上角确认当前的**门店**和**月份**。您可以随时向我发送指令修改报表参数，或在下方点击 **"+"** 上传当月相关源文件（如营业报表、出入库登记表等），我将为您进行深度解析并生成《体质检测表》。`,
-      },
-    ]);
-  }, []);
-
-  // Scroll to bottom
-  useEffect(() => {
+  const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
   }, [messages]);
 
   const handleFileUpload = (e) => {
