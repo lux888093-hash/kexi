@@ -5,6 +5,7 @@ import KnowledgeBase from "./pages/KnowledgeBase";
 import Financials from "./pages/Financials";
 import Scheduling from "./pages/Scheduling";
 import Settings from "./pages/Settings";
+import DataParsing from "./pages/DataParsing";
 
 function App() {
   return (
@@ -15,8 +16,10 @@ function App() {
       <Route path="/financials" element={<Financials />} />
       <Route path="/scheduling" element={<Scheduling />} />
       <Route path="/settings" element={<Settings />} />
+      <Route path="/parsing" element={<DataParsing />} />
     </Routes>
   );
 }
 
 export default App;
+
