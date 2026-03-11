@@ -265,17 +265,143 @@ function buildFinancialAnalystChatSystemPrompt() {
 `.trim();
 }
 
+function compactPeerComparison(peerComparison = null) {
+  if (!peerComparison) {
+    return null;
+  }
+
+  return {
+    peerStoreCount: peerComparison.peerStoreCount,
+    focusStore: peerComparison.focusStore || null,
+    focusStoreRanks: peerComparison.focusStoreRanks || null,
+    samePeriodAverage: peerComparison.samePeriodAverage || null,
+    focusVsAverage: peerComparison.focusVsAverage || null,
+    leaders: peerComparison.leaders || null,
+    comparisonHighlights: (peerComparison.comparisonHighlights || []).slice(0, 6),
+    peerStores: (peerComparison.peerStores || []).slice(0, 6),
+  };
+}
+
+function compactReportSnapshots(reportSnapshots = [], options = {}) {
+  const {
+    limit = 6,
+    channelLimit = 6,
+    categoryLimit = 6,
+    categoryTopItemLimit = 2,
+    topCostItemLimit = 6,
+  } = options;
+
+  return (reportSnapshots || []).slice(0, limit).map((snapshot) => ({
+    storeId: snapshot.storeId,
+    storeName: snapshot.storeName,
+    period: snapshot.period,
+    periodLabel: snapshot.periodLabel,
+    summary: snapshot.summary || {},
+    channels: (snapshot.channels || []).slice(0, channelLimit),
+    topCostCategories: (snapshot.topCostCategories || [])
+      .slice(0, categoryLimit)
+      .map((category) => ({
+        name: category.name,
+        amount: category.amount,
+        ratio: category.ratio,
+        topItems: (category.topItems || []).slice(0, categoryTopItemLimit),
+      })),
+    topCostItems: (snapshot.topCostItems || []).slice(0, topCostItemLimit),
+  }));
+}
+
+function buildCompactFinancialChatContext(context = {}) {
+  const status = context.requestResolution?.status || 'general_analysis';
+  const baseContext = {
+    businessProfile: context.businessProfile || null,
+    analysisScope: context.analysisScope || null,
+    requestResolution: context.requestResolution || null,
+    retrievedFacts: (context.retrievedFacts || []).slice(0, 20),
+  };
+
+  if (
+    status === 'exact_lookup' ||
+    status === 'all_stores_lookup' ||
+    status === 'metric_analysis'
+  ) {
+    return {
+      ...baseContext,
+      overallMetrics: context.overallMetrics || null,
+      storeBenchmarks: (context.storeBenchmarks || []).slice(0, 6),
+      peerComparison: compactPeerComparison(context.peerComparison),
+      reportSnapshots:
+        status === 'all_stores_lookup'
+          ? []
+          : compactReportSnapshots(context.reportSnapshots, {
+              limit: 1,
+              channelLimit: 4,
+              categoryLimit: 3,
+              categoryTopItemLimit: 1,
+              topCostItemLimit: 3,
+            }),
+    };
+  }
+
+  if (status === 'store_analysis') {
+    return {
+      ...baseContext,
+      overallMetrics: context.overallMetrics || null,
+      trend: (context.trend || []).slice(-3),
+      storeBenchmarks: (context.storeBenchmarks || []).slice(0, 6),
+      peerComparison: compactPeerComparison(context.peerComparison),
+      reportSnapshots: compactReportSnapshots(context.reportSnapshots, {
+        limit: 1,
+        channelLimit: 4,
+        categoryLimit: 4,
+        categoryTopItemLimit: 1,
+        topCostItemLimit: 4,
+      }),
+      rankingSnapshotCandidates: (context.rankingSnapshotCandidates || []).slice(0, 4),
+      anomalyCandidates: (context.anomalyCandidates || []).slice(0, 4),
+    };
+  }
+
+  return {
+    ...baseContext,
+    overallMetrics: context.overallMetrics || null,
+    trend: (context.trend || []).slice(-4),
+    costBreakdown: (context.costBreakdown || []).slice(0, 6),
+    topCostItems: (context.topCostItems || []).slice(0, 6),
+    channels: (context.channels || []).slice(0, 6),
+    rankingSnapshotCandidates: (context.rankingSnapshotCandidates || []).slice(0, 6),
+    anomalyCandidates: (context.anomalyCandidates || []).slice(0, 4),
+    thirtyDayPlanCandidates: (context.thirtyDayPlanCandidates || []).slice(0, 4),
+    ownerBriefCandidate: context.ownerBriefCandidate || '',
+    storeBenchmarks: (context.storeBenchmarks || []).slice(0, 6),
+    peerComparison: compactPeerComparison(context.peerComparison),
+    reportSnapshots: compactReportSnapshots(context.reportSnapshots, {
+      limit: 3,
+      channelLimit: 4,
+      categoryLimit: 4,
+      categoryTopItemLimit: 1,
+      topCostItemLimit: 4,
+    }),
+  };
+}
+
 function buildFinancialAnalystChatContextPrompt(context = {}) {
   const verifiedFactsBlock = buildVerifiedFactsBlock(context);
+  const compactContext = buildCompactFinancialChatContext(context);
+  const requestResolutionBlock = context.requestResolution
+    ? JSON.stringify(context.requestResolution, null, 2)
+    : '无';
 
   return `
-以下是当前对话唯一可引用的财务事实来源。请先参考“已核验事实”，再按需参考完整 JSON。不要大段复述 JSON。
+以下是当前对话唯一可引用的财务事实来源。请先参考“请求解析”和“已核验事实”，再按需参考压缩后的 JSON。不要大段复述 JSON。
+
+## 请求解析
+${requestResolutionBlock}
 
 ## 已核验事实
 ${verifiedFactsBlock || '无'}
 
-## 财务上下文 JSON
-${JSON.stringify(context, null, 2)}
+## 压缩财务上下文 JSON
+${JSON.stringify(compactContext, null, 2)}
 `.trim();
 }
 
@@ -330,6 +456,9 @@ ${question}
 6. 使用 Markdown 排版，至少合理使用二级标题、项目符号或编号列表、加粗强调。
 7. 不要只给笼统结论，尤其不要只回答一句“平台占比高所以利润低”。
 8. 不要自行给出上下文之外的整改目标值、行业标准值或阈值。
+9. 如果 \`requestResolution.needsClarification === true\`，先明确说明当前缺少哪个精确指标、门店范围或月份，再给 2 到 4 个可继续追问的示例，不要猜测。
+10. 如果 \`requestResolution.status\` 表示缺数据或缺月报，直接说明缺失范围和已知条件，不要补造分析。
+11. 如果 \`requestResolution.status\` 表示精确取数或逐店查询，优先基于 \`retrievedFacts\` 直接回答，再补充必要的同期对比。
 9. ${
     priorityStoreQuestion
       ? '这是一个“优先整改哪家店”的排序问题。你必须明确点名 1 家最优先门店，判断依据优先使用健康度、利润率、平台占比、客单价、单客成本和 rankingSnapshotCandidates；不要自行编造整改目标值。'

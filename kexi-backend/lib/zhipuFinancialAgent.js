@@ -51,6 +51,10 @@ function stripCodeFence(text) {
     .trim();
 }
 
+function uniqueStrings(values = []) {
+  return [...new Set(values.filter(Boolean))];
+}
+
 function supportsThinkingMode(model = '') {
   return /^(glm-5|glm-4\.(7|6|5))/.test(String(model || '').trim());
 }
@@ -147,6 +151,7 @@ async function requestZhipuChat({
   responseFormat = null,
   timeoutMs = 45000,
   maxTokens = 1200,
+  enableThinking = false,
 }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -160,7 +165,7 @@ async function requestZhipuChat({
       messages,
     };
 
-    if (supportsThinkingMode(model)) {
+    if (enableThinking && supportsThinkingMode(model)) {
       body.thinking = {
         type: 'enabled',
         clear_thinking: true,
@@ -196,6 +201,10 @@ async function requestZhipuChat({
     return {
       model,
       rawContent: extractMessageText(payload?.choices?.[0]?.message?.content),
+      reasoningContent: extractMessageText(
+        payload?.choices?.[0]?.message?.reasoning_content,
+      ),
+      finishReason: payload?.choices?.[0]?.finish_reason || '',
       payload,
     };
   } finally {
@@ -214,6 +223,7 @@ async function requestZhipuStructuredFinancialAnalysis({
     model,
     timeoutMs,
     maxTokens: 2200,
+    enableThinking: true,
     responseFormat: {
       type: 'json_object',
     },
@@ -265,46 +275,106 @@ async function runZhipuFinancialChatAgent({
   context,
   preferredModel = '',
 }) {
-  const modelCandidates = getZhipuModelCandidates(preferredModel);
+  const requestStatus = context?.requestResolution?.status || '';
+  const fastStatuses = new Set([
+    'exact_lookup',
+    'all_stores_lookup',
+    'metric_analysis',
+    'store_ambiguous_target',
+    'all_stores_ambiguous_target',
+    'store_missing_report',
+    'all_stores_missing_period',
+    'no_reports',
+  ]);
+  const modelCandidates = fastStatuses.has(requestStatus)
+    ? uniqueStrings([
+        'glm-4-flash-250414',
+        'glm-4.7-flash',
+        preferredModel,
+        ...getZhipuModelCandidates(preferredModel),
+      ])
+    : uniqueStrings([
+        'glm-4.7-flash',
+        'glm-4-flash-250414',
+        preferredModel,
+        ...getZhipuModelCandidates(preferredModel),
+      ]);
   const normalizedHistory = normalizeChatHistory(history, question);
+  const attemptConfigs = fastStatuses.has(requestStatus)
+    ? [
+        {
+          maxTokens: 900,
+          timeoutMs: 15000,
+          enableThinking: false,
+        },
+        {
+          maxTokens: 1400,
+          timeoutMs: 25000,
+          enableThinking: false,
+        },
+      ]
+    : [
+        {
+          maxTokens: 1800,
+          timeoutMs: 25000,
+          enableThinking: false,
+        },
+        {
+          maxTokens: 2600,
+          timeoutMs: 40000,
+          enableThinking: false,
+        },
+      ];
   let lastError = null;
 
   for (const model of modelCandidates) {
-    try {
-      const result = await requestZhipuChat({
-        apiKey,
-        model,
-        maxTokens: 1400,
-        messages: [
-          {
-            role: 'system',
-            content: buildFinancialAnalystChatSystemPrompt(),
-          },
-          {
-            role: 'system',
-            content: buildFinancialAnalystChatContextPrompt(context),
-          },
-          ...normalizedHistory,
-          {
-            role: 'user',
-            content: buildFinancialAnalystChatUserPrompt({
-              question,
-              context,
-            }),
-          },
-        ],
-      });
+    for (const attempt of attemptConfigs) {
+      try {
+        const result = await requestZhipuChat({
+          apiKey,
+          model,
+          maxTokens: attempt.maxTokens,
+          timeoutMs: attempt.timeoutMs,
+          enableThinking: attempt.enableThinking,
+          messages: [
+            {
+              role: 'system',
+              content: buildFinancialAnalystChatSystemPrompt(),
+            },
+            {
+              role: 'system',
+              content: buildFinancialAnalystChatContextPrompt(context),
+            },
+            ...normalizedHistory,
+            {
+              role: 'user',
+              content: buildFinancialAnalystChatUserPrompt({
+                question,
+                context,
+              }),
+            },
+          ],
+        });
+        const reply = stripCodeFence(result.rawContent);
 
-      return {
-        model,
-        reply: stripCodeFence(result.rawContent),
-        rawContent: result.rawContent,
-      };
-    } catch (error) {
-      lastError = error;
+        if (reply) {
+          return {
+            model,
+            reply,
+            rawContent: result.rawContent,
+            finishReason: result.finishReason,
+          };
+        }
 
-      if (error?.status === 401 || error?.status === 403) {
-        break;
+        lastError = new Error(
+          `智谱返回空内容（model=${model}, finish_reason=${result.finishReason || 'unknown'}）。`,
+        );
+      } catch (error) {
+        lastError = error;
+
+        if (error?.status === 401 || error?.status === 403) {
+          break;
+        }
       }
     }
   }

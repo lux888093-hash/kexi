@@ -507,7 +507,10 @@ export default function Workspace() {
       const assistantMessage = {
         id: `${activeAgentId}-assistant-${generateMessageId()}`,
         role: "assistant",
-        content: result.reply || "当前没有返回可展示的内容。",
+        content:
+          result.reply ||
+          result.agent?.note ||
+          "AI 暂时没有返回正文，请重试；如果持续出现，请检查后端服务和模型配置。",
         meta: {
           badge: activeAgent.badge,
           mode: result.agent?.mode || "fallback",

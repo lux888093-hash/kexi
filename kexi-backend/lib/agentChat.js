@@ -1489,6 +1489,202 @@ function buildFinancialFallbackReply({ question, dashboard, context }) {
   );
 }
 
+function formatLookupTarget(target) {
+  if (!target) {
+    return null;
+  }
+
+  return {
+    kind: target.kind,
+    label: target.label,
+    categoryName: target.categoryName || '',
+    wantsRatio: Boolean(target.wantsRatio),
+  };
+}
+
+function buildClarificationExamples(storeName) {
+  if (storeName) {
+    return [
+      `${storeName}水电费是多少？`,
+      `${storeName}物业费是多少？`,
+      `${storeName}利润率是多少？`,
+      `${storeName}为什么利润低？`,
+    ];
+  }
+
+  return [
+    '分别列出所有门店的附加值产品花费',
+    '各门店水电费多少？',
+    '每个门店利润率是多少？',
+    '哪家门店最该优先整改？',
+  ];
+}
+
+function buildRequestResolution({
+  message,
+  context,
+  directLookup,
+  allStoresLookup,
+}) {
+  const exactLookupRequested = shouldUseDirectLookup(message);
+  const analysisRequested = isAnalysisIntent(message);
+  const metricAnalysisRequested =
+    directLookup.target &&
+    (directLookup.target.kind === 'category' ||
+      directLookup.target.kind === 'item') &&
+    isMetricAnalysisQuestion(message);
+  const requestedPeriod =
+    directLookup.requestedPeriod ||
+    allStoresLookup.requestedPeriod ||
+    context.analysisScope?.periodStart ||
+    null;
+  const periodLabel =
+    (requestedPeriod && formatPeriodLabelFromPeriod(requestedPeriod)) ||
+    allStoresLookup.periodLabel ||
+    context.reportSnapshots?.[0]?.periodLabel ||
+    context.analysisScope?.periodLabel ||
+    context.analysisScope?.periodStart ||
+    '当前范围';
+
+  if (!context.reportSnapshots.length) {
+    return {
+      status: 'no_reports',
+      needsClarification: false,
+      requestedPeriod,
+      periodLabel,
+      exactLookupRequested,
+      analysisRequested,
+      message: '当前没有可用财务月报数据。',
+      availableStores: STORE_REGISTRY.map((store) => store.name),
+    };
+  }
+
+  if (allStoresLookup.shouldHandle) {
+    if (!allStoresLookup.reportsForPeriod.length) {
+      return {
+        status: 'all_stores_missing_period',
+        needsClarification: false,
+        requestedPeriod: allStoresLookup.requestedPeriod,
+        periodLabel,
+        exactLookupRequested: true,
+        analysisRequested: false,
+        message: `当前没有 ${periodLabel} 的全部门店月报数据。`,
+      };
+    }
+
+    if (!allStoresLookup.target) {
+      return {
+        status: 'all_stores_ambiguous_target',
+        needsClarification: true,
+        requestedPeriod: allStoresLookup.requestedPeriod,
+        periodLabel,
+        exactLookupRequested: true,
+        analysisRequested: false,
+        message: '当前问题还不能唯一映射到某个真实指标或明细项。',
+        suggestedQuestions: buildClarificationExamples(),
+      };
+    }
+
+    return {
+      status: 'all_stores_lookup',
+      needsClarification: false,
+      requestedPeriod: allStoresLookup.requestedPeriod,
+      periodLabel: allStoresLookup.periodLabel || periodLabel,
+      exactLookupRequested: true,
+      analysisRequested: false,
+      target: formatLookupTarget(allStoresLookup.target),
+      usedLatestPeriod: allStoresLookup.usedLatestPeriod,
+      storeScope: 'all_stores',
+      matchedStoreCount: allStoresLookup.rows.length,
+    };
+  }
+
+  if (directLookup.store) {
+    if (!directLookup.report) {
+      return {
+        status: 'store_missing_report',
+        needsClarification: false,
+        storeId: directLookup.store.id,
+        storeName: directLookup.store.name,
+        requestedPeriod: directLookup.requestedPeriod,
+        periodLabel,
+        exactLookupRequested,
+        analysisRequested,
+        message: `当前没有 ${directLookup.store.name} ${periodLabel} 的财务月报数据。`,
+      };
+    }
+
+    if (exactLookupRequested && !directLookup.target) {
+      return {
+        status: 'store_ambiguous_target',
+        needsClarification: true,
+        storeId: directLookup.store.id,
+        storeName: directLookup.store.name,
+        requestedPeriod: directLookup.requestedPeriod,
+        periodLabel,
+        exactLookupRequested: true,
+        analysisRequested,
+        message: '当前问题还不能唯一映射到某个真实指标或明细项。',
+        suggestedQuestions: buildClarificationExamples(directLookup.store.name),
+      };
+    }
+
+    if (directLookup.target && metricAnalysisRequested) {
+      return {
+        status: 'metric_analysis',
+        needsClarification: false,
+        storeId: directLookup.store.id,
+        storeName: directLookup.store.name,
+        requestedPeriod: directLookup.requestedPeriod,
+        periodLabel,
+        exactLookupRequested: false,
+        analysisRequested: true,
+        target: formatLookupTarget(directLookup.target),
+        usedLatestPeriod: directLookup.usedLatestPeriod,
+      };
+    }
+
+    if (directLookup.target && exactLookupRequested) {
+      return {
+        status: 'exact_lookup',
+        needsClarification: false,
+        storeId: directLookup.store.id,
+        storeName: directLookup.store.name,
+        requestedPeriod: directLookup.requestedPeriod,
+        periodLabel,
+        exactLookupRequested: true,
+        analysisRequested: false,
+        target: formatLookupTarget(directLookup.target),
+        usedLatestPeriod: directLookup.usedLatestPeriod,
+      };
+    }
+
+    if (analysisRequested) {
+      return {
+        status: 'store_analysis',
+        needsClarification: false,
+        storeId: directLookup.store.id,
+        storeName: directLookup.store.name,
+        requestedPeriod: directLookup.requestedPeriod,
+        periodLabel,
+        exactLookupRequested,
+        analysisRequested: true,
+        usedLatestPeriod: directLookup.usedLatestPeriod,
+      };
+    }
+  }
+
+  return {
+    status: 'general_analysis',
+    needsClarification: false,
+    requestedPeriod,
+    periodLabel,
+    exactLookupRequested,
+    analysisRequested,
+    availableStores: STORE_REGISTRY.map((store) => store.name),
+  };
+}
+
 function buildGenericAgentReply(agentId, message) {
   const normalized = String(message || '').trim();
 
@@ -1542,190 +1738,68 @@ async function buildFinancialAgentReply({
   const directLookup = resolveDirectLookup(message, reports);
   const allStoresLookup = resolveAllStoresLookup(message, reports);
   const filters = inferQuestionFilters(message, reports);
-  const { dashboard, context } = buildFinancialContextBundle(
-    reports,
-    filters,
-  );
-
-  if (shouldUseDirectLookup(message) && directLookup.store && !directLookup.report) {
-    return {
-      reply: `${directLookup.store.name} 当前没有可查询的财务月报数据。`,
-      agent: buildFinancialAgentMeta({
-        mode: 'fallback',
-        note: '已优先查询原始财务月报，但未找到该门店对应月份的数据。',
-      }),
-    };
-  }
-
-  if (!context.reportSnapshots.length) {
-    return {
-      reply: '当前还没有导入财务月报，财务分析师暂时无法回答门店财务问题。',
-      agent: buildFinancialAgentMeta({
-        mode: 'fallback',
-        note: '当前没有可用的财务数据。',
-      }),
-    };
-  }
-
-  if (allStoresLookup.shouldHandle) {
-    if (!allStoresLookup.reportsForPeriod.length) {
-      return {
-        reply: buildAllStoresMissingDataReply({
-          requestedPeriod: allStoresLookup.requestedPeriod,
-        }),
-        agent: buildFinancialAgentMeta({
-          mode: 'fallback',
-          note: '已优先查询原始财务月报，但未找到该月份的全部门店数据。',
-        }),
-      };
-    }
-
-    if (!allStoresLookup.target) {
-      return {
-        reply: buildAllStoresLookupClarificationReply({
-          requestedPeriod: allStoresLookup.requestedPeriod,
-        }),
-        agent: buildFinancialAgentMeta({
-          mode: 'fallback',
-          note: '已优先查询原始财务月报；当前问法未命中精确字段，因此没有交给模型推断。',
-        }),
-      };
-    }
-
-    const baseReply = buildAllStoresLookupReply({
-      periodLabel: allStoresLookup.periodLabel,
-      target: allStoresLookup.target,
-      rows: allStoresLookup.rows,
-      peerComparison: allStoresLookup.peerComparison,
-      usedLatestPeriod: allStoresLookup.usedLatestPeriod,
-    });
-    const localAnalysis = buildAllStoresLookupAnalysisFallback({
-      periodLabel: allStoresLookup.periodLabel,
-      target: allStoresLookup.target,
-      rows: allStoresLookup.rows,
-      peerComparison: allStoresLookup.peerComparison,
-    });
-
-    return {
-      reply: [baseReply, localAnalysis].filter(Boolean).join('\n\n'),
-      agent: buildFinancialAgentMeta({
-        mode: 'fallback',
-        note: '已先按门店查询原始财务月报明细，再基于真实数据生成排序和解读。',
-      }),
-    };
-  }
-
-  if (
-    directLookup.store &&
-    (
-      shouldUseDirectLookup(message) ||
-      (
-        (directLookup.target?.kind === 'category' || directLookup.target?.kind === 'item') &&
-        isMetricAnalysisQuestion(message)
-      )
-    )
-  ) {
-    if (!directLookup.report) {
-      return {
-        reply: `${directLookup.store.name} 当前没有可查询的财务月报数据。`,
-        agent: buildFinancialAgentMeta({
-          mode: 'fallback',
-          note: '已优先查询原始财务月报，但未找到该门店对应月份的数据。',
-        }),
-      };
-    }
-
-    if (!directLookup.target) {
-      return {
-        reply: buildLookupClarificationReply({
-          store: directLookup.store,
-          requestedPeriod: directLookup.requestedPeriod,
-        }),
-        agent: buildFinancialAgentMeta({
-          mode: 'fallback',
-          note: '已优先查询原始财务月报；当前问法未命中精确字段，因此没有交给模型推断。',
-        }),
-      };
-    }
-
-    if (
-      (directLookup.target.kind === 'category' || directLookup.target.kind === 'item') &&
-      isMetricAnalysisQuestion(message)
-    ) {
-      return {
-        reply: buildMetricAnalysisReply({
-          report: directLookup.report,
-          target: directLookup.target,
-          peerComparison: directLookup.peerComparison,
-        }),
-        agent: buildFinancialAgentMeta({
-          mode: 'fallback',
-          note: '已先查询原始财务月报，再基于真实数值生成科目级分析，本条回答未使用模型估算。',
-        }),
-      };
-    }
-
-    return {
-      reply: buildDirectLookupReply({
-        report: directLookup.report,
-        target: directLookup.target,
-        peerComparison: directLookup.peerComparison,
-        usedLatestPeriod: directLookup.usedLatestPeriod,
-      }),
-      agent: buildFinancialAgentMeta({
-        mode: 'fallback',
-        note: '已直接查询原始财务月报明细，本条回答未使用模型估算。',
-      }),
-    };
-  }
-
+  const { context } = buildFinancialContextBundle(reports, filters);
   const retrievedFacts = [
     ...(directLookup.retrievedFacts || []),
     ...(allStoresLookup.retrievedFacts || []),
   ];
-  const llmContext = retrievedFacts.length
-    ? {
-        ...context,
-        retrievedFacts,
-      }
-    : context;
+  const requestResolution = buildRequestResolution({
+    message,
+    context,
+    directLookup,
+    allStoresLookup,
+  });
+  const llmContext = {
+    ...context,
+    retrievedFacts,
+    requestResolution,
+  };
 
-  if (settings.llmProvider === 'zhipu' && settings.zhipuApiKey) {
-    try {
-      const result = await runZhipuFinancialChatAgent({
-        apiKey: settings.zhipuApiKey,
-        question: message,
-        history,
-        context: llmContext,
-        preferredModel: settings.zhipuModel,
-      });
-
-      return {
-        reply: normalizeText(result.reply, 1800),
-        agent: buildFinancialAgentMeta({
-          mode: 'llm',
-          model: result.model,
-          note: `已基于当前财务数据完成智谱 ${result.model} 实时问答。`,
-        }),
-      };
-    } catch (error) {
-      return {
-        reply: buildFinancialFallbackReply({ question: message, dashboard, context }),
-        agent: buildFinancialAgentMeta({
-          mode: 'fallback',
-          note: `智谱问答暂时不可用，已切回规则回答：${normalizeText(error.message, 120)}`,
-        }),
-      };
-    }
+  if (settings.llmProvider !== 'zhipu' || !settings.zhipuApiKey) {
+    return {
+      reply: '当前未配置智谱 Key，财务问答无法提供 AI 分析。',
+      agent: buildFinancialAgentMeta({
+        mode: 'error',
+        provider: 'zhipu',
+        note: '当前未配置智谱 Key，财务问答不会再退回本地规则分析。',
+      }),
+    };
   }
 
-  return {
-    reply: buildFinancialFallbackReply({ question: message, dashboard, context }),
-    agent: buildFinancialAgentMeta({
-      mode: 'fallback',
-      note: '当前未配置智谱 Key，首页财务分析师暂时使用规则回答。',
-    }),
-  };
+  try {
+    const result = await runZhipuFinancialChatAgent({
+      apiKey: settings.zhipuApiKey,
+      question: message,
+      history,
+      context: llmContext,
+      preferredModel: settings.zhipuModel,
+    });
+    const reply = normalizeText(result.reply, 6000);
+
+    if (!reply) {
+      throw new Error('智谱返回空内容。');
+    }
+
+    return {
+      reply,
+      agent: buildFinancialAgentMeta({
+        mode: 'llm',
+        model: result.model,
+        note: `已基于当前财务数据完成智谱 ${result.model} 实时问答。`,
+      }),
+    };
+  } catch (error) {
+    const errorText = normalizeText(error.message, 160);
+
+    return {
+      reply: `智谱 AI 暂时未返回有效分析，请稍后重试。${errorText ? `\n\n错误信息：${errorText}` : ''}`,
+      agent: buildFinancialAgentMeta({
+        mode: 'error',
+        provider: 'zhipu',
+        note: `智谱问答失败：${errorText || '未知错误'}`,
+      }),
+    };
+  }
 }
 
 async function buildWorkspaceAgentReply({
