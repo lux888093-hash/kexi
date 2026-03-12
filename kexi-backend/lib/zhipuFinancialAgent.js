@@ -81,6 +81,61 @@ function normalizeChatHistory(history = [], currentQuestion = '') {
   return entries;
 }
 
+function getChatExecutionPlan(context = {}, preferredModel = '') {
+  const requestStatus = context?.requestResolution?.status || '';
+  const fastStatuses = new Set([
+    'exact_lookup',
+    'all_stores_lookup',
+    'metric_analysis',
+    'store_ambiguous_target',
+    'all_stores_ambiguous_target',
+    'store_missing_report',
+    'all_stores_missing_period',
+    'no_reports',
+  ]);
+
+  return {
+    modelCandidates: fastStatuses.has(requestStatus)
+      ? uniqueStrings([
+          'glm-4-flash-250414',
+          'glm-4.7-flash',
+          preferredModel,
+          ...getZhipuModelCandidates(preferredModel),
+        ])
+      : uniqueStrings([
+          'glm-4.7-flash',
+          'glm-4-flash-250414',
+          preferredModel,
+          ...getZhipuModelCandidates(preferredModel),
+        ]),
+    attemptConfigs: fastStatuses.has(requestStatus)
+      ? [
+          {
+            maxTokens: 900,
+            timeoutMs: 15000,
+            enableThinking: false,
+          },
+          {
+            maxTokens: 1400,
+            timeoutMs: 25000,
+            enableThinking: false,
+          },
+        ]
+      : [
+          {
+            maxTokens: 1800,
+            timeoutMs: 25000,
+            enableThinking: false,
+          },
+          {
+            maxTokens: 2600,
+            timeoutMs: 40000,
+            enableThinking: false,
+          },
+        ],
+  };
+}
+
 function extractJsonObject(text) {
   const source = stripCodeFence(text);
 
@@ -212,6 +267,120 @@ async function requestZhipuChat({
   }
 }
 
+async function requestZhipuChatStream({
+  apiKey,
+  model,
+  messages,
+  timeoutMs = 45000,
+  maxTokens = 1200,
+  enableThinking = false,
+  onPayload = null,
+}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const body = {
+      model,
+      stream: true,
+      temperature: 0.1,
+      top_p: 0.6,
+      max_tokens: maxTokens,
+      messages,
+    };
+
+    if (enableThinking && supportsThinkingMode(model)) {
+      body.thinking = {
+        type: 'enabled',
+        clear_thinking: true,
+      };
+    }
+
+    const response = await fetch(ZHIPU_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      const error = new Error(
+        payload?.error?.message ||
+          payload?.message ||
+          `智谱接口调用失败（HTTP ${response.status}）。`,
+      );
+      error.status = response.status;
+      throw error;
+    }
+
+    if (!response.body) {
+      throw new Error('智谱流式响应体为空。');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finishReason = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+
+      while (true) {
+        const eventBoundary = buffer.indexOf('\n\n');
+
+        if (eventBoundary === -1) {
+          break;
+        }
+
+        const rawEvent = buffer.slice(0, eventBoundary);
+        buffer = buffer.slice(eventBoundary + 2);
+        const dataText = rawEvent
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trim())
+          .join('\n');
+
+        if (!dataText) {
+          continue;
+        }
+
+        if (dataText === '[DONE]') {
+          return {
+            model,
+            finishReason,
+          };
+        }
+
+        const payload = JSON.parse(dataText);
+        finishReason =
+          payload?.choices?.[0]?.finish_reason || finishReason || '';
+
+        if (onPayload) {
+          await onPayload(payload);
+        }
+      }
+    }
+
+    return {
+      model,
+      finishReason,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function requestZhipuStructuredFinancialAnalysis({
   apiKey,
   model,
@@ -275,56 +444,11 @@ async function runZhipuFinancialChatAgent({
   context,
   preferredModel = '',
 }) {
-  const requestStatus = context?.requestResolution?.status || '';
-  const fastStatuses = new Set([
-    'exact_lookup',
-    'all_stores_lookup',
-    'metric_analysis',
-    'store_ambiguous_target',
-    'all_stores_ambiguous_target',
-    'store_missing_report',
-    'all_stores_missing_period',
-    'no_reports',
-  ]);
-  const modelCandidates = fastStatuses.has(requestStatus)
-    ? uniqueStrings([
-        'glm-4-flash-250414',
-        'glm-4.7-flash',
-        preferredModel,
-        ...getZhipuModelCandidates(preferredModel),
-      ])
-    : uniqueStrings([
-        'glm-4.7-flash',
-        'glm-4-flash-250414',
-        preferredModel,
-        ...getZhipuModelCandidates(preferredModel),
-      ]);
+  const { modelCandidates, attemptConfigs } = getChatExecutionPlan(
+    context,
+    preferredModel,
+  );
   const normalizedHistory = normalizeChatHistory(history, question);
-  const attemptConfigs = fastStatuses.has(requestStatus)
-    ? [
-        {
-          maxTokens: 900,
-          timeoutMs: 15000,
-          enableThinking: false,
-        },
-        {
-          maxTokens: 1400,
-          timeoutMs: 25000,
-          enableThinking: false,
-        },
-      ]
-    : [
-        {
-          maxTokens: 1800,
-          timeoutMs: 25000,
-          enableThinking: false,
-        },
-        {
-          maxTokens: 2600,
-          timeoutMs: 40000,
-          enableThinking: false,
-        },
-      ];
   let lastError = null;
 
   for (const model of modelCandidates) {
@@ -343,7 +467,7 @@ async function runZhipuFinancialChatAgent({
             },
             {
               role: 'system',
-              content: buildFinancialAnalystChatContextPrompt(context),
+              content: buildFinancialAnalystChatContextPrompt(context, question),
             },
             ...normalizedHistory,
             {
@@ -382,7 +506,108 @@ async function runZhipuFinancialChatAgent({
   throw lastError || new Error('智谱财务问答调用失败。');
 }
 
+async function streamZhipuFinancialChatAgent({
+  apiKey,
+  question,
+  history = [],
+  context,
+  preferredModel = '',
+  onStart = null,
+  onDelta = null,
+}) {
+  const { modelCandidates, attemptConfigs } = getChatExecutionPlan(
+    context,
+    preferredModel,
+  );
+  const normalizedHistory = normalizeChatHistory(history, question);
+  let lastError = null;
+
+  for (const model of modelCandidates) {
+    for (const attempt of attemptConfigs) {
+      let reply = '';
+      let started = false;
+
+      try {
+        const result = await requestZhipuChatStream({
+          apiKey,
+          model,
+          maxTokens: attempt.maxTokens,
+          timeoutMs: attempt.timeoutMs,
+          enableThinking: attempt.enableThinking,
+          messages: [
+            {
+              role: 'system',
+              content: buildFinancialAnalystChatSystemPrompt(),
+            },
+            {
+              role: 'system',
+              content: buildFinancialAnalystChatContextPrompt(context, question),
+            },
+            ...normalizedHistory,
+            {
+              role: 'user',
+              content: buildFinancialAnalystChatUserPrompt({
+                question,
+                context,
+              }),
+            },
+          ],
+          onPayload: async (payload) => {
+            const delta = extractMessageText(
+              payload?.choices?.[0]?.delta?.content,
+            );
+
+            if (!delta) {
+              return;
+            }
+
+            if (!started) {
+              started = true;
+
+              if (onStart) {
+                await onStart({ model });
+              }
+            }
+
+            reply += delta;
+
+            if (onDelta) {
+              await onDelta(delta);
+            }
+          },
+        });
+
+        if (reply) {
+          return {
+            model,
+            reply: stripCodeFence(reply),
+            finishReason: result.finishReason,
+          };
+        }
+
+        lastError = new Error(
+          `智谱流式返回空内容（model=${model}, finish_reason=${result.finishReason || 'unknown'}）。`,
+        );
+      } catch (error) {
+        lastError = error;
+
+        if (started) {
+          throw error;
+        }
+
+        if (error?.status === 401 || error?.status === 403) {
+          break;
+        }
+      }
+    }
+  }
+
+  throw lastError || new Error('智谱财务流式问答调用失败。');
+}
+
 module.exports = {
+  getChatExecutionPlan,
   runZhipuFinancialAgent,
   runZhipuFinancialChatAgent,
+  streamZhipuFinancialChatAgent,
 };

@@ -150,6 +150,259 @@ function asksForPriorityStore(question = '') {
   );
 }
 
+function asksWhy(question = '') {
+  return /(为什么|为何|原因|根因|拆解|怎么回事|导致|症结|卡在哪)/.test(
+    String(question || ''),
+  );
+}
+
+function asksForActionPlan(question = '') {
+  return /(未来\s*30\s*天|30天|先抓|先做|动作|行动|整改|改进|计划|抓哪三件事|先推进什么)/.test(
+    String(question || ''),
+  );
+}
+
+function asksForComparison(question = '') {
+  return /(对比|比较|横向|差异|排名|排行|领先|落后|最好|最差|谁高|谁低|哪家强|哪家弱|哪家更好|哪家更差)/.test(
+    String(question || ''),
+  );
+}
+
+function buildAnalysisPromptProfile({ question = '', context = {} }) {
+  const requestResolution = context.requestResolution || {};
+  const status = requestResolution.status || 'general_analysis';
+  const storeName =
+    requestResolution.storeName ||
+    context.reportSnapshots?.[0]?.storeName ||
+    '当前门店';
+  const periodLabel =
+    requestResolution.periodLabel ||
+    context.reportSnapshots?.[0]?.periodLabel ||
+    context.analysisScope?.periodLabel ||
+    '当前周期';
+  const targetLabel = requestResolution.target?.label || '当前指标';
+  const priorityStoreQuestion = asksForPriorityStore(question);
+  const actionPlanQuestion = asksForActionPlan(question);
+  const comparisonQuestion = asksForComparison(question);
+  const whyQuestion = asksWhy(question);
+
+  if (requestResolution.needsClarification) {
+    return {
+      type: 'clarification',
+      name: '问题澄清',
+      subject: `${periodLabel} ${storeName}`,
+      objective: '先说明当前缺少哪个精确指标、门店范围或月份，再给继续追问示例。',
+      sections: ['## 当前缺口', '## 已知条件', '## 可继续追问'],
+      focus: [
+        '先说明缺口是什么，再列出 2 到 4 个继续追问示例。',
+        '不要猜测用户真正想问的指标或月份。',
+      ],
+      guardrails: [
+        '不要在缺精确信息时继续补造分析。',
+        '不要输出与缺口无关的大段复盘。',
+      ],
+    };
+  }
+
+  if (
+    status === 'no_reports' ||
+    status === 'store_missing_report' ||
+    status === 'all_stores_missing_period'
+  ) {
+    return {
+      type: 'missing_data',
+      name: '缺数据说明',
+      subject: `${periodLabel} ${storeName}`,
+      objective: '直接说明当前缺失什么月报或门店数据，以及已知范围。',
+      sections: ['## 当前缺失', '## 已知条件', '## 下一步建议'],
+      focus: [
+        '缺什么就说什么，不要尝试替代性分析。',
+        '下一步建议只围绕补齐数据，不要延伸成经营结论。',
+      ],
+      guardrails: [
+        '不要基于不存在的月报继续推断。',
+        '不要输出看似完整的分析结论。',
+      ],
+    };
+  }
+
+  if (status === 'exact_lookup' || status === 'all_stores_lookup') {
+    return {
+      type: 'exact_lookup',
+      name: status === 'all_stores_lookup' ? '全门店精确取数' : '单店精确取数',
+      subject:
+        status === 'all_stores_lookup'
+          ? `${periodLabel} 多店范围 / ${targetLabel}`
+          : `${storeName} ${periodLabel} / ${targetLabel}`,
+      objective: '直接返回真实数值、范围和必要的同期摘要，不展开泛分析。',
+      sections: ['## 查询结果', '## 关键明细', '## 同期摘要'],
+      focus: [
+        '先说清月份、门店范围和指标名称。',
+        '如果是多店查询，不要漏门店；如果是单店查询，不要把整店分析铺开。',
+      ],
+      guardrails: [
+        '不要输出没有证据的主观判断。',
+        '不要把取数题改写成大段经营分析。',
+      ],
+    };
+  }
+
+  if (priorityStoreQuestion) {
+    return {
+      type: 'priority_ranking',
+      name: '优先整改单店排序',
+      subject: `${periodLabel} 多店范围`,
+      objective: '明确点名最该优先整改单店，并说明为什么不是其他门店。',
+      sections: ['## 结论', '## 排序依据', '## 关键证据', '## 先抓动作'],
+      focus: [
+        '必须明确给出 1 家最优先门店；如有必要，可补充 1 家次优先门店。',
+        '排序依据优先使用健康度、利润率、平台占比、客单价、单客成本和同周期门店对比。',
+        '结论必须回答“为什么先改它”，不要平均点评所有门店。',
+      ],
+      guardrails: [
+        '不要自造整改目标值或行业标准值。',
+        '不要只写“加强管理”“优化成本结构”这类空话。',
+      ],
+    };
+  }
+
+  if (status === 'metric_analysis') {
+    return {
+      type: 'metric_diagnosis',
+      name: '单指标根因诊断',
+      subject: `${storeName} ${periodLabel} / ${targetLabel}`,
+      objective: `围绕 ${targetLabel} 解释当前表现、差异来源和先抓动作。`,
+      sections: ['## 结论', '## 指标拆解', '## 关键证据', '## 对标差异', '## 优先动作'],
+      focus: [
+        `分析必须围绕 ${targetLabel} 展开，不要发散成整店泛泛复盘。`,
+        '优先解释这个指标由哪些成本项、渠道结构或单客模型驱动。',
+        '如存在 peerComparison，必须写出至少 1 条同周期对标差异。',
+      ],
+      guardrails: [
+        '不要把未出现在上下文中的明细项当成原因。',
+        '如果证据不足，只能明确说明还需补什么数据。',
+      ],
+    };
+  }
+
+  if (actionPlanQuestion) {
+    return {
+      type: status === 'store_analysis' ? 'store_action_plan' : 'fleet_action_plan',
+      name: status === 'store_analysis' ? '单店 30 天动作方案' : '多店 30 天动作方案',
+      subject:
+        status === 'store_analysis'
+          ? `${storeName} ${periodLabel}`
+          : `${periodLabel} 多店范围`,
+      objective: '输出未来 30 天最值得先抓的动作，强调先后顺序、涉及门店和复盘指标。',
+      sections: ['## 核心结论', '## 先抓问题', '## 30 天动作', '## 复盘指标'],
+      focus: [
+        '动作必须有优先级，优先写先做什么，再写盯什么指标。',
+        '如果涉及具体门店，必须点名门店，不要只给总部视角口号。',
+        '每条动作尽量绑定一个要复盘的真实指标。',
+      ],
+      guardrails: [
+        '不要写长期战略或空泛愿景，聚焦未来 30 天可执行动作。',
+        '不要把没有证据支撑的问题写成最高优先级。',
+      ],
+    };
+  }
+
+  if (comparisonQuestion) {
+    return {
+      type: status === 'store_analysis' ? 'store_comparison' : 'fleet_comparison',
+      name: status === 'store_analysis' ? '单店对标分析' : '多店横向比较',
+      subject:
+        status === 'store_analysis'
+          ? `${storeName} ${periodLabel}`
+          : `${periodLabel} 多店范围`,
+      objective: '突出门店之间的差异、领先者、承压门店以及差异来源。',
+      sections: ['## 结论', '## 横向差异', '## 差异来源', '## 管理动作'],
+      focus: [
+        '必须点出谁领先、谁承压，以及差异主要来自哪里。',
+        '横向比较优先使用同周期平均值、排名、leaders 和 comparisonHighlights。',
+        '如果是单店提问，也要说明该店相对平均值或标杆店差在哪里。',
+      ],
+      guardrails: [
+        '不要只罗列名次，必须解释差异背后的指标结构。',
+        '不要引用上下文之外的行业均值。',
+      ],
+    };
+  }
+
+  if (whyQuestion) {
+    return {
+      type: status === 'store_analysis' ? 'store_root_cause' : 'overall_root_cause',
+      name: status === 'store_analysis' ? '单店根因诊断' : '整体根因诊断',
+      subject:
+        status === 'store_analysis'
+          ? `${storeName} ${periodLabel}`
+          : `${periodLabel} 多店范围`,
+      objective: '先回答“为什么”，再拆成几个最重要的驱动因素，并给出先抓动作。',
+      sections: ['## 结论', '## 原因拆解', '## 关键证据', '## 横向对比', '## 优先动作'],
+      focus: [
+        '原因拆解优先覆盖渠道结构、单客经济模型、重点成本项三个角度。',
+        '至少给出 3 条原因，不要只用一句“平台占比高导致利润低”。',
+        '如存在 peerComparison，必须用同周期对比说明差异。',
+      ],
+      guardrails: [
+        '不要把推测写成确定结论。',
+        '不要省略“先做什么”的动作层。',
+      ],
+    };
+  }
+
+  if (status === 'store_analysis') {
+    return {
+      type: 'store_snapshot',
+      name: '单店月度诊断',
+      subject: `${storeName} ${periodLabel}`,
+      objective: '给出单店本月经营财务快照，兼顾亮点、风险和优先动作。',
+      sections: ['## 结论', '## 亮点', '## 风险', '## 关键证据', '## 优先动作'],
+      focus: [
+        '结论先回答这家店本月到底表现怎样，再展开亮点和风险。',
+        '关键证据尽量覆盖利润率、平台占比、客单价、单客成本和重点成本项。',
+        '如果只有单月样本，也要继续做诊断，但必须说明趋势判断受限。',
+      ],
+      guardrails: [
+        '不要写成所有门店的大盘复盘。',
+        '不要只堆数字，数字必须服务于判断。',
+      ],
+    };
+  }
+
+  return {
+    type: 'fleet_overview',
+    name: '整体经营诊断',
+    subject: `${periodLabel} 多店范围`,
+    objective: '从整体经营结果、关键门店和管理动作三个层面输出结论。',
+    sections: ['## 结论', '## 整体表现', '## 重点门店', '## 关键证据', '## 优先动作'],
+    focus: [
+      '先给老板视角的一句话判断，再展开整体表现。',
+      '必须指出至少 1 家重点关注门店，说明原因。',
+      '动作要能落到门店经营或财务管理，不要停留在口号。',
+    ],
+    guardrails: [
+      '不要平均铺开复述每家门店。',
+      '不要把排名结论和动作建议脱节。',
+    ],
+  };
+}
+
+function buildAnalysisPromptModeBlock(profile) {
+  return [
+    '## 当前回答模式',
+    `- 模式：${profile.name}`,
+    `- 当前对象：${profile.subject}`,
+    `- 本轮目标：${profile.objective}`,
+    '- 固定结构：',
+    ...profile.sections.map((section) => `- ${section}`),
+    '- 输出重点：',
+    ...profile.focus.map((item) => `- ${item}`),
+    '- 输出约束：',
+    ...profile.guardrails.map((item) => `- ${item}`),
+  ].join('\n');
+}
+
 function buildVerifiedFactsBlock(context = {}) {
   const facts = [];
   const retrievedFacts = Array.isArray(context.retrievedFacts)
@@ -384,9 +637,10 @@ function buildCompactFinancialChatContext(context = {}) {
   };
 }
 
-function buildFinancialAnalystChatContextPrompt(context = {}) {
+function buildFinancialAnalystChatContextPrompt(context = {}, question = '') {
   const verifiedFactsBlock = buildVerifiedFactsBlock(context);
   const compactContext = buildCompactFinancialChatContext(context);
+  const analysisProfile = buildAnalysisPromptProfile({ question, context });
   const requestResolutionBlock = context.requestResolution
     ? JSON.stringify(context.requestResolution, null, 2)
     : '无';
@@ -396,6 +650,8 @@ function buildFinancialAnalystChatContextPrompt(context = {}) {
 
 ## 请求解析
 ${requestResolutionBlock}
+
+${buildAnalysisPromptModeBlock(analysisProfile)}
 
 ## 已核验事实
 ${verifiedFactsBlock || '无'}
@@ -410,6 +666,7 @@ function buildFinancialAnalystChatUserPrompt({ question, context }) {
   const greetingOnly = isGreetingOnly(question);
   const priorityStoreQuestion = asksForPriorityStore(question);
   const exactLookupQuestion = isExactLookupQuestion(question);
+  const analysisProfile = buildAnalysisPromptProfile({ question, context });
   const responseRequirements = exactLookupQuestion
     ? `如果这是精确取数或逐店列数问题，请只基于已核验事实回答：
 查询结果：先说清月份、指标和门店范围。
@@ -427,6 +684,17 @@ function buildFinancialAnalystChatUserPrompt({ question, context }) {
 优先动作：给 3 条按优先级排序的动作，明确先后顺序和关注指标。
 数据限制：如果只有单月样本，单独说明趋势判断受限。`
       : `请给出清晰但不敷衍的经营分析，至少包含：结论、2 到 3 条关键依据（使用无序列表，不要写“证据 1 / 证据 2”）、1 到 3 条动作建议。`;
+
+  const analysisModeRequirements = exactLookupQuestion
+    ? ''
+    : `${buildAnalysisPromptModeBlock(analysisProfile)}
+
+额外执行要求：
+- 第一段必须直接回答用户问题，不要先复述问题。
+- 如果存在 peerComparison，至少写 1 条同周期对比，不要把横向差异留空。
+- 关键证据必须尽量绑定具体指标、门店、渠道或成本项，不要写“证据 1 / 证据 2”。
+- 如果只有单月样本，必须明确写出“当前仅有单月，趋势判断受限”，但仍要继续给出诊断和动作。
+- 如果证据不足，明确说明“还需要补什么数据验证”，不要把猜测写成结论。`;
 
   if (greetingOnly) {
     return `
@@ -469,6 +737,8 @@ ${question}
       ? '如果存在第二优先级门店，可以作为补充单独说明，但不要模糊主结论。'
       : '如果证据不足，要明确说明依据有限，不要把推测写成确定事实。'
   }
+
+${analysisModeRequirements}
 `.trim();
 }
 

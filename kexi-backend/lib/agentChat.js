@@ -1685,6 +1685,54 @@ function buildRequestResolution({
   };
 }
 
+function buildFinancialAgentExecutionContext({
+  message,
+  history = [],
+  reports,
+  settings,
+}) {
+  const directLookup = resolveDirectLookup(message, reports);
+  const allStoresLookup = resolveAllStoresLookup(message, reports);
+  const filters = inferQuestionFilters(message, reports);
+  const { context } = buildFinancialContextBundle(reports, filters);
+  const retrievedFacts = [
+    ...(directLookup.retrievedFacts || []),
+    ...(allStoresLookup.retrievedFacts || []),
+  ];
+  const requestResolution = buildRequestResolution({
+    message,
+    context,
+    directLookup,
+    allStoresLookup,
+  });
+  const llmContext = {
+    ...context,
+    retrievedFacts,
+    requestResolution,
+  };
+
+  if (settings.llmProvider !== 'zhipu' || !settings.zhipuApiKey) {
+    return {
+      payload: {
+        reply: '当前未配置智谱 Key，财务问答无法提供 AI 分析。',
+        agent: buildFinancialAgentMeta({
+          mode: 'error',
+          provider: 'zhipu',
+          note: '当前未配置智谱 Key，财务问答不会再退回本地规则分析。',
+        }),
+      },
+    };
+  }
+
+  return {
+    history,
+    llmContext,
+    message,
+    preferredModel: settings.zhipuModel,
+    settings,
+  };
+}
+
 function buildGenericAgentReply(agentId, message) {
   const normalized = String(message || '').trim();
 
@@ -1735,44 +1783,24 @@ async function buildFinancialAgentReply({
   reports,
   settings,
 }) {
-  const directLookup = resolveDirectLookup(message, reports);
-  const allStoresLookup = resolveAllStoresLookup(message, reports);
-  const filters = inferQuestionFilters(message, reports);
-  const { context } = buildFinancialContextBundle(reports, filters);
-  const retrievedFacts = [
-    ...(directLookup.retrievedFacts || []),
-    ...(allStoresLookup.retrievedFacts || []),
-  ];
-  const requestResolution = buildRequestResolution({
+  const executionContext = buildFinancialAgentExecutionContext({
     message,
-    context,
-    directLookup,
-    allStoresLookup,
+    history,
+    reports,
+    settings,
   });
-  const llmContext = {
-    ...context,
-    retrievedFacts,
-    requestResolution,
-  };
 
-  if (settings.llmProvider !== 'zhipu' || !settings.zhipuApiKey) {
-    return {
-      reply: '当前未配置智谱 Key，财务问答无法提供 AI 分析。',
-      agent: buildFinancialAgentMeta({
-        mode: 'error',
-        provider: 'zhipu',
-        note: '当前未配置智谱 Key，财务问答不会再退回本地规则分析。',
-      }),
-    };
+  if (executionContext.payload) {
+    return executionContext.payload;
   }
 
   try {
     const result = await runZhipuFinancialChatAgent({
-      apiKey: settings.zhipuApiKey,
-      question: message,
-      history,
-      context: llmContext,
-      preferredModel: settings.zhipuModel,
+      apiKey: executionContext.settings.zhipuApiKey,
+      question: executionContext.message,
+      history: executionContext.history,
+      context: executionContext.llmContext,
+      preferredModel: executionContext.preferredModel,
     });
     const reply = normalizeText(result.reply, 6000);
 
@@ -1822,5 +1850,6 @@ async function buildWorkspaceAgentReply({
 }
 
 module.exports = {
+  buildFinancialAgentExecutionContext,
   buildWorkspaceAgentReply,
 };

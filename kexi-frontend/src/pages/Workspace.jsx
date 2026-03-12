@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import Sidebar1 from "../components/Sidebar1";
 import { buildApiUrl, getApiBaseUrl } from "../lib/runtimeConfig";
 
@@ -62,6 +62,31 @@ const AGENTS = [
 
 function cn(...classes) {
   return classes.filter(Boolean).join(" ");
+}
+
+const KNOWN_GARBLED_NOTE_REPLACEMENTS = [
+  {
+    match: "姝ｅ湪鏁寸悊璐㈠姟涓婁笅鏂囧苟杩炴帴鏅鸿氨",
+    replacement: "正在整理财务上下文并连接智谱，稍后开始生成。",
+  },
+  {
+    match: "宸叉彁浜ゆ櫤璋辨ā鍨嬶紝姝ｅ湪绛夊緟棣栦釜 token 杩斿洖",
+    replacement: "已提交智谱模型，正在等待首个 token 返回...",
+  },
+];
+
+function normalizeAgentNote(note) {
+  const text = String(note || "").trim();
+
+  if (!text) {
+    return "";
+  }
+
+  const matched = KNOWN_GARBLED_NOTE_REPLACEMENTS.find((item) =>
+    text.includes(item.match),
+  );
+
+  return matched ? matched.replacement : text;
 }
 
 function renderInlineMarkdown(text) {
@@ -314,11 +339,146 @@ async function requestJson(path, options) {
   return payload;
 }
 
+function buildConnectionError() {
+  const apiBaseUrl = getApiBaseUrl();
+  const localhostHint = apiBaseUrl.includes("localhost")
+      ? " 如果你不是在部署机本地打开页面，请把系统设置里的服务地址改成部署机 IP 或域名。"
+    : "";
+
+  return new Error(
+      `无法连接到智能体服务，请检查系统设置中的服务地址。当前地址：${apiBaseUrl}${localhostHint}`,
+  );
+}
+
+function parseSseEventBlock(block) {
+  const lines = String(block || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (!lines.length) {
+    return null;
+  }
+
+  let event = "message";
+  const dataLines = [];
+
+  lines.forEach((line) => {
+    if (line.startsWith("event:")) {
+      event = line.slice(6).trim() || "message";
+      return;
+    }
+
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice(5).trim());
+    }
+  });
+
+  if (!dataLines.length) {
+    return null;
+  }
+
+  const rawData = dataLines.join("\n");
+
+  if (rawData === "[DONE]") {
+    return { event, data: rawData };
+  }
+
+  try {
+    return {
+      event,
+      data: JSON.parse(rawData),
+    };
+  } catch {
+    return {
+      event,
+      data: rawData,
+    };
+  }
+}
+
+async function requestAgentStream(path, options, handlers = {}) {
+  let response;
+
+  try {
+    response = await fetch(buildApiUrl(path), options);
+  } catch {
+    throw buildConnectionError();
+  }
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(
+      payload.message ||
+        `无法连接到智能体服务，请检查系统设置中的服务地址。当前地址：${getApiBaseUrl()}`,
+    );
+  }
+
+  if (!response.body) {
+    throw new Error("当前浏览器不支持流式响应。");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+
+    while (true) {
+      const boundary = buffer.indexOf("\n\n");
+
+      if (boundary === -1) {
+        break;
+      }
+
+      const rawEvent = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const parsed = parseSseEventBlock(rawEvent);
+
+      if (!parsed) {
+        continue;
+      }
+
+      if (parsed.event === "meta") {
+        handlers.onMeta?.(parsed.data);
+        continue;
+      }
+
+      if (parsed.event === "delta") {
+        handlers.onDelta?.(parsed.data);
+        continue;
+      }
+
+      if (parsed.event === "done") {
+        handlers.onDone?.(parsed.data);
+        return;
+      }
+
+      if (parsed.event === "error") {
+        throw new Error(parsed.data?.message || "流式回复失败。");
+      }
+    }
+  }
+
+  handlers.onDone?.(null);
+}
+
 function AgentMessage({ message, agent, currentModel = "", currentProvider = "" }) {
   const isUser = message.role === "user";
   const meta = message.meta || {};
+  const normalizedNote = normalizeAgentNote(meta.note);
   const live =
-    meta.mode === "llm" || meta.mode === "live-ready" || meta.mode === "live";
+    meta.mode === "llm" ||
+    meta.mode === "live-ready" ||
+    meta.mode === "live" ||
+    meta.mode === "streaming";
   const providerLabel =
     meta.provider === "zhipu" ? "智谱" : meta.provider || currentProvider || "Model";
   const currentModelHint =
@@ -373,7 +533,11 @@ function AgentMessage({ message, agent, currentModel = "", currentProvider = "" 
                   : "bg-[#f4eee6] text-[#6b5a4d]",
               )}
             >
-              {meta.mode === "llm" ? "Live AI" : "Fallback"}
+              {meta.mode === "llm"
+                ? "Live AI"
+                : meta.mode === "streaming"
+                  ? "Streaming"
+                  : "Fallback"}
             </span>
           ) : null}
           {!isUser && meta.model ? (
@@ -392,13 +556,15 @@ function AgentMessage({ message, agent, currentModel = "", currentProvider = "" 
         >
           {isUser ? (
             <div className="whitespace-pre-wrap">{message.content}</div>
+          ) : meta.mode === "streaming" && !String(message.content || "").trim() ? (
+            <div className="text-[15px] leading-7 text-slate-400">正在生成...</div>
           ) : (
             <MarkdownMessage content={message.content} />
           )}
         </div>
-        {!isUser && meta.note ? (
+        {!isUser && normalizedNote ? (
           <p className="max-w-[860px] text-xs leading-5 text-slate-400">
-            {meta.note}
+            {normalizedNote}
           </p>
         ) : null}
       </div>
@@ -429,7 +595,12 @@ export default function Workspace() {
     }
 
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [activeAgentId, activeThread.messages.length, activeThread.pending]);
+  }, [
+    activeAgentId,
+    activeThread.messages.length,
+    activeThread.pending,
+    activeThread.messages[activeThread.messages.length - 1]?.content,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -475,6 +646,16 @@ export default function Workspace() {
       role: "user",
       content: message,
     };
+    const assistantMessageId = `${activeAgentId}-assistant-${generateMessageId()}`;
+    let streamedContent = "";
+    let latestMeta = {
+      badge: activeAgent.badge,
+      mode: "streaming",
+      model: "",
+      provider: "",
+      note: "AI 正在生成中...",
+    };
+    let flushTimer = null;
 
     const nextMessages = [...activeThread.messages, userMessage];
 
@@ -482,14 +663,58 @@ export default function Workspace() {
       ...current,
       [activeAgentId]: {
         ...current[activeAgentId],
-        messages: nextMessages,
+        messages: [
+          ...nextMessages,
+          {
+            id: assistantMessageId,
+            role: "assistant",
+            content: "",
+            meta: latestMeta,
+          },
+        ],
         pending: true,
       },
     }));
     setInputValue("");
 
+    const updateAssistantMessage = ({
+      content = streamedContent,
+      meta = latestMeta,
+      pending = true,
+    } = {}) => {
+      startTransition(() => {
+        setThreads((current) => ({
+          ...current,
+          [activeAgentId]: {
+            ...current[activeAgentId],
+            messages: current[activeAgentId].messages.map((item) =>
+              item.id === assistantMessageId
+                ? {
+                    ...item,
+                    content,
+                    meta,
+                  }
+                : item,
+            ),
+            pending,
+          },
+        }));
+      });
+    };
+
+    const scheduleAssistantFlush = () => {
+      if (flushTimer) {
+        return;
+      }
+
+      flushTimer = window.setTimeout(() => {
+        flushTimer = null;
+        updateAssistantMessage();
+      }, 40);
+    };
+
     try {
-      const result = await requestJson("/api/agents/chat", {
+      await requestAgentStream("/api/agents/chat/stream", {
         body: JSON.stringify({
           agentId: activeAgentId,
           history: nextMessages.slice(-8).map((item) => ({
@@ -499,60 +724,89 @@ export default function Workspace() {
           message,
         }),
         headers: {
+          Accept: "text/event-stream",
           "Content-Type": "application/json",
         },
         method: "POST",
-      });
+      }, {
+        onMeta: (payload) => {
+          latestMeta = {
+            badge: activeAgent.badge,
+            mode: payload.agent?.mode || "streaming",
+            model: payload.agent?.model || "",
+            provider: payload.agent?.provider || "",
+            note: normalizeAgentNote(payload.agent?.note),
+          };
 
-      const assistantMessage = {
-        id: `${activeAgentId}-assistant-${generateMessageId()}`,
-        role: "assistant",
-        content:
-          result.reply ||
-          result.agent?.note ||
-          "AI 暂时没有返回正文，请重试；如果持续出现，请检查后端服务和模型配置。",
-        meta: {
-          badge: activeAgent.badge,
-          mode: result.agent?.mode || "fallback",
-          model: result.agent?.model || "",
-          provider: result.agent?.provider || "",
-          note: result.agent?.note || "",
+          if (payload.agent?.mode === "llm" && payload.agent?.provider === "zhipu") {
+            setRuntimeProvider("zhipu");
+            setRuntimeModel(payload.agent?.model || runtimeModel);
+          }
+
+          updateAssistantMessage();
         },
-      };
+        onDelta: (payload) => {
+          streamedContent += payload.delta || "";
+          scheduleAssistantFlush();
+        },
+        onDone: (payload) => {
+          if (flushTimer) {
+            window.clearTimeout(flushTimer);
+            flushTimer = null;
+          }
 
-      if (result.agent?.mode === "llm" && result.agent?.provider === "zhipu") {
-        setRuntimeProvider("zhipu");
-        setRuntimeModel(result.agent?.model || runtimeModel);
+          if (payload?.agent) {
+            latestMeta = {
+              badge: activeAgent.badge,
+              mode: payload.agent.mode || "fallback",
+              model: payload.agent.model || "",
+              provider: payload.agent.provider || "",
+              note: normalizeAgentNote(payload.agent.note),
+            };
+          } else {
+            latestMeta = {
+              ...latestMeta,
+              badge: activeAgent.badge,
+              mode: latestMeta.mode === "streaming" ? "fallback" : latestMeta.mode,
+            };
+          }
+
+          if (payload?.reply) {
+            streamedContent = payload.reply;
+          }
+
+          if (
+            latestMeta.mode === "llm" &&
+            latestMeta.provider === "zhipu"
+          ) {
+            setRuntimeProvider("zhipu");
+            setRuntimeModel(latestMeta.model || runtimeModel);
+          }
+
+          updateAssistantMessage({
+            content:
+              streamedContent ||
+              latestMeta.note ||
+              "AI 暂时没有返回正文，请重试；如果持续出现，请检查后端服务和模型配置。",
+            meta: latestMeta,
+            pending: false,
+          });
+        },
+      });
+    } catch (error) {
+      if (flushTimer) {
+        window.clearTimeout(flushTimer);
       }
 
-      setThreads((current) => ({
-        ...current,
-        [activeAgentId]: {
-          ...current[activeAgentId],
-          messages: [...current[activeAgentId].messages, assistantMessage],
-          pending: false,
-        },
-      }));
-    } catch (error) {
-      const assistantMessage = {
-        id: `${activeAgentId}-assistant-error-${generateMessageId()}`,
-        role: "assistant",
+      updateAssistantMessage({
         content: error.message,
         meta: {
           badge: activeAgent.badge,
           mode: "fallback",
           note: "当前没有成功连接到后端服务。",
         },
-      };
-
-      setThreads((current) => ({
-        ...current,
-        [activeAgentId]: {
-          ...current[activeAgentId],
-          messages: [...current[activeAgentId].messages, assistantMessage],
-          pending: false,
-        },
-      }));
+        pending: false,
+      });
     }
   }
 
@@ -669,18 +923,6 @@ export default function Workspace() {
                 message={message}
               />
             ))}
-            {activeThread.pending ? (
-              <div className="mx-auto flex max-w-4xl w-full gap-4">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/20 text-primary">
-                  <span className="material-symbols-outlined">
-                    {activeAgent.icon}
-                  </span>
-                </div>
-                <div className="rounded-2xl rounded-tl-none border border-primary/5 bg-white px-5 py-4 text-sm text-slate-500 shadow-sm">
-                  正在分析当前问题...
-                </div>
-              </div>
-            ) : null}
           </div>
         </div>
 
@@ -715,7 +957,7 @@ export default function Workspace() {
             <p className="mt-3 text-center text-[10px] font-bold uppercase tracking-widest text-slate-400">
               财务分析师已接通财务数据；命中实时模型时会展示具体模型名，其他智能体仍在逐步打通专属数据链路。
             </p>
-          </div>
+        </div>
         </div>
       </main>
     </div>
