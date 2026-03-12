@@ -1,8 +1,218 @@
 import React, { useState, useRef, useEffect } from "react";
 import AppShell from "../components/AppShell";
+import { buildApiUrl } from "../lib/runtimeConfig";
 
 const STORES = ["华创店", "佳兆业店", "德思勤店", "凯德壹店", "梅溪湖店", "万象城店"];
 const MONTHS = ["2026年1月", "2026年2月", "2026年3月", "2026年4月"];
+const REQUIRED_SOURCE_GROUPS = [
+  { key: "revenue", label: "营业报表.xlsx" },
+  { key: "expense", label: "报销明细.pdf" },
+  { key: "payroll", label: "员工工资明细表.xlsx" },
+];
+
+function getParserModeLabel(mode = "") {
+  if (mode === "pdf-text") {
+    return "PDF 文本解析";
+  }
+
+  if (mode === "spreadsheet") {
+    return "表格直读";
+  }
+
+  if (mode === "document") {
+    return "参考文本";
+  }
+
+  if (mode === "error") {
+    return "解析失败";
+  }
+
+  return "待处理";
+}
+
+function buildFileMetaSummary(metrics = {}) {
+  const items = [];
+
+  if (metrics.sheetName) {
+    items.push(metrics.sheetName);
+  }
+
+  if (metrics.rowCount) {
+    items.push(`${metrics.rowCount} 行`);
+  }
+
+  if (metrics.pageCount) {
+    items.push(`${metrics.pageCount} 页`);
+  }
+
+  if (metrics.charCount) {
+    items.push(`${metrics.charCount} 字`);
+  }
+
+  if (typeof metrics.totalAmount === "number" && Number.isFinite(metrics.totalAmount)) {
+    items.push(`总计 ¥${metrics.totalAmount.toLocaleString("zh-CN", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    })}`);
+  }
+
+  return items;
+}
+
+function normalizeParsedFile(file = {}) {
+  return {
+    name: file.fileName || "",
+    mode: getParserModeLabel(file.parserMode),
+    note: file.note || "",
+    bodySheetSection: file.bodySheetSection || null,
+    parsedDataSummary: Array.isArray(file.parsedDataSummary) ? file.parsedDataSummary : [],
+    previewLines: Array.isArray(file.previewLines) ? file.previewLines : [],
+    metricsSummary: buildFileMetaSummary(file.metrics),
+    sourceGroupKey: file.sourceGroupKey || "",
+  };
+}
+
+function normalizeReviewFile(file = {}) {
+  return {
+    name: file.fileName || "",
+    mode: getParserModeLabel(file.parserMode),
+    reason: file.reason || "当前需要人工复核。",
+    bodySheetSection: file.bodySheetSection || null,
+    parsedDataSummary: Array.isArray(file.parsedDataSummary) ? file.parsedDataSummary : [],
+    previewLines: Array.isArray(file.previewLines) ? file.previewLines : [],
+    metricsSummary: buildFileMetaSummary(file.metrics),
+    sourceGroupKey: file.sourceGroupKey || "",
+  };
+}
+
+function getPrimaryReportFile(report = {}) {
+  return (
+    report.successFiles?.[0] ||
+    report.reviewFiles?.[0] ||
+    report.failFiles?.[0] ||
+    null
+  );
+}
+
+function buildReportSummary({ report, index, total }) {
+  const primaryFile = getPrimaryReportFile(report);
+
+  if (!primaryFile) {
+    return `第 ${index}/${total} 份文件已处理完成，但当前还没有拿到可展示的解析结果。`;
+  }
+
+  if (report.failFiles?.length > 0) {
+    return `第 ${index}/${total} 份文件《${primaryFile.name}》暂不支持解析，当前未纳入体质表，请替换成可识别格式后再试。`;
+  }
+
+  const sectionLabel = primaryFile.bodySheetSection?.label;
+  const summary = (primaryFile.parsedDataSummary || []).slice(0, 3);
+  const alreadyMentionedSection = sectionLabel
+    ? summary.some((item) => String(item || "").includes(sectionLabel))
+    : false;
+
+  return [
+    `第 ${index}/${total} 份文件《${primaryFile.name}》已完成解析。`,
+    ...summary,
+    sectionLabel && !alreadyMentionedSection ? `本次先纳入体质表「${sectionLabel}」。` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function buildBatchSummary({ fileCount, matchedGroupKeys, storeName, periodLabel }) {
+  const missingFiles = REQUIRED_SOURCE_GROUPS.filter(
+    (group) => !matchedGroupKeys.has(group.key),
+  ).map((group) => group.label);
+
+  const coveredGroups = REQUIRED_SOURCE_GROUPS.filter((group) =>
+    matchedGroupKeys.has(group.key),
+  ).map((group) => group.label.replace(/\.(xlsx|xls|csv|pdf)$/i, ""));
+
+  const parts = [
+    `本轮共完成 ${fileCount} 份源文件解析。`,
+    coveredGroups.length
+      ? `已补齐：${coveredGroups.join("、")}。`
+      : "当前还没有补齐到可直接入表的核心来源。",
+    missingFiles.length
+      ? `仍缺：${missingFiles.join("、")}。`
+      : `当前 ${storeName} ${periodLabel} 的核心源文件已基本补齐，可以进入体质表汇总。`,
+  ];
+
+  return parts.join(" ");
+}
+
+function buildMissingSourceGroups(matchedGroupKeys) {
+  return REQUIRED_SOURCE_GROUPS.filter((group) => !matchedGroupKeys.has(group.key))
+    .map((group) => group.label);
+}
+
+function resolveDownloadUrl(downloadPath = "", downloadFileName = "") {
+  if (!downloadPath) {
+    return "";
+  }
+
+  const separator = downloadPath.includes("?") ? "&" : "?";
+  const pathWithName = downloadFileName
+    ? `${downloadPath}${separator}name=${encodeURIComponent(downloadFileName)}`
+    : downloadPath;
+
+  return buildApiUrl(pathWithName);
+}
+
+async function uploadSourceFiles(files, { storeName, periodLabel }) {
+  const formData = new FormData();
+  files.forEach((file) => {
+    formData.append("files", file);
+  });
+  formData.append("storeName", storeName);
+  formData.append("periodLabel", periodLabel);
+
+  const response = await fetch(buildApiUrl("/api/parsing/upload"), {
+    method: "POST",
+    body: formData,
+  });
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(payload.message || "源文件解析失败，请稍后重试。");
+  }
+
+  return payload;
+}
+
+async function exportParsingDraft({
+  storeName,
+  periodLabel,
+  parsedFiles,
+  reviewFiles,
+  failFiles,
+  missingFiles,
+}) {
+  const response = await fetch(buildApiUrl("/api/parsing/export-draft"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      storeName,
+      periodLabel,
+      parsedFiles,
+      reviewFiles,
+      failFiles,
+      missingFiles,
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(payload.message || "体质表生成失败，请稍后重试。");
+  }
+
+  return payload;
+}
 
 export default function DataParsing() {
   const [selectedStore, setSelectedStore] = useState("华创店");
@@ -17,6 +227,7 @@ export default function DataParsing() {
     }
   ]);
   const [isTyping, setIsTyping] = useState(false);
+  const [typingText, setTypingText] = useState("");
   const [inputText, setInputText] = useState("");
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -29,7 +240,7 @@ export default function DataParsing() {
     scrollToBottom();
   }, [messages]);
 
-  const handleFileUpload = (e) => {
+  const handleFileUpload = async (e) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
 
@@ -41,28 +252,160 @@ export default function DataParsing() {
     setMessages((prev) => [...prev, newMsg]);
 
     setIsTyping(true);
-    setTimeout(() => {
-      setIsTyping(false);
-      
-      const successFiles = files.filter(f => !f.name.endsWith('.pdf'));
-      const failFiles = files.filter(f => f.name.endsWith('.pdf'));
-      const missingFiles = ["员工工资明细表.xlsx"];
+    const matchedGroupKeys = new Set();
+    const parsedDraftFiles = [];
+    const reviewDraftFiles = [];
+    const failDraftFiles = [];
 
-      const aiResponse = {
-        id: Date.now() + 1,
-        sender: "ai",
-        type: "report",
-        store: selectedStore,
-        month: selectedMonth,
-        successFiles: successFiles.map(f => f.name),
-        failFiles: failFiles.map(f => f.name),
-        missingFiles: missingFiles,
-        downloadUrl: "#", 
-        downloadFileName: `${selectedMonth}${selectedStore}体质表.xlsx`
-      };
-      
-      setMessages((prev) => [...prev, aiResponse]);
-    }, 2500);
+    try {
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        setTypingText(`正在解析第 ${index + 1}/${files.length} 份：${file.name}`);
+
+        try {
+          const result = await uploadSourceFiles([file], {
+            storeName: selectedStore,
+            periodLabel: selectedMonth,
+          });
+
+          const successFiles = (result.parsedFiles || []).map(normalizeParsedFile);
+          const reviewFiles = (result.reviewFiles || []).map(normalizeReviewFile);
+          const failFiles = (result.failFiles || []).map((parsedFile) => ({
+            name: parsedFile.fileName || file.name || "",
+            reason: parsedFile.reason || "当前文件暂不支持解析。",
+            bodySheetSection: parsedFile.bodySheetSection || null,
+            parsedDataSummary: Array.isArray(parsedFile.parsedDataSummary)
+              ? parsedFile.parsedDataSummary
+              : [],
+          }));
+
+          parsedDraftFiles.push(...(result.parsedFiles || []));
+          reviewDraftFiles.push(...(result.reviewFiles || []));
+          failDraftFiles.push(...(result.failFiles || []));
+
+          [...successFiles, ...reviewFiles].forEach((parsedFile) => {
+            if (parsedFile.sourceGroupKey) {
+              matchedGroupKeys.add(parsedFile.sourceGroupKey);
+            }
+          });
+
+          const hasBlockingIssue = failFiles.length > 0;
+          const needsFollowUp = reviewFiles.length > 0;
+          const aiResponse = {
+            id: Date.now() + index + 1,
+            sender: "ai",
+            type: "report",
+            fileName: file.name,
+            store: selectedStore,
+            month: selectedMonth,
+            summaryText: "",
+            statusLabel: hasBlockingIssue
+              ? "PARTIAL"
+              : needsFollowUp
+                ? "REVIEW"
+                : "COMPLETED",
+            successFiles,
+            reviewFiles,
+            failFiles,
+            missingFiles: [],
+            downloadUrl: "",
+            downloadFileName: "",
+          };
+
+          aiResponse.summaryText = buildReportSummary({
+            report: aiResponse,
+            index: index + 1,
+            total: files.length,
+          });
+
+          setMessages((prev) => [...prev, aiResponse]);
+        } catch (singleError) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: Date.now() + index + 1,
+              sender: "ai",
+              type: "report",
+              fileName: file.name,
+              store: selectedStore,
+              month: selectedMonth,
+              summaryText: `第 ${index + 1}/${files.length} 份文件《${file.name}》解析失败：${singleError.message || "请稍后重试。"}`,
+              statusLabel: "PARTIAL",
+              successFiles: [],
+              reviewFiles: [],
+              failFiles: [
+                {
+                  name: file.name,
+                  reason: singleError.message || "请稍后重试。",
+                  bodySheetSection: null,
+                  parsedDataSummary: [],
+                },
+              ],
+              missingFiles: [],
+              downloadUrl: "",
+              downloadFileName: "",
+            },
+          ]);
+        }
+      }
+
+      const batchSummary = buildBatchSummary({
+        fileCount: files.length,
+        matchedGroupKeys,
+        storeName: selectedStore,
+        periodLabel: selectedMonth,
+      });
+      const missingFiles = buildMissingSourceGroups(matchedGroupKeys);
+
+      setTypingText("正在按模板汇总体质表并生成下载文件...");
+
+      try {
+        const exportResult = await exportParsingDraft({
+          storeName: selectedStore,
+          periodLabel: selectedMonth,
+          parsedFiles: parsedDraftFiles,
+          reviewFiles: reviewDraftFiles,
+          failFiles: failDraftFiles,
+          missingFiles,
+        });
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `batch-summary-${Date.now()}`,
+            sender: "ai",
+            text: `${batchSummary} 我已按标准体质表模板完成回填，可直接下载。`,
+            downloadUrl: resolveDownloadUrl(
+              exportResult.downloadPath,
+              exportResult.downloadFileName,
+            ),
+            downloadFileName: exportResult.downloadFileName || "",
+          },
+        ]);
+      } catch (exportError) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `batch-summary-${Date.now()}`,
+            sender: "ai",
+            text: `${batchSummary} 但体质表生成失败：${exportError.message || "请稍后重试。"}`,
+          },
+        ]);
+      }
+    } catch (error) {
+      setIsTyping(false);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now() + 1,
+          sender: "ai",
+          text: `解析失败：${error.message || "请稍后重试。"}`,
+        },
+      ]);
+    } finally {
+      setIsTyping(false);
+      setTypingText("");
+    }
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -86,9 +429,7 @@ export default function DataParsing() {
       const aiResponse = {
         id: Date.now() + 1,
         sender: "ai",
-        text: "没问题。我已经根据您的要求对核心数据指标进行了重新核算与校准。调整后的报表已生成，请在此处下载查看：",
-        downloadUrl: "#",
-        downloadFileName: `${selectedMonth}${selectedStore}体质表_更新v2.xlsx`
+        text: "已收到。当前下载功能已接入标准体质表导出；请先上传并完成本月源文件解析。",
       };
       setMessages((prev) => [...prev, aiResponse]);
     }, 1500);
@@ -211,18 +552,28 @@ export default function DataParsing() {
                   {msg.type === "report" && (
                     <div className="mt-5 rounded-2xl bg-white border border-[#e8dcc4]/60 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] overflow-hidden">
                       {/* Card Header */}
-                      <div className="bg-[#fcfaf7] border-b border-[#e8dcc4]/40 px-5 py-3.5 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="material-symbols-outlined text-[20px] text-[#b6860c]">insights</span>
-                          <p className="text-[15px] font-extrabold text-[#171412]">
-                            解析报告 · {msg.store} {msg.month}
-                          </p>
+                        <div className="bg-[#fcfaf7] border-b border-[#e8dcc4]/40 px-5 py-3.5 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="material-symbols-outlined text-[20px] text-[#b6860c]">insights</span>
+                            <p className="text-[15px] font-extrabold text-[#171412]">
+                              解析报告 · {msg.fileName || `${msg.store} ${msg.month}`}
+                            </p>
+                          </div>
+                          <span className="text-[11px] font-bold tracking-wider text-[#d96e42] bg-[#d96e42]/10 px-2 py-1 rounded-md">
+                            {msg.statusLabel || "COMPLETED"}
+                          </span>
                         </div>
-                        <span className="text-[11px] font-bold tracking-wider text-[#d96e42] bg-[#d96e42]/10 px-2 py-1 rounded-md">COMPLETED</span>
-                      </div>
                       
                       {/* Card Body */}
                       <div className="p-5 space-y-4">
+                        {msg.summaryText ? (
+                          <div className="rounded-xl border border-[#e8dcc4]/50 bg-[#fcfaf7] px-4 py-3">
+                            <p className="text-[13px] leading-6 text-[#5f5345]">
+                              {msg.summaryText}
+                            </p>
+                          </div>
+                        ) : null}
+
                         <div className="grid grid-cols-1 gap-3">
                           {msg.successFiles?.length > 0 && (
                             <div className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3.5">
@@ -230,27 +581,139 @@ export default function DataParsing() {
                                 <span className="material-symbols-outlined text-[16px]">check_circle</span>
                                 成功解析 ({msg.successFiles.length})
                               </p>
-                              <div className="flex flex-wrap gap-2">
-                                {msg.successFiles.map((f, i) => (
-                                  <span key={i} className="inline-flex items-center rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-emerald-700 border border-emerald-100 shadow-sm">
-                                    {f}
-                                  </span>
+                              <div className="space-y-2">
+                                {msg.successFiles.map((file, i) => (
+                                  <div
+                                    key={`${file.name}-${i}`}
+                                    className="rounded-xl border border-emerald-100 bg-white px-3 py-2.5 shadow-sm"
+                                  >
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span className="truncate text-[13px] font-semibold text-emerald-800">
+                                        {file.name}
+                                      </span>
+                                      <span className="shrink-0 rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-emerald-700">
+                                        {file.mode}
+                                      </span>
+                                    </div>
+                                    <p className="mt-1.5 text-[12px] leading-5 text-emerald-700/80">
+                                      {file.note}
+                                    </p>
+                                    {file.bodySheetSection ? (
+                                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                                        <span className="rounded-md bg-[#fff6db] px-2 py-1 text-[11px] font-bold text-[#9b6b00]">
+                                          纳入：{file.bodySheetSection.label}
+                                        </span>
+                                        <span className="text-[11px] font-medium text-[#7a6c58]">
+                                          {file.bodySheetSection.target}
+                                        </span>
+                                      </div>
+                                    ) : null}
+                                    {file.parsedDataSummary?.length > 0 ? (
+                                      <div className="mt-2.5 rounded-lg bg-[#fffdfa] px-3 py-2.5">
+                                        <p className="text-[11px] font-bold uppercase tracking-wide text-[#8f6b35]">
+                                          本次提取
+                                        </p>
+                                        <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[12px] leading-5 text-[#6f5b3f]">
+                                          {file.parsedDataSummary.map((item) => (
+                                            <li key={`${file.name}-${item}`}>{item}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    ) : null}
+                                    {file.metricsSummary?.length > 0 ? (
+                                      <div className="mt-2 flex flex-wrap gap-1.5">
+                                        {file.metricsSummary.map((item) => (
+                                          <span
+                                            key={`${file.name}-${item}`}
+                                            className="rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700"
+                                          >
+                                            {item}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                    {file.previewLines?.length > 0 ? (
+                                      <div className="mt-2.5 rounded-lg bg-[#f7fbf8] px-3 py-2.5 text-[12px] leading-5 text-[#406a57]">
+                                        {file.previewLines.map((line, index) => (
+                                          <p key={`${file.name}-preview-${index}`} className="truncate">
+                                            {line}
+                                          </p>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                  </div>
                                 ))}
                               </div>
                             </div>
                           )}
 
-                          {(msg.failFiles?.length > 0 || msg.missingFiles?.length > 0) && (
+                          {(msg.reviewFiles?.length > 0 || msg.failFiles?.length > 0 || msg.missingFiles?.length > 0) && (
                             <div className="flex flex-col sm:flex-row gap-3">
+                              {msg.reviewFiles?.length > 0 && (
+                                <div className="flex-1 rounded-xl border border-sky-100 bg-sky-50/40 p-3.5">
+                                  <p className="mb-2 text-[13px] font-bold text-sky-700 flex items-center gap-1.5 uppercase tracking-wide">
+                                    <span className="material-symbols-outlined text-[16px]">manage_search</span>
+                                    待复核 ({msg.reviewFiles.length})
+                                  </p>
+                                  <div className="space-y-2">
+                                    {msg.reviewFiles.map((file, i) => (
+                                      <div key={`${file.name}-${i}`} className="rounded-lg bg-white px-3 py-2 text-[12px] text-sky-900/90 border border-sky-100">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <span className="truncate font-semibold">{file.name}</span>
+                                          <span className="shrink-0 rounded-md bg-sky-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-700">
+                                            {file.mode}
+                                          </span>
+                                        </div>
+                                        <p className="mt-1 text-sky-800/75 leading-5">{file.reason}</p>
+                                        {file.bodySheetSection ? (
+                                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                                            <span className="rounded-md bg-sky-50 px-2 py-1 text-[11px] font-bold text-sky-700">
+                                              建议归入：{file.bodySheetSection.label}
+                                            </span>
+                                            <span className="text-[11px] font-medium text-sky-900/60">
+                                              {file.bodySheetSection.target}
+                                            </span>
+                                          </div>
+                                        ) : null}
+                                        {file.parsedDataSummary?.length > 0 ? (
+                                          <ul className="mt-2 list-disc space-y-1 pl-4 text-[12px] leading-5 text-sky-800/75">
+                                            {file.parsedDataSummary.map((item) => (
+                                              <li key={`${file.name}-${item}`}>{item}</li>
+                                            ))}
+                                          </ul>
+                                        ) : null}
+                                        {file.metricsSummary?.length > 0 ? (
+                                          <div className="mt-2 flex flex-wrap gap-1.5">
+                                            {file.metricsSummary.map((item) => (
+                                              <span
+                                                key={`${file.name}-${item}`}
+                                                className="rounded-md bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700"
+                                              >
+                                                {item}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
                               {msg.failFiles?.length > 0 && (
                                 <div className="flex-1 rounded-xl border border-rose-100 bg-rose-50/30 p-3.5">
                                   <p className="mb-2 text-[13px] font-bold text-rose-700 flex items-center gap-1.5 uppercase tracking-wide">
                                     <span className="material-symbols-outlined text-[16px]">error</span>
-                                    格式异常
+                                    暂不支持 ({msg.failFiles.length})
                                   </p>
-                                  <ul className="list-inside list-disc space-y-1 text-rose-600/80 text-[13px] font-medium">
-                                    {msg.failFiles.map((f, i) => <li key={i} className="truncate">{f}</li>)}
-                                  </ul>
+                                  <div className="space-y-2">
+                                    {msg.failFiles.map((file, i) => (
+                                      <div key={`${file.name}-${i}`} className="rounded-lg bg-white px-3 py-2 text-[12px] text-rose-900/90 border border-rose-100">
+                                        <p className="truncate font-semibold">{file.name}</p>
+                                        <p className="mt-1 text-rose-700/80 leading-5">{file.reason}</p>
+                                      </div>
+                                    ))}
+                                  </div>
                                 </div>
                               )}
 
@@ -273,17 +736,25 @@ export default function DataParsing() {
                       {/* Card Footer (Download) */}
                       <div className="bg-[#fcfaf7] border-t border-[#e8dcc4]/40 p-5 flex items-center justify-between">
                         <div>
-                          <p className="text-sm font-bold text-[#171412]">报表生成完毕</p>
-                          <p className="text-[12px] text-[#8c8273] mt-0.5">您可以直接下载，或继续提问调整</p>
+                          <p className="text-sm font-bold text-[#171412]">源文件已完成解析</p>
+                          <p className="text-[12px] text-[#8c8273] mt-0.5">
+                            继续上传其他资料即可补齐体质表所需数据。
+                          </p>
                         </div>
-                        <a
-                          href={msg.downloadUrl}
-                          className="group relative inline-flex items-center gap-2 rounded-xl bg-gradient-to-b from-[#b6860c] to-[#99700a] px-5 py-2.5 text-sm font-bold text-white shadow-[0_4px_12px_rgba(182,134,12,0.3)] transition-all hover:scale-[1.02] hover:shadow-[0_6px_16px_rgba(182,134,12,0.4)]"
-                          onClick={(e) => { e.preventDefault(); alert("演示：文件下载触发"); }}
-                        >
-                          <span className="material-symbols-outlined text-[18px]">download</span>
-                          点击下载
-                        </a>
+                        {msg.downloadUrl ? (
+                          <a
+                            href={msg.downloadUrl}
+                            download={msg.downloadFileName || undefined}
+                            className="group relative inline-flex items-center gap-2 rounded-xl bg-gradient-to-b from-[#b6860c] to-[#99700a] px-5 py-2.5 text-sm font-bold text-white shadow-[0_4px_12px_rgba(182,134,12,0.3)] transition-all hover:scale-[1.02] hover:shadow-[0_6px_16px_rgba(182,134,12,0.4)]"
+                          >
+                            <span className="material-symbols-outlined text-[18px]">download</span>
+                            点击下载
+                          </a>
+                        ) : (
+                          <div className="rounded-xl border border-[#e8dcc4] bg-white px-4 py-2 text-[12px] font-semibold text-[#8c8273]">
+                            当前卡片展示的是单文件解析结果；整轮完成后会自动生成标准体质表供下载。
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -293,8 +764,8 @@ export default function DataParsing() {
                     <div className="mt-4">
                         <a
                           href={msg.downloadUrl}
+                          download={msg.downloadFileName || undefined}
                           className="group inline-flex items-center gap-2.5 rounded-xl border border-[#e8dcc4] bg-white px-5 py-3 text-[14px] font-bold text-[#171412] shadow-sm transition-all hover:border-[#b6860c]/50 hover:shadow-md"
-                          onClick={(e) => { e.preventDefault(); alert("演示：文件下载触发"); }}
                         >
                           <div className="flex size-7 items-center justify-center rounded-lg bg-[#b6860c]/10 text-[#b6860c]">
                             <span className="material-symbols-outlined text-[18px]">table_view</span>
@@ -317,6 +788,11 @@ export default function DataParsing() {
                   <div className="size-2 rounded-full bg-[#b6860c]/40 animate-bounce"></div>
                   <div className="size-2 rounded-full bg-[#b6860c]/60 animate-bounce" style={{ animationDelay: "0.15s" }}></div>
                   <div className="size-2 rounded-full bg-[#b6860c]/80 animate-bounce" style={{ animationDelay: "0.3s" }}></div>
+                  {typingText ? (
+                    <span className="ml-3 text-[13px] font-medium text-[#8c8273]">
+                      {typingText}
+                    </span>
+                  ) : null}
                 </div>
               </div>
             )}

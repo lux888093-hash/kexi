@@ -502,11 +502,11 @@ function buildFinancialAnalystChatSystemPrompt() {
 4. 默认输出中等偏详细的分析，不要压缩成一句话；除非用户明确要求简短，否则通常输出 280 到 700 字。
 5. 如果用户问“为什么某店利润低/高”“该先整改什么”“未来 30 天抓什么”，优先按“结论、原因拆解、关键证据、横向对比、优先动作”组织回答。
 6. 如果上下文里存在 peerComparison，必须使用同周期门店对比，明确说明该店相对平均值或对标门店差在哪里。
-7. 禁止引用任何上下文里没有出现的行业阈值、经验值、健康线、常规水平；判断高低只能基于同周期平均、门店排名、对标门店或上下文已经给出的 comparisonHighlights。
+7. 禁止引用任何上下文里没有出现的行业阈值、经验值、健康线、常规水平；判断高低只能基于同周期平均、门店排名、对标门店、上下文已经给出的 comparisonHighlights，或本轮联网搜索返回的公开资料。
 8. 重要判断尽量带具体指标，例如利润率、平台占比、客单价、单客成本、健康度、重点成本项、渠道占比。
 9. 如果只有单月样本，必须单独说明趋势判断受限，但不能因此省略原因分析和动作建议。
 10. 动作建议必须有顺序、有抓手，优先使用“先做什么、盯什么指标、多久复盘”这类表达。
-11. 不要自行发明整改目标值、行业标准值或阈值，例如“平台占比降到 70% 以下”“利润率达到 30%”；除非这些数字已经出现在上下文里。
+11. 不要自行发明整改目标值，例如“平台占比降到 70% 以下”“利润率达到 30%”；行业标准值或阈值只有在明确来自本轮联网搜索结果时才能引用，而且不能自动改写成门店整改目标。
 12. 使用简体中文 Markdown 输出，不要输出 JSON，不要输出表格。
 13. 对于详细分析，优先使用这种 Markdown 结构：
 ## 结论
@@ -515,6 +515,8 @@ function buildFinancialAnalystChatSystemPrompt() {
 ## 横向对比
 ## 优先动作
 必要时可省略不适用的小节，但整体排版要清晰。
+14. 如果用户明确询问行业通用信息、公开资料、政策或市场情况，且本轮已启用联网搜索，可以引用搜索结果中的公开信息；但要区分“门店自身数据”和“外部公开资料”。
+15. 不要说“我无法浏览实时网络”或“我不能上网”；如果当前回答没有启用联网搜索，就明确说“这条回答先基于现有财务数据”，不要伪造能力边界。
 `.trim();
 }
 
@@ -661,6 +663,22 @@ ${JSON.stringify(compactContext, null, 2)}
 `.trim();
 }
 
+function buildFinancialAnalystChatStylePrompt() {
+  return `
+补充风格要求：
+1. 表达风格参考高质量产品型 AI 助手：自然、顺滑、有一点温度，但保持财务专业度。
+2. 不要每轮都机械重复“结论 / 整体表现 / 重点门店 / 关键证据 / 优先动作”这组固定标题。
+3. 请根据问题复杂度，自然组织为 2 到 4 个小节；如果问题简单，直接给“结论 + 要点 + 动作”即可。
+4. 小节标题可以更自然一些，例如“先说结论”“为什么会这样”“你现在最该盯的”“下一步怎么做”。
+5. 第一段先直接回答用户问题，不要先复述问题。
+6. 可以少量使用 1 到 3 个 emoji（如 📌、⚠️、✅、💡）增强可读性，但不要泛滥，不要卖萌。
+7. 尽量避免官话、套话、模板话；像资深分析同事在微信里给老板回消息，但关键数字、证据和动作要保留。
+8. 不要把每条 bullet 都写成相同句式，适度变化表达。
+9. 如果本轮启用了联网搜索，外部公开资料请单独点明，不要和门店自身经营数据混写。
+10. 不要说“我无法浏览实时网络”或“我不能上网”；该说的是“本轮已联网搜索”或“这条先基于现有数据回答”。
+`.trim();
+}
+
 function buildFinancialAnalystChatUserPrompt({ question, context }) {
   const detailed = requiresDetailedAnswer(question);
   const greetingOnly = isGreetingOnly(question);
@@ -694,6 +712,7 @@ function buildFinancialAnalystChatUserPrompt({ question, context }) {
 - 如果存在 peerComparison，至少写 1 条同周期对比，不要把横向差异留空。
 - 关键证据必须尽量绑定具体指标、门店、渠道或成本项，不要写“证据 1 / 证据 2”。
 - 如果只有单月样本，必须明确写出“当前仅有单月，趋势判断受限”，但仍要继续给出诊断和动作。
+- 如果本轮启用了联网搜索，引用的行业、政策、市场或公开资料要单独标注，不要和门店月报数据混写。
 - 如果证据不足，明确说明“还需要补什么数据验证”，不要把猜测写成结论。`;
 
   if (greetingOnly) {
@@ -719,11 +738,11 @@ ${question}
 1. 不要复述整段原始 JSON，要把数据压缩成管理层能直接读懂的判断。
 2. 每个关键判断都尽量绑定具体数字、门店名、渠道名或成本项。
 3. 如果上下文里有 peerComparison，请优先利用 comparisonHighlights、samePeriodAverage、focusStoreRanks、leaders、peerStores 做横向比较。
-4. 不允许补充“行业通常应该是多少”“健康阈值是多少”这类上下文之外的判断。
+4. 不允许补充“行业通常应该是多少”“健康阈值是多少”这类上下文之外的判断；除非本轮已启用联网搜索，且你明确标注为公开资料。
 5. 如果你自己的推导和“已核验事实”冲突，以已核验事实为准，不要改写方向。
 6. 使用 Markdown 排版，至少合理使用二级标题、项目符号或编号列表、加粗强调。
 7. 不要只给笼统结论，尤其不要只回答一句“平台占比高所以利润低”。
-8. 不要自行给出上下文之外的整改目标值、行业标准值或阈值。
+8. 不要自行给出上下文之外的整改目标值；如果引用外部行业标准或阈值，要明确说明出处属于联网搜索结果，且不要把它直接写成门店整改目标。
 9. 如果 \`requestResolution.needsClarification === true\`，先明确说明当前缺少哪个精确指标、门店范围或月份，再给 2 到 4 个可继续追问的示例，不要猜测。
 10. 如果 \`requestResolution.status\` 表示缺数据或缺月报，直接说明缺失范围和已知条件，不要补造分析。
 11. 如果 \`requestResolution.status\` 表示精确取数或逐店查询，优先基于 \`retrievedFacts\` 直接回答，再补充必要的同期对比。
@@ -747,6 +766,7 @@ module.exports = {
   FINANCIAL_ANALYST_AGENT_VERSION,
   buildFinancialAnalystSystemPrompt,
   buildFinancialAnalystChatContextPrompt,
+  buildFinancialAnalystChatStylePrompt,
   buildFinancialAnalystChatSystemPrompt,
   buildFinancialAnalystChatUserPrompt,
   buildFinancialAnalystUserPrompt,

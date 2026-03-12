@@ -1,5 +1,6 @@
 const {
   buildFinancialAnalystChatContextPrompt,
+  buildFinancialAnalystChatStylePrompt,
   buildFinancialAnalystChatSystemPrompt,
   buildFinancialAnalystChatUserPrompt,
   buildFinancialAnalystSystemPrompt,
@@ -83,6 +84,7 @@ function normalizeChatHistory(history = [], currentQuestion = '') {
 
 function getChatExecutionPlan(context = {}, preferredModel = '') {
   const requestStatus = context?.requestResolution?.status || '';
+  const configuredModel = String(preferredModel || '').trim();
   const fastStatuses = new Set([
     'exact_lookup',
     'all_stores_lookup',
@@ -97,16 +99,16 @@ function getChatExecutionPlan(context = {}, preferredModel = '') {
   return {
     modelCandidates: fastStatuses.has(requestStatus)
       ? uniqueStrings([
+          configuredModel,
           'glm-4-flash-250414',
           'glm-4.7-flash',
-          preferredModel,
-          ...getZhipuModelCandidates(preferredModel),
+          ...getZhipuModelCandidates(),
         ])
       : uniqueStrings([
+          configuredModel,
+          ...getZhipuModelCandidates(),
           'glm-4.7-flash',
           'glm-4-flash-250414',
-          preferredModel,
-          ...getZhipuModelCandidates(preferredModel),
         ]),
     attemptConfigs: fastStatuses.has(requestStatus)
       ? [
@@ -124,8 +126,8 @@ function getChatExecutionPlan(context = {}, preferredModel = '') {
       : [
           {
             maxTokens: 1800,
-            timeoutMs: 25000,
-            enableThinking: false,
+            timeoutMs: 30000,
+            enableThinking: true,
           },
           {
             maxTokens: 2600,
@@ -134,6 +136,144 @@ function getChatExecutionPlan(context = {}, preferredModel = '') {
           },
         ],
   };
+}
+
+const WEB_SEARCH_TRIGGER_PATTERNS = [
+  /联网|上网|搜一下|搜索|查一下|查找|检索/u,
+  /行业均值|行业平均|行业标准|行业阈值|行业水平|行业通用/u,
+  /公开资料|公开信息|市场平均|市场情况|市场水平|竞品/u,
+  /新闻|政策|监管|外部资料|外部信息/u,
+  /一般来说|通常应该|通常水平|普遍情况/u,
+];
+
+const WEB_SEARCH_BLOCK_PATTERNS = [
+  /不要联网|别联网|无需联网|不用联网/u,
+  /不要搜索|别搜索|无需搜索|不用搜索/u,
+  /只基于.*(数据|月报|报表|上下文|资料)/u,
+];
+
+function shouldUseWebSearch(question = '', context = {}) {
+  const sourceText = [
+    question,
+    context?.requestResolution?.normalizedQuestion,
+    context?.requestResolution?.message,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  if (!sourceText.trim()) {
+    return false;
+  }
+
+  if (WEB_SEARCH_BLOCK_PATTERNS.some((pattern) => pattern.test(sourceText))) {
+    return false;
+  }
+
+  return WEB_SEARCH_TRIGGER_PATTERNS.some((pattern) => pattern.test(sourceText));
+}
+
+function buildWebSearchQuery(question = '', context = {}) {
+  const parts = [];
+  const storeName =
+    context?.analysisScope?.storeName ||
+    context?.requestResolution?.storeName ||
+    context?.peerComparison?.focusStore?.storeName ||
+    '';
+  const periodLabel =
+    context?.analysisScope?.periodLabel ||
+    context?.requestResolution?.periodLabel ||
+    context?.requestResolution?.period ||
+    '';
+  const brandName = context?.businessProfile?.brandName || '珂溪';
+  const businessType = context?.businessProfile?.businessType || '门店经营';
+
+  if (question) {
+    parts.push(String(question).trim());
+  }
+
+  if (storeName) {
+    parts.push(`${storeName} ${businessType}`);
+  }
+
+  if (periodLabel) {
+    parts.push(periodLabel);
+  }
+
+  parts.push(`${brandName} 行业公开资料`);
+
+  return uniqueStrings(parts).join(' ');
+}
+
+function buildWebSearchPlan(question = '', context = {}) {
+  if (!shouldUseWebSearch(question, context)) {
+    return {
+      enabled: false,
+      query: '',
+      tools: null,
+    };
+  }
+
+  const query = buildWebSearchQuery(question, context);
+
+  return {
+    enabled: true,
+    query,
+    tools: [
+      {
+        type: 'web_search',
+        web_search: {
+          search_query: query,
+        },
+      },
+    ],
+  };
+}
+
+function buildFinancialChatMessages({
+  question,
+  context,
+  history = [],
+  webSearchPlan = null,
+}) {
+  const messages = [
+    {
+      role: 'system',
+      content: buildFinancialAnalystChatSystemPrompt(),
+    },
+    {
+      role: 'system',
+      content: buildFinancialAnalystChatContextPrompt(context, question),
+    },
+    {
+      role: 'system',
+      content: buildFinancialAnalystChatStylePrompt(),
+    },
+  ];
+
+  if (webSearchPlan?.enabled) {
+    messages.push({
+      role: 'system',
+      content: `本轮已启用联网搜索，可结合公开资料回答行业通用信息、公开政策、市场对比等问题。引用行业判断时，只能基于当前财务上下文或联网搜索返回的公开资料；如果没有检索到可靠结果，就明确说“暂未检索到可靠公开资料”，不要说自己无法上网。当前搜索词：${webSearchPlan.query}`,
+    });
+  } else {
+    messages.push({
+      role: 'system',
+      content:
+        '本轮未启用联网搜索。不要说自己无法浏览实时网络；如果用户追问行业通用信息、公开资料或明确要求联网搜索，先基于当前财务数据回答，再直接结合联网搜索结果补充。',
+    });
+  }
+
+  return [
+    ...messages,
+    ...history,
+    {
+      role: 'user',
+      content: buildFinancialAnalystChatUserPrompt({
+        question,
+        context,
+      }),
+    },
+  ];
 }
 
 function extractJsonObject(text) {
@@ -204,6 +344,7 @@ async function requestZhipuChat({
   model,
   messages,
   responseFormat = null,
+  tools = null,
   timeoutMs = 45000,
   maxTokens = 1200,
   enableThinking = false,
@@ -229,6 +370,10 @@ async function requestZhipuChat({
 
     if (responseFormat) {
       body.response_format = responseFormat;
+    }
+
+    if (Array.isArray(tools) && tools.length) {
+      body.tools = tools;
     }
 
     const response = await fetch(ZHIPU_API_URL, {
@@ -271,6 +416,7 @@ async function requestZhipuChatStream({
   apiKey,
   model,
   messages,
+  tools = null,
   timeoutMs = 45000,
   maxTokens = 1200,
   enableThinking = false,
@@ -294,6 +440,10 @@ async function requestZhipuChatStream({
         type: 'enabled',
         clear_thinking: true,
       };
+    }
+
+    if (Array.isArray(tools) && tools.length) {
+      body.tools = tools;
     }
 
     const response = await fetch(ZHIPU_API_URL, {
@@ -449,9 +599,13 @@ async function runZhipuFinancialChatAgent({
     preferredModel,
   );
   const normalizedHistory = normalizeChatHistory(history, question);
+  const webSearchPlan = buildWebSearchPlan(question, context);
+  const resolvedModelCandidates = webSearchPlan.enabled
+    ? uniqueStrings([preferredModel, 'glm-5', ...modelCandidates])
+    : modelCandidates;
   let lastError = null;
 
-  for (const model of modelCandidates) {
+  for (const model of resolvedModelCandidates) {
     for (const attempt of attemptConfigs) {
       try {
         const result = await requestZhipuChat({
@@ -460,24 +614,13 @@ async function runZhipuFinancialChatAgent({
           maxTokens: attempt.maxTokens,
           timeoutMs: attempt.timeoutMs,
           enableThinking: attempt.enableThinking,
-          messages: [
-            {
-              role: 'system',
-              content: buildFinancialAnalystChatSystemPrompt(),
-            },
-            {
-              role: 'system',
-              content: buildFinancialAnalystChatContextPrompt(context, question),
-            },
-            ...normalizedHistory,
-            {
-              role: 'user',
-              content: buildFinancialAnalystChatUserPrompt({
-                question,
-                context,
-              }),
-            },
-          ],
+          tools: webSearchPlan.tools,
+          messages: buildFinancialChatMessages({
+            question,
+            context,
+            history: normalizedHistory,
+            webSearchPlan,
+          }),
         });
         const reply = stripCodeFence(result.rawContent);
 
@@ -487,6 +630,8 @@ async function runZhipuFinancialChatAgent({
             reply,
             rawContent: result.rawContent,
             finishReason: result.finishReason,
+            webSearchEnabled: webSearchPlan.enabled,
+            webSearchQuery: webSearchPlan.query,
           };
         }
 
@@ -520,9 +665,13 @@ async function streamZhipuFinancialChatAgent({
     preferredModel,
   );
   const normalizedHistory = normalizeChatHistory(history, question);
+  const webSearchPlan = buildWebSearchPlan(question, context);
+  const resolvedModelCandidates = webSearchPlan.enabled
+    ? uniqueStrings([preferredModel, 'glm-5', ...modelCandidates])
+    : modelCandidates;
   let lastError = null;
 
-  for (const model of modelCandidates) {
+  for (const model of resolvedModelCandidates) {
     for (const attempt of attemptConfigs) {
       let reply = '';
       let started = false;
@@ -534,24 +683,13 @@ async function streamZhipuFinancialChatAgent({
           maxTokens: attempt.maxTokens,
           timeoutMs: attempt.timeoutMs,
           enableThinking: attempt.enableThinking,
-          messages: [
-            {
-              role: 'system',
-              content: buildFinancialAnalystChatSystemPrompt(),
-            },
-            {
-              role: 'system',
-              content: buildFinancialAnalystChatContextPrompt(context, question),
-            },
-            ...normalizedHistory,
-            {
-              role: 'user',
-              content: buildFinancialAnalystChatUserPrompt({
-                question,
-                context,
-              }),
-            },
-          ],
+          tools: webSearchPlan.tools,
+          messages: buildFinancialChatMessages({
+            question,
+            context,
+            history: normalizedHistory,
+            webSearchPlan,
+          }),
           onPayload: async (payload) => {
             const delta = extractMessageText(
               payload?.choices?.[0]?.delta?.content,
@@ -565,7 +703,11 @@ async function streamZhipuFinancialChatAgent({
               started = true;
 
               if (onStart) {
-                await onStart({ model });
+                await onStart({
+                  model,
+                  webSearchEnabled: webSearchPlan.enabled,
+                  webSearchQuery: webSearchPlan.query,
+                });
               }
             }
 
@@ -582,6 +724,8 @@ async function streamZhipuFinancialChatAgent({
             model,
             reply: stripCodeFence(reply),
             finishReason: result.finishReason,
+            webSearchEnabled: webSearchPlan.enabled,
+            webSearchQuery: webSearchPlan.query,
           };
         }
 

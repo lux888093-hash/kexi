@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs');
 const multer = require('multer');
 const path = require('path');
 require('dotenv').config();
@@ -20,6 +21,14 @@ const {
   ingestWorkbook,
   listReports,
 } = require('./lib/financialStore');
+const {
+  REQUIRED_SOURCE_GROUPS,
+  parseSourceFile,
+} = require('./lib/sourceFileParser');
+const {
+  createParsingDraftWorkbook,
+  resolveParsingExportPath,
+} = require('./lib/sourceFileWorkbook');
 const {
   buildFinancialAgentExecutionContext,
   buildWorkspaceAgentReply,
@@ -55,7 +64,31 @@ const upload = multer({
 });
 
 app.use(cors());
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '10mb' }));
+
+function normalizeUploadFileName(fileName = '') {
+  const raw = String(fileName || '').trim();
+
+  if (!raw) {
+    return '';
+  }
+
+  try {
+    const decoded = Buffer.from(raw, 'latin1').toString('utf8');
+
+    if (decoded.includes('�')) {
+      return raw;
+    }
+
+    if (!/[\u4e00-\u9fff]/.test(raw) && /[\u4e00-\u9fff]/.test(decoded)) {
+      return decoded;
+    }
+
+    return raw;
+  } catch {
+    return raw;
+  }
+}
 
 function parseStoreIds(value) {
   if (!value) {
@@ -78,6 +111,29 @@ function parseFilters(source = {}) {
     periodStart: source.periodStart || null,
     periodEnd: source.periodEnd || null,
   };
+}
+
+function normalizeDownloadFileName(fileName = '') {
+  const normalized = String(fileName || '')
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, '-');
+
+  if (!normalized) {
+    return '体质表草稿.xlsx';
+  }
+
+  return normalized;
+}
+
+function resolveExportLabel(inputValue = '', candidates = [], pattern = /./) {
+  const raw = String(inputValue || '').trim();
+
+  if (pattern.test(raw)) {
+    return raw;
+  }
+
+  const fallback = candidates.find((value) => pattern.test(String(value || '').trim()));
+  return String(fallback || raw || '').trim();
 }
 
 app.get('/api/system/health', (_request, response) => {
@@ -169,8 +225,9 @@ app.post('/api/financials/upload', upload.array('files', 12), (request, response
 
   files.forEach((file) => {
     try {
+      const normalizedOriginalName = normalizeUploadFileName(file.originalname);
       const report = ingestWorkbook(file.path, {
-        originalName: file.originalname,
+        originalName: normalizedOriginalName,
         storeId: files.length === 1 ? storeId : null,
         period: files.length === 1 ? period : null,
         uploadedAt: new Date().toISOString(),
@@ -185,7 +242,7 @@ app.post('/api/financials/upload', upload.array('files', 12), (request, response
       });
     } catch (error) {
       errors.push({
-        fileName: file.originalname,
+        fileName: normalizeUploadFileName(file.originalname),
         message: error.message,
       });
     }
@@ -196,6 +253,140 @@ app.post('/api/financials/upload', upload.array('files', 12), (request, response
     ingested,
     errors,
   });
+});
+
+app.post('/api/parsing/upload', upload.array('files', 12), async (request, response) => {
+  const files = request.files || [];
+
+  if (!files.length) {
+    response.status(400).json({ message: '请至少上传一个源文件。' });
+    return;
+  }
+
+  const storeName = String(request.body.storeName || '').trim();
+  const periodLabel = String(request.body.periodLabel || '').trim();
+
+  try {
+    const results = await Promise.all(
+      files.map(async (file) => {
+        const normalizedOriginalName = normalizeUploadFileName(file.originalname);
+
+        try {
+          return await parseSourceFile(file.path, {
+            originalName: normalizedOriginalName,
+            storeName,
+            periodLabel,
+          });
+        } catch (error) {
+          return {
+            fileName: normalizedOriginalName,
+            extension: path.extname(normalizedOriginalName || '').replace(/^\./, ''),
+            status: 'unsupported',
+            parserMode: 'error',
+            sourceGroupKey: '',
+            sourceGroupLabel: '',
+            storeName,
+            periodLabel,
+            previewLines: [],
+            metrics: {},
+            reason: error.message || '文件解析失败，请稍后重试。',
+          };
+        }
+      }),
+    );
+
+    const parsedFiles = results.filter((item) => item.status === 'parsed');
+    const reviewFiles = results.filter((item) => item.status === 'review');
+    const failFiles = results.filter((item) => item.status === 'unsupported');
+
+    const matchedGroupKeys = new Set(
+      results
+        .map((item) => item.sourceGroupKey)
+        .filter(Boolean),
+    );
+
+    const missingFiles = REQUIRED_SOURCE_GROUPS.filter(
+      (group) => !matchedGroupKeys.has(group.key),
+    ).map((group) => group.label);
+
+    response.status(failFiles.length ? 207 : 200).json({
+      message: parsedFiles.length
+        ? '源文件解析完成。'
+        : '暂未成功解析出可直接入表的源文件。',
+      parsedFiles,
+      reviewFiles,
+      failFiles,
+      missingFiles,
+      storeName,
+      periodLabel,
+    });
+  } finally {
+    await Promise.all(
+      files.map((file) =>
+        fs.promises.unlink(file.path).catch(() => null),
+      ),
+    );
+  }
+});
+
+app.post('/api/parsing/export-draft', async (request, response) => {
+  const {
+    storeName = '',
+    periodLabel = '',
+    parsedFiles = [],
+    reviewFiles = [],
+    failFiles = [],
+    missingFiles = [],
+  } = request.body || {};
+
+  const parsedList = Array.isArray(parsedFiles) ? parsedFiles : [];
+  const reviewList = Array.isArray(reviewFiles) ? reviewFiles : [];
+  const resolvedStoreName = resolveExportLabel(
+    storeName,
+    [...parsedList, ...reviewList].map((item) => item?.storeName),
+    /[\u4e00-\u9fff]/,
+  );
+  const resolvedPeriodLabel = resolveExportLabel(
+    periodLabel,
+    [...parsedList, ...reviewList].map((item) => item?.periodLabel),
+    /(20\d{2}\s*年|\d{4}-\d{2}|\d{1,2}\s*月)/,
+  );
+
+  try {
+    const { token, downloadFileName } = await createParsingDraftWorkbook({
+      storeName: resolvedStoreName,
+      periodLabel: resolvedPeriodLabel,
+      parsedFiles: parsedList,
+      reviewFiles: reviewList,
+      failFiles: Array.isArray(failFiles) ? failFiles : [],
+      missingFiles: Array.isArray(missingFiles) ? missingFiles : [],
+    });
+
+    response.json({
+      message: '体质表已生成。',
+      downloadPath: `/api/parsing/download/${token}`,
+      downloadFileName,
+    });
+  } catch (error) {
+    response.status(500).json({
+      message: error.message || '体质表生成失败，请稍后重试。',
+    });
+  }
+});
+
+app.get('/api/parsing/download/:token', (request, response) => {
+  const filePath = resolveParsingExportPath(request.params.token);
+
+  if (!filePath) {
+    response.status(404).json({
+      message: '下载文件不存在或已失效。',
+    });
+    return;
+  }
+
+  const requestedName = normalizeDownloadFileName(request.query.name || '');
+
+  response.download(filePath, requestedName);
 });
 
 app.post('/api/financials/ai-analysis', async (request, response) => {
@@ -300,6 +491,8 @@ app.post('/api/agents/chat/stream', async (request, response) => {
       executionContext.llmContext,
       executionContext.preferredModel,
     );
+    const preferredModel = executionContext.preferredModel || '';
+    const plannedModel = executionPlan.modelCandidates[0] || preferredModel || '';
     let model = '';
     let reply = '';
     let metaSent = false;
@@ -311,8 +504,10 @@ app.post('/api/agents/chat/stream', async (request, response) => {
         version: 'financial-analyst-v1.0.0',
         mode: 'streaming',
         provider: 'zhipu',
-        model: executionPlan.modelCandidates[0] || '',
-        note: '正在整理财务上下文并连接智谱，稍后开始生成。',
+        model: plannedModel,
+        note: plannedModel
+          ? `正在整理财务上下文，优先连接智谱 ${plannedModel}，稍后开始生成。`
+          : '正在整理财务上下文并连接智谱，稍后开始生成。',
       },
     });
 
@@ -328,8 +523,8 @@ app.post('/api/agents/chat/stream', async (request, response) => {
           version: 'financial-analyst-v1.0.0',
           mode: 'streaming',
           provider: 'zhipu',
-          model: model || executionPlan.modelCandidates[0] || '',
-          note: '已提交智谱模型，正在等待首个 token 返回...',
+          model: model || plannedModel,
+          note: `已提交智谱 ${model || plannedModel || '模型'}，正在等待首个 token 返回...`,
         },
       });
     }, 8000);
@@ -340,7 +535,7 @@ app.post('/api/agents/chat/stream', async (request, response) => {
       history: executionContext.history,
       context: executionContext.llmContext,
       preferredModel: executionContext.preferredModel,
-      onStart: async ({ model: resolvedModel }) => {
+      onStart: async ({ model: resolvedModel, webSearchEnabled }) => {
         model = resolvedModel;
         metaSent = true;
         writeSseEvent(response, 'meta', {
@@ -351,7 +546,14 @@ app.post('/api/agents/chat/stream', async (request, response) => {
             mode: 'llm',
             provider: 'zhipu',
             model,
-            note: `已基于当前财务数据调用智谱 ${model} 实时生成中。`,
+            note:
+              preferredModel && model !== preferredModel
+                ? webSearchEnabled
+                  ? `首选模型 ${preferredModel} 暂不可用，已回退到智谱 ${model}，并启用联网搜索继续生成。`
+                  : `首选模型 ${preferredModel} 暂不可用，已回退到智谱 ${model} 继续生成。`
+                : webSearchEnabled
+                  ? `已切换到智谱 ${model}，正在结合当前财务数据和联网搜索实时生成。`
+                  : `已切换到智谱 ${model}，正在基于当前财务数据实时生成。`,
           },
         });
       },

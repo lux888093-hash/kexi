@@ -1813,7 +1813,9 @@ async function buildFinancialAgentReply({
       agent: buildFinancialAgentMeta({
         mode: 'llm',
         model: result.model,
-        note: `已基于当前财务数据完成智谱 ${result.model} 实时问答。`,
+        note: result.webSearchEnabled
+          ? `已使用智谱 ${result.model} 联网搜索并结合当前财务数据完成问答。`
+          : `已基于当前财务数据完成智谱 ${result.model} 实时问答。`,
       }),
     };
   } catch (error) {
