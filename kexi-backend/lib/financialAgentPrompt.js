@@ -130,6 +130,23 @@ function isExactLookupQuestion(question = '') {
   ) && !requiresDetailedAnswer(question);
 }
 
+function isDerivationQuestion(question = '') {
+  const text = String(question || '');
+  return [
+    '怎么算',
+    '怎么得出',
+    '如何得出',
+    '怎么解析',
+    '如何解析',
+    '怎么来的',
+    '来源',
+    '依据',
+    '为什么是这个数',
+    '如何算出',
+    '怎样算出',
+  ].some((token) => text.includes(token));
+}
+
 function isGreetingOnly(question = '') {
   const normalized = String(question || '')
     .trim()
@@ -418,6 +435,10 @@ function buildVerifiedFactsBlock(context = {}) {
     ? [...context.storeBenchmarks]
     : [];
 
+  if (context.chatScope === 'parsing') {
+    facts.push('当前处于智能解析窗口，只回答当前门店当前月份的解析结果，不做跨门店对比。');
+  }
+
   facts.push(...retrievedFacts);
 
   if (context.scope?.selectedStoreCount > 1 && context.overallMetrics) {
@@ -517,6 +538,8 @@ function buildFinancialAnalystChatSystemPrompt() {
 必要时可省略不适用的小节，但整体排版要清晰。
 14. 如果用户明确询问行业通用信息、公开资料、政策或市场情况，且本轮已启用联网搜索，可以引用搜索结果中的公开信息；但要区分“门店自身数据”和“外部公开资料”。
 15. 不要说“我无法浏览实时网络”或“我不能上网”；如果当前回答没有启用联网搜索，就明确说“这条回答先基于现有财务数据”，不要伪造能力边界。
+16. 如果上下文里的 \`chatScope === "parsing"\`，说明当前是“智能解析窗口”：默认只回答当前门店当前月份的解析结果，不要主动引入其他门店排名、最高/最低、均值或同期对比，除非用户明确要求跨门店比较。
+17. 如果 \`chatScope === "parsing"\` 且用户在问“怎么算的 / 怎么解析的 / 怎么得出的”，优先按“结果 -> 来源文件 -> 解析方式/公式 -> 代入当前数字”回答；不要把金额误写成占比。
 `.trim();
 }
 
@@ -565,6 +588,26 @@ function compactReportSnapshots(reportSnapshots = [], options = {}) {
   }));
 }
 
+function compactParsingChatContext(parsingContext = null) {
+  if (!parsingContext) {
+    return null;
+  }
+
+  return {
+    storeName: parsingContext.storeName || '',
+    period: parsingContext.period || '',
+    periodLabel: parsingContext.periodLabel || '',
+    parsedFiles: (parsingContext.parsedFiles || []).slice(0, 4).map((file) => ({
+      fileName: file.fileName || '',
+      sourceGroupKey: file.sourceGroupKey || '',
+      parserMode: file.parserMode || '',
+      sheetName: file.sheetName || '',
+      previewLines: (file.previewLines || []).slice(0, 4),
+      structuredData: file.structuredData || null,
+    })),
+  };
+}
+
 function buildCompactFinancialChatContext(context = {}) {
   const status = context.requestResolution?.status || 'general_analysis';
   const baseContext = {
@@ -572,6 +615,8 @@ function buildCompactFinancialChatContext(context = {}) {
     analysisScope: context.analysisScope || null,
     requestResolution: context.requestResolution || null,
     retrievedFacts: (context.retrievedFacts || []).slice(0, 20),
+    chatScope: context.chatScope || 'financial',
+    parsingContext: compactParsingChatContext(context.parsingContext),
   };
 
   if (
@@ -684,8 +729,17 @@ function buildFinancialAnalystChatUserPrompt({ question, context }) {
   const greetingOnly = isGreetingOnly(question);
   const priorityStoreQuestion = asksForPriorityStore(question);
   const exactLookupQuestion = isExactLookupQuestion(question);
+  const derivationQuestion = isDerivationQuestion(question);
+  const parsingScoped = context.chatScope === 'parsing';
   const analysisProfile = buildAnalysisPromptProfile({ question, context });
-  const responseRequirements = exactLookupQuestion
+  const responseRequirements = parsingScoped && derivationQuestion
+    ? `如果这是智能解析窗口里的“怎么算出来的”问题，请直接回答：
+结果：先直接给出当前门店当前月份的真实数值。
+来源：说明来自哪个已解析源文件或工作表。
+解析方式：说明是直接读取，还是按哪些字段和公式计算。
+代入：把当前数字代入公式写清楚。
+禁止跨门店对比、排名、最高/最低、均值。`
+    : exactLookupQuestion
     ? `如果这是精确取数或逐店列数问题，请只基于已核验事实回答：
 查询结果：先说清月份、指标和门店范围。
 明细：逐条列出真实数值，不要遗漏门店。
@@ -713,7 +767,8 @@ function buildFinancialAnalystChatUserPrompt({ question, context }) {
 - 关键证据必须尽量绑定具体指标、门店、渠道或成本项，不要写“证据 1 / 证据 2”。
 - 如果只有单月样本，必须明确写出“当前仅有单月，趋势判断受限”，但仍要继续给出诊断和动作。
 - 如果本轮启用了联网搜索，引用的行业、政策、市场或公开资料要单独标注，不要和门店月报数据混写。
-- 如果证据不足，明确说明“还需要补什么数据验证”，不要把猜测写成结论。`;
+- 如果证据不足，明确说明“还需要补什么数据验证”，不要把猜测写成结论。
+- 如果 \`chatScope === "parsing"\`，默认不要写跨门店比较，除非用户明确要求比较其他门店。`;
 
   if (greetingOnly) {
     return `
@@ -737,7 +792,7 @@ ${question}
 输出要求：
 1. 不要复述整段原始 JSON，要把数据压缩成管理层能直接读懂的判断。
 2. 每个关键判断都尽量绑定具体数字、门店名、渠道名或成本项。
-3. 如果上下文里有 peerComparison，请优先利用 comparisonHighlights、samePeriodAverage、focusStoreRanks、leaders、peerStores 做横向比较。
+3. 如果上下文里有 peerComparison，请优先利用 comparisonHighlights、samePeriodAverage、focusStoreRanks、leaders、peerStores 做横向比较；但如果 \`chatScope === "parsing"\`，除非用户明确要求，否则不要展开跨门店对比。
 4. 不允许补充“行业通常应该是多少”“健康阈值是多少”这类上下文之外的判断；除非本轮已启用联网搜索，且你明确标注为公开资料。
 5. 如果你自己的推导和“已核验事实”冲突，以已核验事实为准，不要改写方向。
 6. 使用 Markdown 排版，至少合理使用二级标题、项目符号或编号列表、加粗强调。
@@ -745,7 +800,7 @@ ${question}
 8. 不要自行给出上下文之外的整改目标值；如果引用外部行业标准或阈值，要明确说明出处属于联网搜索结果，且不要把它直接写成门店整改目标。
 9. 如果 \`requestResolution.needsClarification === true\`，先明确说明当前缺少哪个精确指标、门店范围或月份，再给 2 到 4 个可继续追问的示例，不要猜测。
 10. 如果 \`requestResolution.status\` 表示缺数据或缺月报，直接说明缺失范围和已知条件，不要补造分析。
-11. 如果 \`requestResolution.status\` 表示精确取数或逐店查询，优先基于 \`retrievedFacts\` 直接回答，再补充必要的同期对比。
+11. 如果 \`requestResolution.status\` 表示精确取数或逐店查询，优先基于 \`retrievedFacts\` 直接回答；如果 \`chatScope === "parsing"\`，不要再自动补同期对比。
 9. ${
     priorityStoreQuestion
       ? '这是一个“优先整改哪家店”的排序问题。你必须明确点名 1 家最优先门店，判断依据优先使用健康度、利润率、平台占比、客单价、单客成本和 rankingSnapshotCandidates；不要自行编造整改目标值。'

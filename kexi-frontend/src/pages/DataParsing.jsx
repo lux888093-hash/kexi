@@ -104,6 +104,214 @@ function normalizeReviewFile(file = {}) {
   };
 }
 
+function mergeFilesByName(currentFiles = [], incomingFiles = []) {
+  const merged = new Map();
+
+  [...currentFiles, ...incomingFiles].forEach((file) => {
+    const key = file?.fileName || file?.name || `${file?.sourceGroupKey || "file"}-${merged.size}`;
+    merged.set(key, file);
+  });
+
+  return [...merged.values()];
+}
+
+function renderInlineMarkdown(text) {
+  const source = String(text || "");
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g;
+  const parts = source.split(pattern).filter(Boolean);
+
+  return parts.map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return (
+        <strong key={`${part}-${index}`} className="font-extrabold text-[#171412]">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return (
+        <code
+          key={`${part}-${index}`}
+          className="rounded-md bg-[#f7efe7] px-1.5 py-0.5 font-mono text-[0.92em] text-[#8f5138]"
+        >
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+
+    const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+
+    if (linkMatch) {
+      return (
+        <a
+          key={`${part}-${index}`}
+          className="font-semibold text-[#b4542e] underline decoration-[#d96e42]/30 underline-offset-4"
+          href={linkMatch[2]}
+          rel="noreferrer"
+          target="_blank"
+        >
+          {linkMatch[1]}
+        </a>
+      );
+    }
+
+    return <span key={`${part}-${index}`}>{part}</span>;
+  });
+}
+
+function MarkdownMessage({ content }) {
+  const lines = String(content || "").replace(/\r/g, "").split("\n");
+  const blocks = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      index += 1;
+      continue;
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,3})\s+(.+)$/);
+
+    if (headingMatch) {
+      blocks.push({
+        type: "heading",
+        depth: headingMatch[1].length,
+        text: headingMatch[2],
+      });
+      index += 1;
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(trimmed)) {
+      const items = [];
+
+      while (index < lines.length && /^[-*]\s+/.test(lines[index].trim())) {
+        items.push(lines[index].trim().replace(/^[-*]\s+/, ""));
+        index += 1;
+      }
+
+      blocks.push({ type: "ul", items });
+      continue;
+    }
+
+    if (/^\d+\.\s+/.test(trimmed)) {
+      const items = [];
+
+      while (index < lines.length && /^\d+\.\s+/.test(lines[index].trim())) {
+        items.push(lines[index].trim().replace(/^\d+\.\s+/, ""));
+        index += 1;
+      }
+
+      blocks.push({ type: "ol", items });
+      continue;
+    }
+
+    if (/^>\s?/.test(trimmed)) {
+      const quotes = [];
+
+      while (index < lines.length && /^>\s?/.test(lines[index].trim())) {
+        quotes.push(lines[index].trim().replace(/^>\s?/, ""));
+        index += 1;
+      }
+
+      blocks.push({ type: "quote", text: quotes.join(" ") });
+      continue;
+    }
+
+    const paragraph = [];
+
+    while (index < lines.length) {
+      const candidate = lines[index].trim();
+
+      if (
+        !candidate ||
+        /^(#{1,3})\s+/.test(candidate) ||
+        /^[-*]\s+/.test(candidate) ||
+        /^\d+\.\s+/.test(candidate) ||
+        /^>\s?/.test(candidate)
+      ) {
+        break;
+      }
+
+      paragraph.push(candidate);
+      index += 1;
+    }
+
+    blocks.push({ type: "p", text: paragraph.join(" ") });
+  }
+
+  return (
+    <div className="space-y-4">
+      {blocks.map((block, blockIndex) => {
+        if (block.type === "heading") {
+          const headingClass =
+            block.depth === 1
+              ? "text-xl font-extrabold tracking-[-0.04em] text-[#171412]"
+              : block.depth === 2
+                ? "text-[11px] font-bold uppercase tracking-[0.26em] text-[#b6860c]"
+                : "text-sm font-bold text-[#171412]";
+
+          return (
+            <h3 className={headingClass} key={`block-${blockIndex}`}>
+              {renderInlineMarkdown(block.text)}
+            </h3>
+          );
+        }
+
+        if (block.type === "ul") {
+          return (
+            <ul
+              className="list-disc space-y-2 pl-5 text-[14px] leading-7 text-[#4a4036] marker:text-[#d96e42]"
+              key={`block-${blockIndex}`}
+            >
+              {block.items.map((item, itemIndex) => (
+                <li key={`item-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
+              ))}
+            </ul>
+          );
+        }
+
+        if (block.type === "ol") {
+          return (
+            <ol
+              className="list-decimal space-y-2 pl-5 text-[14px] leading-7 text-[#4a4036] marker:font-bold marker:text-[#b4542e]"
+              key={`block-${blockIndex}`}
+            >
+              {block.items.map((item, itemIndex) => (
+                <li key={`item-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
+              ))}
+            </ol>
+          );
+        }
+
+        if (block.type === "quote") {
+          return (
+            <blockquote
+              className="rounded-2xl border-l-4 border-[#d96e42]/35 bg-[#fcf5ef] px-4 py-3 text-[13px] leading-7 text-[#6a5647]"
+              key={`block-${blockIndex}`}
+            >
+              {renderInlineMarkdown(block.text)}
+            </blockquote>
+          );
+        }
+
+        return (
+          <p
+            className="text-[14px] leading-7 text-[#4a4036]"
+            key={`block-${blockIndex}`}
+          >
+            {renderInlineMarkdown(block.text)}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 function getPrimaryReportFile(report = {}) {
   return (
     report.successFiles?.[0] ||
@@ -237,6 +445,16 @@ export default function DataParsing() {
   const [selectedStore, setSelectedStore] = useState("华创店");
   const [selectedMonth, setSelectedMonth] = useState("2026年1月");
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [chatParsingContext, setChatParsingContext] = useState(() => ({
+    storeId: STORE_MAP["华创店"],
+    storeName: "华创店",
+    periodLabel: "2026年1月",
+    period: getPeriodId("2026年1月"),
+    parsedFiles: [],
+    reviewFiles: [],
+    failFiles: [],
+    missingFiles: [],
+  }));
   const [messages, setMessages] = useState([
     {
       id: "init-msg-1",
@@ -259,6 +477,28 @@ export default function DataParsing() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    setChatParsingContext((previous) => {
+      if (
+        previous.storeName === selectedStore &&
+        previous.periodLabel === selectedMonth
+      ) {
+        return previous;
+      }
+
+      return {
+        storeId: STORE_MAP[selectedStore],
+        storeName: selectedStore,
+        periodLabel: selectedMonth,
+        period: getPeriodId(selectedMonth),
+        parsedFiles: [],
+        reviewFiles: [],
+        failFiles: [],
+        missingFiles: [],
+      };
+    });
+  }, [selectedMonth, selectedStore]);
 
   const handleFileUpload = async (e) => {
     const files = Array.from(e.target.files);
@@ -377,6 +617,17 @@ export default function DataParsing() {
       });
       const missingFiles = buildMissingSourceGroups(matchedGroupKeys);
 
+      setChatParsingContext((previous) => ({
+        storeId: STORE_MAP[selectedStore],
+        storeName: selectedStore,
+        periodLabel: selectedMonth,
+        period: getPeriodId(selectedMonth),
+        parsedFiles: mergeFilesByName(previous.parsedFiles, parsedDraftFiles),
+        reviewFiles: mergeFilesByName(previous.reviewFiles, reviewDraftFiles),
+        failFiles: mergeFilesByName(previous.failFiles, failDraftFiles),
+        missingFiles,
+      }));
+
       setTypingText("正在按模板汇总体质表并生成下载文件...");
 
       try {
@@ -454,8 +705,38 @@ export default function DataParsing() {
         },
         body: JSON.stringify({
           agentId: "financial_analyst",
-          message: `[用户当前选择的门店: ${selectedStore}, 月份: ${selectedMonth}] 请基于当前选择的门店和月份已经生成的体质表回答以下问题，如果用户提出的数据与已有体质表冲突，请务必提醒。问题：${currentInput}`,
-          history: messages.map(m => ({ role: m.sender === 'ai' ? 'assistant' : 'user', content: m.text })).slice(-10)
+          message: currentInput,
+          history: messages.map((m) => ({
+            role: m.sender === "ai" ? "assistant" : "user",
+            content: m.text,
+          })).slice(-10),
+          chatScope: "parsing",
+          parsingContext: {
+            storeId: STORE_MAP[selectedStore],
+            storeName: selectedStore,
+            periodLabel: selectedMonth,
+            period: getPeriodId(selectedMonth),
+            parsedFiles:
+              chatParsingContext.storeName === selectedStore &&
+              chatParsingContext.periodLabel === selectedMonth
+                ? chatParsingContext.parsedFiles
+                : [],
+            reviewFiles:
+              chatParsingContext.storeName === selectedStore &&
+              chatParsingContext.periodLabel === selectedMonth
+                ? chatParsingContext.reviewFiles
+                : [],
+            failFiles:
+              chatParsingContext.storeName === selectedStore &&
+              chatParsingContext.periodLabel === selectedMonth
+                ? chatParsingContext.failFiles
+                : [],
+            missingFiles:
+              chatParsingContext.storeName === selectedStore &&
+              chatParsingContext.periodLabel === selectedMonth
+                ? chatParsingContext.missingFiles
+                : [],
+          },
         }),
       });
       
@@ -583,10 +864,15 @@ export default function DataParsing() {
                   }`}
                 >
                   {msg.text && (
-                    <div className={`text-[15px] leading-[1.7] whitespace-pre-wrap ${msg.sender === "ai" ? "font-medium" : "font-normal"}`}>
-                      {/* Very basic markdown bold parsing for AI intro text */}
-                      {msg.text.split('**').map((part, i) => i % 2 === 1 ? <strong key={i} className="font-extrabold text-[#b6860c]">{part}</strong> : part)}
-                    </div>
+                    msg.sender === "ai" ? (
+                      <div className="rounded-[24px] border border-[#e8dcc4]/55 bg-white/88 px-5 py-4 shadow-[0_14px_36px_-24px_rgba(23,20,18,0.55)] backdrop-blur-xl">
+                        <MarkdownMessage content={msg.text} />
+                      </div>
+                    ) : (
+                      <div className="text-[15px] leading-[1.7] whitespace-pre-wrap font-normal">
+                        {msg.text}
+                      </div>
+                    )
                   )}
 
                   {/* User Uploaded Files */}

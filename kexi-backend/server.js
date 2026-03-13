@@ -455,7 +455,7 @@ app.post('/api/financials/ai-analysis', async (request, response) => {
 
 app.post('/api/agents/chat', async (request, response) => {
   try {
-    const { agentId, history, message } = request.body || {};
+    const { agentId, history, message, chatScope, parsingContext } = request.body || {};
 
     if (!String(message || '').trim()) {
       response.status(400).json({
@@ -470,6 +470,8 @@ app.post('/api/agents/chat', async (request, response) => {
       message: String(message).trim(),
       reports: listReports(),
       settings: readSettings(),
+      chatScope: String(chatScope || '').trim(),
+      parsingContext: parsingContext && typeof parsingContext === 'object' ? parsingContext : null,
     });
 
     response.json(payload);
@@ -495,7 +497,7 @@ app.post('/api/agents/chat/stream', async (request, response) => {
   let heartbeatTimer = null;
 
   try {
-    const { agentId, history, message } = request.body || {};
+    const { agentId, history, message, chatScope, parsingContext } = request.body || {};
     const normalizedMessage = String(message || '').trim();
 
     if (!normalizedMessage) {
@@ -517,6 +519,8 @@ app.post('/api/agents/chat/stream', async (request, response) => {
         message: normalizedMessage,
         reports,
         settings,
+        chatScope: String(chatScope || '').trim(),
+        parsingContext: parsingContext && typeof parsingContext === 'object' ? parsingContext : null,
       });
 
       writeSseEvent(response, 'done', payload);
@@ -529,6 +533,8 @@ app.post('/api/agents/chat/stream', async (request, response) => {
       history: Array.isArray(history) ? history : [],
       reports,
       settings,
+      chatScope: String(chatScope || '').trim(),
+      parsingContext: parsingContext && typeof parsingContext === 'object' ? parsingContext : null,
     });
 
     if (executionContext.payload) {

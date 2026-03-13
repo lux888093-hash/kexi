@@ -138,6 +138,17 @@ function inferQuestionFilters(question, reports) {
   };
 }
 
+function inferQuestionFiltersWithDefaults(question, reports, defaults = {}) {
+  const store = resolveStore(question) || defaults.store || null;
+  const period = inferPeriodFromQuestion(question, reports) || defaults.period || null;
+
+  return {
+    storeIds: store ? [store.id] : [],
+    periodStart: period,
+    periodEnd: period,
+  };
+}
+
 function roundNumber(value, precision = 2) {
   const factor = 10 ** precision;
   return Math.round((Number(value || 0) + Number.EPSILON) * factor) / factor;
@@ -189,6 +200,282 @@ function computeCategoryRatio(category, totalCost = 0) {
 
   const amount = computeCategoryAmount(category);
   return totalCost > 0 ? roundNumber(amount / totalCost, 4) : 0;
+}
+
+function isDerivationQuestion(question = '') {
+  const text = String(question || '');
+  return [
+    '怎么算',
+    '怎么得出',
+    '如何得出',
+    '怎么解析',
+    '如何解析',
+    '怎么来的',
+    '来源',
+    '依据',
+    '为什么是这个数',
+    '如何算出',
+    '怎样算出',
+  ].some((token) => text.includes(token));
+}
+
+function isParsingLookupIntent(question = '') {
+  const text = String(question || '');
+  return [
+    '多少',
+    '金额',
+    '收入',
+    '营收',
+    '占比',
+    '比例',
+    '数据',
+    '明细',
+    '列出',
+    '是多少',
+    '怎么得出',
+    '如何得出',
+    '怎么算',
+    '怎么解析',
+    '如何解析',
+    '来源',
+    '依据',
+  ].some((token) => text.includes(token));
+}
+
+function normalizeParsingPeriod(parsingContext = {}) {
+  if (/^\d{4}-\d{2}$/.test(String(parsingContext.period || ''))) {
+    return String(parsingContext.period);
+  }
+
+  return inferPeriod(parsingContext.periodLabel || '') || null;
+}
+
+function buildChannelEntries(report = {}) {
+  if (Array.isArray(report.channels) && report.channels.length) {
+    return report.channels
+      .map((channel) => ({
+        name: cleanText(channel?.name),
+        value: roundNumber(channel?.value),
+        share:
+          channel?.share !== null && channel?.share !== undefined
+            ? Number(channel.share)
+            : null,
+      }))
+      .filter((channel) => channel.name);
+  }
+
+  return Object.entries(report.summary?.channels || {})
+    .map(([name, value]) => ({
+      name: cleanText(name),
+      value: roundNumber(value),
+      share: null,
+    }))
+    .filter((channel) => channel.name);
+}
+
+function resolveStoreFromReports(storeName = '', reports = []) {
+  const normalizedStoreName = normalizeLookupText(storeName);
+
+  if (!normalizedStoreName) {
+    return null;
+  }
+
+  const matchedReport = (reports || []).find((report) => {
+    const normalizedReportStore = normalizeLookupText(report.storeName);
+    return (
+      report.storeId === storeName ||
+      normalizedReportStore === normalizedStoreName ||
+      normalizedReportStore.includes(normalizedStoreName) ||
+      normalizedStoreName.includes(normalizedReportStore)
+    );
+  });
+
+  return matchedReport
+    ? {
+        id: matchedReport.storeId,
+        name: matchedReport.storeName,
+      }
+    : null;
+}
+
+function findChannelEntry(report = {}, channelName = '') {
+  return buildChannelEntries(report).find((channel) => channel.name === channelName) || null;
+}
+
+function buildParsingSummaryMetrics(summary = {}) {
+  const pairs = [
+    ['营收', summary.recognizedRevenue],
+    ['总实收', summary.grossRevenue],
+    ['客户数', summary.customerCount],
+    ['新增会员', summary.newMembers],
+    ['客单价', summary.avgTicket],
+    ['平台占比', summary.platformRevenueShare],
+    ['微信银联支付宝收入', summary.channels?.['微信银联支付宝']],
+    ['现金收入', summary.channels?.['现金']],
+    ['美团收入', summary.channels?.['美团']],
+    ['抖音收入', summary.channels?.['抖音']],
+  ];
+
+  return pairs
+    .filter(([, value]) => value !== null && value !== undefined && Number.isFinite(Number(value)))
+    .map(([label, numericValue]) => ({
+      label,
+      rawValue: String(numericValue),
+      numericValue: Number(numericValue),
+      valueType: /占比/.test(label) ? 'percent' : /数$/.test(label) ? 'count' : 'amount',
+      source: 'parsing',
+      rowIndex: -1,
+      columnIndex: -1,
+      valueColumnIndex: -1,
+    }));
+}
+
+function mergeSummaryMetrics(baseMetrics = [], overrideMetrics = []) {
+  const merged = new Map();
+
+  [...(baseMetrics || []), ...(overrideMetrics || [])].forEach((metric) => {
+    const label = cleanText(metric?.label);
+
+    if (!label) {
+      return;
+    }
+
+    merged.set(label, metric);
+  });
+
+  return [...merged.values()];
+}
+
+function getParsingContextFiles(parsingContext = {}) {
+  return [
+    ...(Array.isArray(parsingContext.parsedFiles) ? parsingContext.parsedFiles : []),
+    ...(Array.isArray(parsingContext.reviewFiles) ? parsingContext.reviewFiles : []),
+  ].filter(Boolean);
+}
+
+function findRevenueParsingFile(parsingContext = {}) {
+  return (
+    getParsingContextFiles(parsingContext).find(
+      (file) =>
+        file?.structuredData?.kind === 'revenue-report' || file?.sourceGroupKey === 'revenue',
+    ) || null
+  );
+}
+
+function buildParsingReport(parsingContext = {}, reports = []) {
+  const revenueFile = findRevenueParsingFile(parsingContext);
+
+  if (!revenueFile?.structuredData || revenueFile.structuredData.kind !== 'revenue-report') {
+    return null;
+  }
+
+  const storeToken =
+    parsingContext.storeId || parsingContext.storeName || revenueFile.storeName || '';
+  const store = resolveStore(storeToken) || resolveStoreFromReports(storeToken, reports);
+  const period = normalizeParsingPeriod(parsingContext);
+  const revenue = revenueFile.structuredData;
+  const channels = {
+    微信银联支付宝: roundNumber(revenue.channels?.walletChannel),
+    现金: roundNumber(revenue.channels?.cashChannel),
+    美团: roundNumber(revenue.channels?.meituanRevenue),
+    抖音: roundNumber(revenue.channels?.douyinRevenue),
+  };
+  const channelTotal = Object.values(channels).reduce(
+    (sum, value) => sum + Number(value || 0),
+    0,
+  );
+  const platformRevenue = Number(channels['美团'] || 0) + Number(channels['抖音'] || 0);
+  const recognizedRevenue = roundNumber(revenue.recognizedRevenue);
+  const grossRevenue = roundNumber(revenue.grossRevenue || channelTotal);
+  const customerCount = Number(revenue.customerCount || 0);
+  const avgTicket = customerCount > 0 ? roundNumber(recognizedRevenue / customerCount) : 0;
+  const periodLabel =
+    parsingContext.periodLabel ||
+    revenueFile.periodLabel ||
+    (period ? formatPeriodLabelFromPeriod(period) : '未指定月份');
+
+  const summary = {
+    customerCount,
+    recognizedRevenue,
+    grossRevenue,
+    savingsAmount: roundNumber(revenue.savingsAmount),
+    avgTicket,
+    newMembers: Number(revenue.newMembers || 0),
+    projectRevenue: roundNumber(revenue.projectRevenue || recognizedRevenue),
+    machineRevenue: roundNumber(revenue.machineRevenue),
+    channels,
+    platformRevenue: roundNumber(platformRevenue),
+    platformRevenueShare: grossRevenue > 0 ? roundNumber(platformRevenue / grossRevenue, 4) : 0,
+    channelTotal: roundNumber(channelTotal),
+  };
+
+  return {
+    id: `parsing-${store?.id || cleanText(parsingContext.storeName || revenueFile.storeName || 'unknown')}-${period || 'current'}`,
+    storeId: store?.id || '',
+    storeName: store?.name || parsingContext.storeName || revenueFile.storeName || '当前门店',
+    period: period || '',
+    periodLabel,
+    sheetName: revenueFile.metrics?.sheetName || '',
+    sourceFileName: revenueFile.fileName || '',
+    sourceRelativePath: '',
+    summary,
+    channels: buildChannelEntries({
+      channels: Object.entries(channels).map(([name, value]) => ({ name, value })),
+    }),
+    summaryMetrics: buildParsingSummaryMetrics(summary),
+    categories: [],
+    parsingSourceFiles: getParsingContextFiles(parsingContext),
+  };
+}
+
+function mergeParsingReportIntoReports(reports, parsingContext = {}) {
+  const parsingReport = buildParsingReport(parsingContext, reports);
+
+  if (!parsingReport) {
+    return reports;
+  }
+
+  const mergedReports = Array.isArray(reports) ? [...reports] : [];
+  const matchIndex = mergedReports.findIndex(
+    (report) =>
+      report.storeId === parsingReport.storeId &&
+      report.period === parsingReport.period &&
+      parsingReport.storeId &&
+      parsingReport.period,
+  );
+
+  if (matchIndex === -1) {
+    mergedReports.push(parsingReport);
+    return mergedReports;
+  }
+
+  const current = mergedReports[matchIndex];
+  mergedReports[matchIndex] = {
+    ...current,
+    ...parsingReport,
+    summary: {
+      ...(current.summary || {}),
+      ...(parsingReport.summary || {}),
+    },
+    channels: parsingReport.channels?.length ? parsingReport.channels : current.channels,
+    summaryMetrics: mergeSummaryMetrics(current.summaryMetrics, parsingReport.summaryMetrics),
+    categories: current.categories || [],
+    parsingSourceFiles: getParsingContextFiles(parsingContext),
+  };
+
+  return mergedReports;
+}
+
+function buildLookupDefaults(parsingContext = {}, reports = []) {
+  const storeToken = parsingContext.storeId || parsingContext.storeName || '';
+
+  return {
+    store:
+      resolveStore(storeToken) ||
+      resolveStoreFromReports(storeToken, reports) ||
+      null,
+    period: normalizeParsingPeriod(parsingContext),
+  };
 }
 
 const SUMMARY_LOOKUPS = [
@@ -433,19 +720,19 @@ function formatSummaryMetricValue(metric, value = metric?.numericValue) {
   return cleanText(metric?.rawValue || value || '');
 }
 
-function findLookupReport(question, reports) {
-  const store = resolveStore(question);
+function findLookupReport(question, reports, defaults = {}) {
+  const store = resolveStore(question) || defaults.store || null;
 
   if (!store) {
     return {
       store: null,
       report: null,
-      requestedPeriod: inferPeriodFromQuestion(question, reports),
+      requestedPeriod: inferPeriodFromQuestion(question, reports) || defaults.period || null,
       usedLatestPeriod: false,
     };
   }
 
-  const requestedPeriod = inferPeriodFromQuestion(question, reports);
+  const requestedPeriod = inferPeriodFromQuestion(question, reports) || defaults.period || null;
   const storeReports = reports
     .filter((report) => report.storeId === store.id)
     .sort((left, right) => left.period.localeCompare(right.period));
@@ -475,6 +762,61 @@ function pickLookupTarget(question, report) {
   const normalizedQuestion = normalizeLookupText(question);
   const answerAsRatio = wantsRatioAnswer(question);
   const candidates = [];
+
+  buildChannelEntries(report).forEach((channel) => {
+    const denominator =
+      Number(report.summary?.channelTotal || 0) ||
+      Number(report.summary?.grossRevenue || 0) ||
+      buildChannelEntries(report).reduce((sum, item) => sum + Number(item.value || 0), 0);
+    const ratio = denominator > 0 ? roundNumber(Number(channel.value || 0) / denominator, 4) : 0;
+    const aliases = buildAliasList(channel.name, [
+      `${channel.name}收入`,
+      `${channel.name}营收`,
+      `${channel.name}渠道`,
+      `${channel.name}金额`,
+    ]);
+    const matchScore = getLookupMatchScore(normalizedQuestion, aliases);
+
+    if (!matchScore) {
+      return;
+    }
+
+    candidates.push({
+      kind: 'channel',
+      label: `${channel.name}收入`,
+      channelName: channel.name,
+      aliases,
+      matchScore,
+      priority: 4,
+      value: answerAsRatio ? ratio : channel.value,
+      formattedValue: answerAsRatio ? percent(ratio) : exactCurrency(channel.value),
+      formatter: answerAsRatio ? percent : exactCurrency,
+      wantsRatio: answerAsRatio,
+      valueForReport: (peerReport) => {
+        const matchedChannel = findChannelEntry(peerReport, channel.name);
+
+        if (!matchedChannel) {
+          return null;
+        }
+
+        if (!answerAsRatio) {
+          return matchedChannel.value;
+        }
+
+        const peerDenominator =
+          Number(peerReport.summary?.channelTotal || 0) ||
+          Number(peerReport.summary?.grossRevenue || 0) ||
+          buildChannelEntries(peerReport).reduce(
+            (sum, item) => sum + Number(item.value || 0),
+            0,
+          );
+
+        return peerDenominator > 0
+          ? roundNumber(Number(matchedChannel.value || 0) / peerDenominator, 4)
+          : 0;
+      },
+    });
+  });
 
   SUMMARY_LOOKUPS.forEach((metric) => {
     const aliases = buildAliasList(metric.label, metric.aliases);
@@ -694,6 +1036,10 @@ function buildDirectLookupFacts({ report, target, peerComparison, usedLatestPeri
     `已直接查询原始月报：${report.storeName} ${report.periodLabel || formatPeriodLabelFromPeriod(report.period)} ${target.label}为 ${target.formattedValue}。`,
   ];
 
+  if (target.kind === 'channel') {
+    facts.push('该指标属于渠道金额，不是自动换算出来的占比。');
+  }
+
   if (target.kind === 'item' && target.categoryName) {
     facts.push(`该指标归属科目：${target.categoryName}。`);
   }
@@ -723,6 +1069,137 @@ function buildDirectLookupFacts({ report, target, peerComparison, usedLatestPeri
   }
 
   return facts;
+}
+
+function buildParsingSourceFact(report = {}) {
+  const sourceFile =
+    (Array.isArray(report.parsingSourceFiles) ? report.parsingSourceFiles : []).find(
+      (file) =>
+        file?.structuredData?.kind === 'revenue-report' || file?.sourceGroupKey === 'revenue',
+    ) || null;
+
+  if (!sourceFile) {
+    return '';
+  }
+
+  const sheetName = cleanText(sourceFile.metrics?.sheetName || report.sheetName || '');
+  return `当前智能解析来源：${sourceFile.fileName || sourceFile.name || '营业报表.xlsx'}${
+    sheetName ? ` / ${sheetName} 工作表` : ''
+  }。`;
+}
+
+function buildChannelDerivationFacts(report = {}, target = {}) {
+  if (target.kind !== 'channel') {
+    return [];
+  }
+
+  const channelName = target.channelName || target.label.replace(/收入$/, '');
+  const channels = report.summary?.channels || {};
+  const grossRevenue = Number(report.summary?.grossRevenue || report.summary?.channelTotal || 0);
+  const channelTotal = Number(report.summary?.channelTotal || grossRevenue || 0);
+  const walletChannel = Number(channels['微信银联支付宝'] || 0);
+  const cashChannel = Number(channels['现金'] || 0);
+  const meituanRevenue = Number(channels['美团'] || 0);
+  const douyinRevenue = Number(channels['抖音'] || 0);
+  const targetAmount =
+    channelName === '美团'
+      ? meituanRevenue
+      : channelName === '抖音'
+        ? douyinRevenue
+        : channelName === '现金'
+          ? cashChannel
+          : walletChannel;
+
+  if (target.wantsRatio && channelTotal > 0) {
+    return [
+      `解析方式：先取 ${channelName}渠道金额，再除以当月全部渠道金额。`,
+      `计算公式：${channelName}占比 = ${channelName}渠道金额 / 全部渠道金额。`,
+      `代入当前值：${exactCurrency(targetAmount)} / ${exactCurrency(channelTotal)} = ${percent(
+        targetAmount / channelTotal,
+      )}。`,
+    ];
+  }
+
+  if (channelName === '美团' && grossRevenue > 0) {
+    return [
+      '解析方式：先读取营业报表里的“合计”行，以及充值汇总区段，拿到总实收、微信银联支付宝、现金、抖音几个渠道值。',
+      '计算公式：美团收入 = 总实收 - 微信银联支付宝 - 现金 - 抖音。',
+      `代入当前值：${exactCurrency(grossRevenue)} - ${exactCurrency(walletChannel)} - ${exactCurrency(cashChannel)} - ${exactCurrency(douyinRevenue)} = ${exactCurrency(meituanRevenue)}。`,
+    ];
+  }
+
+  if (channelName === '抖音') {
+    return [
+      '解析方式：直接读取营业报表“合计”行里的抖音渠道金额。',
+      `当前值：抖音收入 = ${exactCurrency(douyinRevenue)}。`,
+    ];
+  }
+
+  if (channelName === '现金') {
+    return [
+      '解析方式：现金渠道 = 合计行里的现金金额 + 充值汇总里的现金充值。',
+      `当前值：现金收入 = ${exactCurrency(cashChannel)}。`,
+    ];
+  }
+
+  if (channelName === '微信银联支付宝') {
+    return [
+      '解析方式：微信银联支付宝渠道 = 银联 + 微信 + 支付宝三个支付项合并。',
+      `当前值：微信银联支付宝收入 = ${exactCurrency(walletChannel)}。`,
+    ];
+  }
+
+  return [];
+}
+
+function buildParsingLookupReply({ report, target, question, usedLatestPeriod }) {
+  const periodLabel = report.periodLabel || formatPeriodLabelFromPeriod(report.period);
+  const derivationQuestion = isDerivationQuestion(question);
+  const lines = derivationQuestion
+    ? [
+        '## 这个数怎么来的',
+        `**${report.storeName} ${periodLabel} 的 ${target.label} 是 ${target.formattedValue}。**`,
+        '这个回答只基于当前智能解析的单店单月结果，不和其他门店做排名或对比。',
+      ]
+    : [
+        '## 查询结果',
+        `**${target.formattedValue}**`,
+        '',
+        `- 门店：${report.storeName}`,
+        `- 月份：${periodLabel}`,
+        `- 指标：${target.label}`,
+        '- 范围：仅当前智能解析窗口，不引入其他门店。',
+      ];
+
+  const sourceFact = buildParsingSourceFact(report);
+
+  if (sourceFact) {
+    lines.push('', '## 来源');
+    lines.push(`- ${sourceFact}`);
+  }
+
+  const derivationFacts = buildChannelDerivationFacts(report, target);
+
+  if (derivationFacts.length) {
+    lines.push('', derivationQuestion ? '## 解析与公式' : '## 计算口径');
+    derivationFacts.forEach((fact) => {
+      lines.push(`- ${fact}`);
+    });
+  } else if (derivationQuestion) {
+    lines.push('', '## 解析方式');
+    lines.push('- 该值来自当前智能解析后的结构化结果，优先按源文件中的真实字段直接读取，不做跨店汇总。');
+  }
+
+  if (target.kind === 'channel' && !target.wantsRatio) {
+    lines.push('', '## 说明');
+    lines.push('- 这是渠道金额本身，不是渠道占比。只有你明确问“占比”时，系统才会再计算比例。');
+  }
+
+  if (usedLatestPeriod) {
+    lines.push('- 你没有单独指定月份，所以这里按当前门店最新可用月份解释。');
+  }
+
+  return lines.join('\n');
 }
 
 function buildDirectLookupReply({ report, target, peerComparison, usedLatestPeriod }) {
@@ -1112,8 +1589,8 @@ function buildAllStoresMissingDataReply({ requestedPeriod }) {
   return `\u5f53\u524d\u6ca1\u6709 ${periodLabel} \u7684\u5168\u90e8\u95e8\u5e97\u6708\u62a5\u6570\u636e\u53ef\u4f9b\u67e5\u8be2\u3002`;
 }
 
-function resolveDirectLookup(question, reports) {
-  const lookupReport = findLookupReport(question, reports);
+function resolveDirectLookup(question, reports, defaults = {}, options = {}) {
+  const lookupReport = findLookupReport(question, reports, defaults);
 
   if (!lookupReport.store || !lookupReport.report) {
     return {
@@ -1135,11 +1612,13 @@ function resolveDirectLookup(question, reports) {
     };
   }
 
-  const peerComparison = buildLookupPeerComparison({
-    report: lookupReport.report,
-    target,
-    reports,
-  });
+  const peerComparison = options.disablePeerComparison
+    ? null
+    : buildLookupPeerComparison({
+        report: lookupReport.report,
+        target,
+        reports,
+      });
 
   return {
     ...lookupReport,
@@ -1194,7 +1673,22 @@ function pickLookupTargetAcrossReports(question, reportsForPeriod) {
   );
 }
 
-function resolveAllStoresLookup(question, reports) {
+function resolveAllStoresLookup(question, reports, options = {}) {
+  if (options.disableAllStores) {
+    return {
+      shouldHandle: false,
+      store: null,
+      requestedPeriod: options.requestedPeriod || null,
+      period: options.requestedPeriod || null,
+      reportsForPeriod: [],
+      usedLatestPeriod: false,
+      target: null,
+      rows: [],
+      peerComparison: null,
+      retrievedFacts: [],
+    };
+  }
+
   const store = resolveStore(question);
   const shouldHandle = !store && asksForAllStores(question) && !isAnalysisIntent(question);
   const sanitizedQuestion = sanitizeAllStoresLookupQuestion(question);
@@ -1690,11 +2184,26 @@ function buildFinancialAgentExecutionContext({
   history = [],
   reports,
   settings,
+  chatScope = '',
+  parsingContext = null,
 }) {
-  const directLookup = resolveDirectLookup(message, reports);
-  const allStoresLookup = resolveAllStoresLookup(message, reports);
-  const filters = inferQuestionFilters(message, reports);
-  const { context } = buildFinancialContextBundle(reports, filters);
+  const parsingDefaults = buildLookupDefaults(parsingContext || {}, reports);
+  const effectiveReports =
+    chatScope === 'parsing'
+      ? mergeParsingReportIntoReports(reports, parsingContext || {})
+      : reports;
+  const directLookup = resolveDirectLookup(message, effectiveReports, parsingDefaults, {
+    disablePeerComparison: chatScope === 'parsing',
+  });
+  const allStoresLookup = resolveAllStoresLookup(message, effectiveReports, {
+    disableAllStores: chatScope === 'parsing',
+    requestedPeriod: parsingDefaults.period,
+  });
+  const filters =
+    chatScope === 'parsing'
+      ? inferQuestionFiltersWithDefaults(message, effectiveReports, parsingDefaults)
+      : inferQuestionFilters(message, effectiveReports);
+  const { context } = buildFinancialContextBundle(effectiveReports, filters);
   const retrievedFacts = [
     ...(directLookup.retrievedFacts || []),
     ...(allStoresLookup.retrievedFacts || []),
@@ -1709,7 +2218,71 @@ function buildFinancialAgentExecutionContext({
     ...context,
     retrievedFacts,
     requestResolution,
+    chatScope,
+    parsingContext:
+      chatScope === 'parsing'
+        ? {
+            storeName: parsingContext?.storeName || directLookup.store?.name || '',
+            period: parsingDefaults.period || '',
+            periodLabel:
+              parsingContext?.periodLabel ||
+              directLookup.report?.periodLabel ||
+              (parsingDefaults.period
+                ? formatPeriodLabelFromPeriod(parsingDefaults.period)
+                : ''),
+            parsedFiles: getParsingContextFiles(parsingContext || {}).map((file) => ({
+              fileName: file.fileName || file.name || '',
+              sourceGroupKey: file.sourceGroupKey || '',
+              parserMode: file.parserMode || '',
+              sheetName: file.metrics?.sheetName || '',
+              previewLines: (file.previewLines || []).slice(0, 4),
+              structuredData:
+                file.structuredData?.kind === 'revenue-report'
+                  ? {
+                      kind: file.structuredData.kind,
+                      grossRevenue: file.structuredData.grossRevenue,
+                      recognizedRevenue: file.structuredData.recognizedRevenue,
+                      customerCount: file.structuredData.customerCount,
+                      newMembers: file.structuredData.newMembers,
+                      channels: file.structuredData.channels || {},
+                    }
+                  : null,
+            })),
+          }
+        : null,
   };
+
+  if (chatScope === 'parsing') {
+    llmContext.peerComparison = null;
+    llmContext.storeBenchmarks = [];
+    llmContext.rankingSnapshotCandidates = [];
+    llmContext.anomalyCandidates = [];
+    llmContext.thirtyDayPlanCandidates = [];
+    llmContext.ownerBriefCandidate = '';
+  }
+
+  if (
+    chatScope === 'parsing' &&
+    directLookup.report &&
+    directLookup.target &&
+    (isDerivationQuestion(message) || shouldUseDirectLookup(message) || isParsingLookupIntent(message))
+  ) {
+    return {
+      payload: {
+        reply: buildParsingLookupReply({
+          report: directLookup.report,
+          target: directLookup.target,
+          question: message,
+          usedLatestPeriod: directLookup.usedLatestPeriod,
+        }),
+        agent: buildFinancialAgentMeta({
+          mode: 'local',
+          provider: 'local',
+          note: '智能解析窗口已按当前门店当前月份的解析结果直接取数，不再引入跨门店对比。',
+        }),
+      },
+    };
+  }
 
   if (settings.llmProvider !== 'zhipu' || !settings.zhipuApiKey) {
     return {
@@ -1782,12 +2355,16 @@ async function buildFinancialAgentReply({
   history = [],
   reports,
   settings,
+  chatScope = '',
+  parsingContext = null,
 }) {
   const executionContext = buildFinancialAgentExecutionContext({
     message,
     history,
     reports,
     settings,
+    chatScope,
+    parsingContext,
   });
 
   if (executionContext.payload) {
@@ -1838,6 +2415,8 @@ async function buildWorkspaceAgentReply({
   history = [],
   reports,
   settings = readSettings(),
+  chatScope = '',
+  parsingContext = null,
 }) {
   if (agentId === 'financial_analyst') {
     return buildFinancialAgentReply({
@@ -1845,6 +2424,8 @@ async function buildWorkspaceAgentReply({
       history,
       reports,
       settings,
+      chatScope,
+      parsingContext,
     });
   }
 
