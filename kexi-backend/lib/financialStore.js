@@ -44,6 +44,42 @@ function listReports() {
   return readDatabase().reports || [];
 }
 
+function getReport(storeId, period) {
+  const reports = listReports();
+  return reports.find((r) => r.storeId === storeId && r.period === period) || null;
+}
+
+function deleteReport(storeId, period) {
+  const database = readDatabase();
+  const initialLength = database.reports.length;
+  database.reports = database.reports.filter(
+    (item) => !(item.storeId === storeId && item.period === period),
+  );
+  if (database.reports.length < initialLength) {
+    writeDatabase(database);
+    return true;
+  }
+  return false;
+}
+
+function updateReportData(storeId, period, updatePayload) {
+  const database = readDatabase();
+  const existingIndex = database.reports.findIndex(
+    (item) => item.storeId === storeId && item.period === period,
+  );
+
+  if (existingIndex >= 0) {
+    database.reports[existingIndex] = {
+      ...database.reports[existingIndex],
+      ...updatePayload,
+      updatedAt: new Date().toISOString()
+    };
+    writeDatabase(database);
+    return database.reports[existingIndex];
+  }
+  return null;
+}
+
 function upsertReport(report) {
   const database = readDatabase();
   const existingIndex = database.reports.findIndex(
@@ -141,4 +177,7 @@ module.exports = {
   ensureDirectories,
   ingestWorkbook,
   listReports,
+  getReport,
+  deleteReport,
+  updateReportData,
 };

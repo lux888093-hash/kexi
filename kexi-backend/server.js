@@ -20,6 +20,9 @@ const {
   ensureDirectories,
   ingestWorkbook,
   listReports,
+  getReport,
+  deleteReport,
+  updateReportData,
 } = require('./lib/financialStore');
 const {
   REQUIRED_SOURCE_GROUPS,
@@ -208,6 +211,53 @@ app.get('/api/financials/reports', (_request, response) => {
     }));
 
   response.json({ reports });
+});
+
+app.get('/api/financials/reports/:storeId/:period/download', (request, response) => {
+  const { storeId, period } = request.params;
+  const report = getReport(storeId, period);
+  if (!report) {
+    return response.status(404).json({ message: '体质表未找到' });
+  }
+
+  if (report.sourceRelativePath) {
+    const filePath = path.join(__dirname, '..', report.sourceRelativePath);
+    if (fs.existsSync(filePath)) {
+      return response.download(filePath, report.sourceFileName);
+    }
+  }
+
+  response.status(404).json({ message: '原文件未找到，请重新生成' });
+});
+
+app.get('/api/financials/reports/:storeId/:period', (request, response) => {
+  const { storeId, period } = request.params;
+  const report = getReport(storeId, period);
+  if (!report) {
+    return response.status(404).json({ message: '体质表未找到' });
+  }
+  response.json(report);
+});
+
+app.delete('/api/financials/reports/:storeId/:period', (request, response) => {
+  const { storeId, period } = request.params;
+  const deleted = deleteReport(storeId, period);
+  if (deleted) {
+    response.json({ message: '体质表已删除' });
+  } else {
+    response.status(404).json({ message: '体质表未找到' });
+  }
+});
+
+app.put('/api/financials/reports/:storeId/:period', (request, response) => {
+  const { storeId, period } = request.params;
+  const updatePayload = request.body || {};
+  const updatedReport = updateReportData(storeId, period, updatePayload);
+  if (updatedReport) {
+    response.json({ message: '体质表已更新', report: updatedReport });
+  } else {
+    response.status(404).json({ message: '体质表未找到' });
+  }
 });
 
 app.post('/api/financials/upload', upload.array('files', 12), (request, response) => {

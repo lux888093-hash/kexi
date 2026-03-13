@@ -1,9 +1,28 @@
 import React, { useState, useRef, useEffect } from "react";
 import AppShell from "../components/AppShell";
+import PhysicalTablePanel from "../components/PhysicalTablePanel";
 import { buildApiUrl } from "../lib/runtimeConfig";
 
 const STORES = ["华创店", "佳兆业店", "德思勤店", "凯德壹店", "梅溪湖店", "万象城店"];
 const MONTHS = ["2026年1月", "2026年2月", "2026年3月", "2026年4月"];
+
+const STORE_MAP = {
+  "华创店": "huachuang",
+  "佳兆业店": "jiazhaoye",
+  "德思勤店": "desiqin",
+  "凯德壹店": "kaideyi",
+  "梅溪湖店": "meixihu",
+  "万象城店": "wanxiangcheng"
+};
+
+const getPeriodId = (monthLabel) => {
+  const match = monthLabel.match(/(\d{4})年(\d{1,2})月/);
+  if (match) {
+    return `${match[1]}-${match[2].padStart(2, '0')}`;
+  }
+  return "2026-01";
+};
+
 const REQUIRED_SOURCE_GROUPS = [
   { key: "revenue", label: "营业报表.xlsx" },
   { key: "expense", label: "报销明细.pdf" },
@@ -217,6 +236,7 @@ async function exportParsingDraft({
 export default function DataParsing() {
   const [selectedStore, setSelectedStore] = useState("华创店");
   const [selectedMonth, setSelectedMonth] = useState("2026年1月");
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [messages, setMessages] = useState([
     {
       id: "init-msg-1",
@@ -412,27 +432,55 @@ export default function DataParsing() {
     }
   };
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!inputText.trim()) return;
 
+    const currentInput = inputText;
     const newMsg = {
       id: Date.now(),
       sender: "user",
-      text: inputText,
+      text: currentInput,
     };
     setMessages((prev) => [...prev, newMsg]);
     setInputText("");
     setIsTyping(true);
+    setTypingText("思考中...");
 
-    setTimeout(() => {
+    try {
+      const response = await fetch(buildApiUrl("/api/agents/chat"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          agentId: "financial_analyst",
+          message: `[用户当前选择的门店: ${selectedStore}, 月份: ${selectedMonth}] 请基于当前选择的门店和月份已经生成的体质表回答以下问题，如果用户提出的数据与已有体质表冲突，请务必提醒。问题：${currentInput}`,
+          history: messages.map(m => ({ role: m.sender === 'ai' ? 'assistant' : 'user', content: m.text })).slice(-10)
+        }),
+      });
+      
+      const payload = await response.json();
+      
       setIsTyping(false);
-      const aiResponse = {
-        id: Date.now() + 1,
-        sender: "ai",
-        text: "已收到。当前下载功能已接入标准体质表导出；请先上传并完成本月源文件解析。",
-      };
-      setMessages((prev) => [...prev, aiResponse]);
-    }, 1500);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now() + 1,
+          sender: "ai",
+          text: payload.reply || "已收到，处理完成。",
+        },
+      ]);
+    } catch {
+      setIsTyping(false);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now() + 1,
+          sender: "ai",
+          text: "网络请求失败，请检查服务是否正常。",
+        },
+      ]);
+    }
   };
 
   const handleKeyDown = (e) => {
@@ -468,7 +516,14 @@ export default function DataParsing() {
             </div>
           </div>
           
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsPanelOpen(true)}
+              className="group flex items-center gap-1.5 rounded-xl bg-white/80 border border-[#b6860c]/30 px-4 py-2 text-sm font-bold text-[#b6860c] shadow-sm transition-all hover:bg-[#b6860c]/10 hover:shadow-md backdrop-blur-md mr-2"
+            >
+              <span className="material-symbols-outlined text-[18px]">table_chart</span>
+              查看体质表
+            </button>
             <div className="relative group">
               <select
                 value={selectedStore}
@@ -859,6 +914,16 @@ export default function DataParsing() {
             </p>
           </div>
         </div>
+
+        {isPanelOpen && (
+          <PhysicalTablePanel
+            storeId={STORE_MAP[selectedStore]}
+            storeName={selectedStore}
+            period={getPeriodId(selectedMonth)}
+            periodLabel={selectedMonth}
+            onClose={() => setIsPanelOpen(false)}
+          />
+        )}
 
       </div>
     </AppShell>
