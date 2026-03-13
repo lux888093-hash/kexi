@@ -40,6 +40,21 @@ const CustomTooltip = ({ active, payload, label }) => {
   return null;
 };
 
+const RADIAN = Math.PI / 180;
+const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, index, name }) => {
+  if (percent < 0.02) return null; // Don't show label for very small slices
+  const radius = innerRadius + (outerRadius - innerRadius) * 0.5 + 40;
+  const x = cx + radius * Math.cos(-midAngle * RADIAN);
+  const y = cy + radius * Math.sin(-midAngle * RADIAN);
+  const textAnchor = x > cx ? 'start' : 'end';
+
+  return (
+    <text x={x} y={y} fill={COLORS[index % COLORS.length]} textAnchor={textAnchor} dominantBaseline="central" className="text-[11px] font-bold">
+      {`${name} ${(percent * 100).toFixed(1)}%`}
+    </text>
+  );
+};
+
 export default function FlexibleChartAnalysis({ stores }) {
   const [mode, setMode] = useState('single'); // 'single' | 'multi'
   
@@ -74,8 +89,10 @@ export default function FlexibleChartAnalysis({ stores }) {
       return channel ? channel.value : 0;
     } else {
       if (subCategory === '合计') return store.cost || 0;
-      const category = (store.costBreakdown || []).find(c => c.name.includes(subCategory) || subCategory.includes(c.name));
-      return category ? category.value : 0;
+      // Also try costBreakdown for top-level categories, but mainly allCostItems for detailed items
+      const item = (store.allCostItems || []).find(c => c.name.includes(subCategory) || subCategory.includes(c.name)) || 
+                   (store.costBreakdown || []).find(c => c.name.includes(subCategory) || subCategory.includes(c.name));
+      return item ? item.value : 0;
     }
   };
 
@@ -133,16 +150,28 @@ export default function FlexibleChartAnalysis({ stores }) {
     const hasBoth = singleMetricType === 'both';
     
     if (singleChartType === 'pie') {
+      const pieData = singleStoreData.filter(d => (d.金额 || d.收入 || d.支出) > 0);
       return (
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
-            <Pie data={singleStoreData.filter(d => (d.金额 || d.收入 || d.支出) > 0)} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={2} dataKey={hasBoth ? '金额' : '金额'}>
-              {singleStoreData.map((entry, index) => (
+            <Pie 
+              data={pieData} 
+              cx="50%" 
+              cy="50%" 
+              innerRadius={70} 
+              outerRadius={110} 
+              paddingAngle={2} 
+              dataKey={hasBoth ? '金额' : '金额'}
+              label={renderCustomizedLabel}
+              labelLine={false}
+              stroke="none"
+            >
+              {pieData.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
               ))}
             </Pie>
             <Tooltip content={<CustomTooltip />} />
-            <Legend />
+            <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '20px' }} />
           </PieChart>
         </ResponsiveContainer>
       );

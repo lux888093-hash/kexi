@@ -125,6 +125,33 @@ function aggregateTopItems(reports) {
     .slice(0, 8);
 }
 
+function aggregateAllCostItems(reports) {
+  const itemMap = new Map();
+
+  for (const report of reports) {
+    if (!report.lineItems) continue;
+    for (const item of report.lineItems) {
+      const key = `${item.categoryName}:${item.name}`;
+      const current = itemMap.get(key) || {
+        categoryName: item.categoryName,
+        name: item.name,
+        value: 0,
+        notes: item.notes,
+      };
+
+      current.value += item.amount;
+      itemMap.set(key, current);
+    }
+  }
+
+  return [...itemMap.values()]
+    .map((item) => ({
+      ...item,
+      value: round(item.value),
+    }))
+    .sort((left, right) => Math.abs(right.value) - Math.abs(left.value));
+}
+
 function aggregateChannels(reports) {
   const channelMap = new Map();
 
@@ -243,6 +270,7 @@ function buildStoreSummaries(reports, selectedReports, normalizedFilters) {
       ...selectedSummary,
       costBreakdown: aggregateCostBreakdown(activeReports),
       channels: aggregateChannels(activeReports),
+      allCostItems: aggregateAllCostItems(activeReports),
     };
   });
 }
