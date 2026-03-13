@@ -241,6 +241,8 @@ function buildStoreSummaries(reports, selectedReports, normalizedFilters) {
       isLoaded: Boolean(allReports.length),
       currentPeriodLoaded: Boolean(currentPeriodReport),
       ...selectedSummary,
+      costBreakdown: aggregateCostBreakdown(activeReports),
+      channels: aggregateChannels(activeReports),
     };
   });
 }

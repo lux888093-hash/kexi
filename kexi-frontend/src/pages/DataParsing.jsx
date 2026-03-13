@@ -605,92 +605,115 @@ export default function DataParsing() {
 
                   {/* AI Report Summary Card */}
                   {msg.type === "report" && (
-                    <div className="mt-5 rounded-2xl bg-white border border-[#e8dcc4]/60 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] overflow-hidden">
+                    <div className="mt-5 rounded-[20px] bg-white/80 backdrop-blur-xl border border-white/50 shadow-[0_8px_30px_-4px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,0.6)] overflow-hidden relative">
+                      {/* Gradient Decorative Top Bar */}
+                      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#b6860c] via-[#d4a373] to-[#e8dcc4]"></div>
+                      
                       {/* Card Header */}
-                        <div className="bg-[#fcfaf7] border-b border-[#e8dcc4]/40 px-5 py-3.5 flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="material-symbols-outlined text-[20px] text-[#b6860c]">insights</span>
-                            <p className="text-[15px] font-extrabold text-[#171412]">
-                              解析报告 · {msg.fileName || `${msg.store} ${msg.month}`}
-                            </p>
+                      <div className="bg-gradient-to-b from-white/60 to-transparent border-b border-[#e8dcc4]/30 px-6 py-4 flex items-start sm:items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-[#fffaf2] to-[#f5ebd9] shadow-inner border border-white">
+                            <span className="material-symbols-outlined text-[18px] text-[#b6860c]">auto_awesome</span>
                           </div>
-                          <span className="text-[11px] font-bold tracking-wider text-[#d96e42] bg-[#d96e42]/10 px-2 py-1 rounded-md">
-                            {msg.statusLabel || "COMPLETED"}
-                          </span>
+                          <div>
+                            <p className="text-[15px] font-extrabold text-[#171412] tracking-tight">
+                              解析洞察 ✨ · <span className="text-[#8c8273] font-medium">{msg.fileName || `${msg.store} ${msg.month}`}</span>
+                            </p>
+                            <p className="text-[12px] text-[#b6860c] font-medium mt-0.5">AI Agent Analysis Complete</p>
+                          </div>
                         </div>
+                        <span className="shrink-0 flex items-center gap-1.5 text-[11px] font-bold tracking-wider text-emerald-600 bg-emerald-50/80 border border-emerald-100/50 px-2.5 py-1.5 rounded-lg shadow-sm">
+                          <span className="material-symbols-outlined text-[14px]">check_circle</span>
+                          {msg.statusLabel || "COMPLETED"}
+                        </span>
+                      </div>
                       
                       {/* Card Body */}
-                      <div className="p-5 space-y-4">
+                      <div className="p-6 space-y-5">
                         {msg.summaryText ? (
-                          <div className="rounded-xl border border-[#e8dcc4]/50 bg-[#fcfaf7] px-4 py-3">
-                            <p className="text-[13px] leading-6 text-[#5f5345]">
-                              {msg.summaryText}
+                          <div className="rounded-xl bg-gradient-to-br from-[#fcfaf7] to-white border border-[#e8dcc4]/40 px-5 py-4 shadow-[inset_0_1px_2px_rgba(255,255,255,0.8)]">
+                            <p className="text-[14px] leading-[1.7] text-[#4a4036] flex items-start gap-3">
+                              <span className="text-[16px] leading-tight pt-0.5">💡</span>
+                              <span>{msg.summaryText}</span>
                             </p>
                           </div>
                         ) : null}
 
-                        <div className="grid grid-cols-1 gap-3">
+                        <div className="grid grid-cols-1 gap-4">
                           {msg.successFiles?.length > 0 && (
-                            <div className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3.5">
-                              <p className="mb-2.5 text-[13px] font-bold text-emerald-700 flex items-center gap-1.5 uppercase tracking-wide">
-                                <span className="material-symbols-outlined text-[16px]">check_circle</span>
-                                成功解析 ({msg.successFiles.length})
+                            <div className="space-y-3">
+                              <p className="text-[14px] font-extrabold text-[#171412] flex items-center gap-2">
+                                📊 核心数据提取 <span className="text-[#8c8273] text-[12px] font-medium">({msg.successFiles.length} 份文件)</span>
                               </p>
-                              <div className="space-y-2">
+                              <div className="space-y-3">
                                 {msg.successFiles.map((file, i) => (
                                   <div
                                     key={`${file.name}-${i}`}
-                                    className="rounded-xl border border-emerald-100 bg-white px-3 py-2.5 shadow-sm"
+                                    className="rounded-2xl border border-[#e8dcc4]/50 bg-white p-4 shadow-sm hover:shadow-md transition-shadow duration-300 relative overflow-hidden"
                                   >
-                                    <div className="flex items-center justify-between gap-3">
-                                      <span className="truncate text-[13px] font-semibold text-emerald-800">
-                                        {file.name}
-                                      </span>
-                                      <span className="shrink-0 rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-emerald-700">
-                                        {file.mode}
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-[#b6860c]/5 to-transparent rounded-bl-full pointer-events-none"></div>
+                                    <div className="flex items-center justify-between gap-3 relative z-10">
+                                      <div className="flex items-center gap-2">
+                                        <span className="material-symbols-outlined text-[#b6860c] text-[18px]">dataset</span>
+                                        <span className="truncate text-[14px] font-bold text-[#171412]">
+                                          {file.name}
+                                        </span>
+                                      </div>
+                                      <span className="shrink-0 rounded-lg bg-[#f5f2eb] border border-[#e8dcc4]/50 px-2 py-1 text-[11px] font-bold tracking-wide text-[#8c8273]">
+                                        {file.mode === '表格直读' ? '🧮 ' : ''}{file.mode}
                                       </span>
                                     </div>
-                                    <p className="mt-1.5 text-[12px] leading-5 text-emerald-700/80">
+                                    <p className="mt-2 text-[13px] leading-relaxed text-[#5f5345] relative z-10">
                                       {file.note}
                                     </p>
-                                    {file.bodySheetSection ? (
-                                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                                        <span className="rounded-md bg-[#fff6db] px-2 py-1 text-[11px] font-bold text-[#9b6b00]">
-                                          纳入：{file.bodySheetSection.label}
-                                        </span>
-                                        <span className="text-[11px] font-medium text-[#7a6c58]">
-                                          {file.bodySheetSection.target}
-                                        </span>
-                                      </div>
-                                    ) : null}
-                                    {file.parsedDataSummary?.length > 0 ? (
-                                      <div className="mt-2.5 rounded-lg bg-[#fffdfa] px-3 py-2.5">
-                                        <p className="text-[11px] font-bold uppercase tracking-wide text-[#8f6b35]">
-                                          本次提取
-                                        </p>
-                                        <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[12px] leading-5 text-[#6f5b3f]">
-                                          {file.parsedDataSummary.map((item) => (
-                                            <li key={`${file.name}-${item}`}>{item}</li>
-                                          ))}
-                                        </ul>
-                                      </div>
-                                    ) : null}
+                                    
+                                    <div className="mt-4 flex flex-col sm:flex-row gap-3 relative z-10">
+                                      {file.bodySheetSection ? (
+                                        <div className="flex-1 rounded-xl bg-[#fcfaf7] border border-[#e8dcc4]/30 p-3">
+                                          <p className="text-[11px] font-bold uppercase tracking-wider text-[#b6860c] mb-1.5 flex items-center gap-1"><span className="material-symbols-outlined text-[14px]">account_tree</span> 数据归口</p>
+                                          <div className="flex flex-col gap-1">
+                                            <span className="text-[13px] font-bold text-[#171412]">
+                                              {file.bodySheetSection.label}
+                                            </span>
+                                            <span className="text-[12px] text-[#8c8273]">
+                                              {file.bodySheetSection.target}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      ) : null}
+
+                                      {file.parsedDataSummary?.length > 0 ? (
+                                        <div className="flex-[2] rounded-xl bg-[#fcfaf7] border border-[#e8dcc4]/30 p-3">
+                                          <p className="text-[11px] font-bold uppercase tracking-wider text-[#b6860c] mb-1.5 flex items-center gap-1"><span className="material-symbols-outlined text-[14px]">donut_small</span> 本次纳入指标</p>
+                                          <ul className="grid grid-cols-2 gap-x-2 gap-y-1.5 text-[12px] font-medium text-[#4a4036]">
+                                            {file.parsedDataSummary.map((item) => (
+                                              <li key={`${file.name}-${item}`} className="flex items-center gap-1.5 truncate">
+                                                <div className="size-1 rounded-full bg-[#b6860c]/60 shrink-0"></div>
+                                                <span className="truncate">{item}</span>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      ) : null}
+                                    </div>
+
                                     {file.metricsSummary?.length > 0 ? (
-                                      <div className="mt-2 flex flex-wrap gap-1.5">
+                                      <div className="mt-3 flex flex-wrap gap-2 relative z-10">
                                         {file.metricsSummary.map((item) => (
                                           <span
                                             key={`${file.name}-${item}`}
-                                            className="rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700"
+                                            className="rounded-lg bg-[#b6860c]/5 border border-[#b6860c]/20 px-2.5 py-1 text-[12px] font-semibold text-[#8f6b35] flex items-center gap-1"
                                           >
-                                            {item}
+                                            <span className="text-[10px]">💰</span> {item}
                                           </span>
                                         ))}
                                       </div>
                                     ) : null}
+                                    
                                     {file.previewLines?.length > 0 ? (
-                                      <div className="mt-2.5 rounded-lg bg-[#f7fbf8] px-3 py-2.5 text-[12px] leading-5 text-[#406a57]">
+                                      <div className="mt-3 rounded-lg bg-[#171412]/5 border border-[#171412]/10 px-3.5 py-2.5 relative z-10">
                                         {file.previewLines.map((line, index) => (
-                                          <p key={`${file.name}-preview-${index}`} className="truncate">
+                                          <p key={`${file.name}-preview-${index}`} className="truncate text-[12px] font-mono leading-relaxed text-[#5f5345]">
                                             {line}
                                           </p>
                                         ))}
@@ -703,50 +726,31 @@ export default function DataParsing() {
                           )}
 
                           {(msg.reviewFiles?.length > 0 || msg.failFiles?.length > 0 || msg.missingFiles?.length > 0) && (
-                            <div className="flex flex-col sm:flex-row gap-3">
+                            <div className="mt-2 flex flex-col gap-3">
                               {msg.reviewFiles?.length > 0 && (
-                                <div className="flex-1 rounded-xl border border-sky-100 bg-sky-50/40 p-3.5">
-                                  <p className="mb-2 text-[13px] font-bold text-sky-700 flex items-center gap-1.5 uppercase tracking-wide">
-                                    <span className="material-symbols-outlined text-[16px]">manage_search</span>
-                                    待复核 ({msg.reviewFiles.length})
+                                <div className="rounded-xl border border-sky-200/60 bg-gradient-to-br from-sky-50/50 to-white p-4 shadow-sm">
+                                  <p className="mb-3 text-[14px] font-bold text-sky-800 flex items-center gap-2">
+                                    <span className="text-[16px]">🧐</span>
+                                    待人工复核 <span className="text-sky-600/70 text-[12px] font-medium">({msg.reviewFiles.length})</span>
                                   </p>
-                                  <div className="space-y-2">
+                                  <div className="space-y-2.5">
                                     {msg.reviewFiles.map((file, i) => (
-                                      <div key={`${file.name}-${i}`} className="rounded-lg bg-white px-3 py-2 text-[12px] text-sky-900/90 border border-sky-100">
-                                        <div className="flex items-center justify-between gap-2">
-                                          <span className="truncate font-semibold">{file.name}</span>
-                                          <span className="shrink-0 rounded-md bg-sky-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-700">
+                                      <div key={`${file.name}-${i}`} className="rounded-xl bg-white px-4 py-3 text-[13px] text-sky-900 border border-sky-100 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                                        <div className="flex items-center justify-between gap-3">
+                                          <span className="truncate font-bold">{file.name}</span>
+                                          <span className="shrink-0 rounded-lg bg-sky-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-sky-700 border border-sky-100/50">
                                             {file.mode}
                                           </span>
                                         </div>
-                                        <p className="mt-1 text-sky-800/75 leading-5">{file.reason}</p>
+                                        <p className="mt-1.5 text-sky-700/80 leading-relaxed text-[12px]">{file.reason}</p>
                                         {file.bodySheetSection ? (
-                                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                                            <span className="rounded-md bg-sky-50 px-2 py-1 text-[11px] font-bold text-sky-700">
+                                          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                                            <span className="rounded-md bg-sky-50 px-2 py-1.5 text-[11px] font-bold text-sky-700 border border-sky-100">
                                               建议归入：{file.bodySheetSection.label}
                                             </span>
                                             <span className="text-[11px] font-medium text-sky-900/60">
                                               {file.bodySheetSection.target}
                                             </span>
-                                          </div>
-                                        ) : null}
-                                        {file.parsedDataSummary?.length > 0 ? (
-                                          <ul className="mt-2 list-disc space-y-1 pl-4 text-[12px] leading-5 text-sky-800/75">
-                                            {file.parsedDataSummary.map((item) => (
-                                              <li key={`${file.name}-${item}`}>{item}</li>
-                                            ))}
-                                          </ul>
-                                        ) : null}
-                                        {file.metricsSummary?.length > 0 ? (
-                                          <div className="mt-2 flex flex-wrap gap-1.5">
-                                            {file.metricsSummary.map((item) => (
-                                              <span
-                                                key={`${file.name}-${item}`}
-                                                className="rounded-md bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700"
-                                              >
-                                                {item}
-                                              </span>
-                                            ))}
                                           </div>
                                         ) : null}
                                       </div>
@@ -756,16 +760,16 @@ export default function DataParsing() {
                               )}
 
                               {msg.failFiles?.length > 0 && (
-                                <div className="flex-1 rounded-xl border border-rose-100 bg-rose-50/30 p-3.5">
-                                  <p className="mb-2 text-[13px] font-bold text-rose-700 flex items-center gap-1.5 uppercase tracking-wide">
-                                    <span className="material-symbols-outlined text-[16px]">error</span>
-                                    暂不支持 ({msg.failFiles.length})
+                                <div className="rounded-xl border border-rose-200/60 bg-gradient-to-br from-rose-50/50 to-white p-4 shadow-sm">
+                                  <p className="mb-3 text-[14px] font-bold text-rose-800 flex items-center gap-2">
+                                    <span className="text-[16px]">⚠️</span>
+                                    格式暂不支持 <span className="text-rose-600/70 text-[12px] font-medium">({msg.failFiles.length})</span>
                                   </p>
                                   <div className="space-y-2">
                                     {msg.failFiles.map((file, i) => (
-                                      <div key={`${file.name}-${i}`} className="rounded-lg bg-white px-3 py-2 text-[12px] text-rose-900/90 border border-rose-100">
-                                        <p className="truncate font-semibold">{file.name}</p>
-                                        <p className="mt-1 text-rose-700/80 leading-5">{file.reason}</p>
+                                      <div key={`${file.name}-${i}`} className="rounded-xl bg-white px-4 py-2.5 text-[13px] text-rose-900 border border-rose-100">
+                                        <p className="truncate font-bold">{file.name}</p>
+                                        <p className="mt-1 text-rose-700/80 leading-relaxed text-[12px]">{file.reason}</p>
                                       </div>
                                     ))}
                                   </div>
@@ -773,13 +777,18 @@ export default function DataParsing() {
                               )}
 
                               {msg.missingFiles?.length > 0 && (
-                                <div className="flex-1 rounded-xl border border-amber-200/60 bg-amber-50/30 p-3.5">
-                                  <p className="mb-2 text-[13px] font-bold text-amber-700 flex items-center gap-1.5 uppercase tracking-wide">
-                                    <span className="material-symbols-outlined text-[16px]">warning</span>
-                                    缺失数据源
+                                <div className="rounded-xl border border-amber-200/60 bg-gradient-to-br from-amber-50/50 to-white p-4 shadow-sm">
+                                  <p className="mb-2.5 text-[14px] font-bold text-amber-800 flex items-center gap-2">
+                                    <span className="text-[16px]">📌</span>
+                                    温馨提示：待补齐资料
                                   </p>
-                                  <ul className="list-inside list-disc space-y-1 text-amber-700/80 text-[13px] font-medium">
-                                    {msg.missingFiles.map((f, i) => <li key={i} className="truncate">{f}</li>)}
+                                  <ul className="grid grid-cols-2 gap-2 text-amber-800/80 text-[12px] font-medium mt-2">
+                                    {msg.missingFiles.map((f, i) => (
+                                      <li key={i} className="flex items-center gap-1.5 truncate">
+                                         <div className="size-1.5 rounded-full bg-amber-400 shrink-0"></div>
+                                         <span className="truncate">{f}</span>
+                                      </li>
+                                    ))}
                                   </ul>
                                 </div>
                               )}
@@ -789,12 +798,17 @@ export default function DataParsing() {
                       </div>
 
                       {/* Card Footer (Download) */}
-                      <div className="bg-[#fcfaf7] border-t border-[#e8dcc4]/40 p-5 flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-bold text-[#171412]">源文件已完成解析</p>
-                          <p className="text-[12px] text-[#8c8273] mt-0.5">
-                            继续上传其他资料即可补齐体质表所需数据。
-                          </p>
+                      <div className="bg-gradient-to-t from-[#fcfbf9] to-white border-t border-[#e8dcc4]/40 px-6 py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5 size-7 rounded-full bg-[#e8dcc4]/30 flex items-center justify-center shrink-0">
+                            <span className="material-symbols-outlined text-[16px] text-[#8c8273]">task_alt</span>
+                          </div>
+                          <div>
+                            <p className="text-[13px] font-bold text-[#171412]">解析节点已完成</p>
+                            <p className="text-[12px] text-[#8c8273] mt-0.5">
+                              点击上方「查看体质表」或继续上传补充文件
+                            </p>
+                          </div>
                         </div>
                         {msg.downloadUrl ? (
                           <a

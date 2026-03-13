@@ -8,6 +8,7 @@ import {
 import AppShell from "../components/AppShell";
 import { buildApiUrl, getApiBaseUrl } from "../lib/runtimeConfig";
 import StoreComparisonCharts from "../components/StoreComparisonCharts";
+import FlexibleChartAnalysis from "../components/FlexibleChartAnalysis";
 
 const currencyFormatter = new Intl.NumberFormat("zh-CN", {
   style: "currency",
@@ -3071,6 +3072,8 @@ export default function Financials() {
             stores={searchedStoreStatus}
           />
         </SectionCard>
+
+        <FlexibleChartAnalysis stores={dashboard?.storeStatus || switcherStores} />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
