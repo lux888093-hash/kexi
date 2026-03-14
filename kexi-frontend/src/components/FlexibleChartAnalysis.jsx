@@ -27,13 +27,24 @@ const CustomTooltip = ({ active, payload, label }) => {
     return (
       <div className="bg-white p-3 rounded-xl border border-black/5 shadow-lg">
         <p className="font-bold text-sm text-gray-800 mb-2">{label}</p>
-        {payload.map((entry, index) => (
-          <p key={index} className="text-sm flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color || entry.payload.fill }}></span>
-            <span className="text-gray-600">{entry.name}:</span>
-            <span className="font-bold text-gray-900">{formatCurrency(entry.value)}</span>
-          </p>
-        ))}
+        {payload.map((entry, index) => {
+          const isRatio = entry.payload?._isRatio || entry.dataKey === '比例';
+          const value = isRatio ? `${Number(entry.value).toFixed(2)}%` : formatCurrency(entry.value);
+          return (
+            <div key={index} className="mb-1 last:mb-0">
+              <p className="text-sm flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color || entry.payload.fill }}></span>
+                <span className="text-gray-600">{entry.name}:</span>
+                <span className="font-bold text-gray-900">{value}</span>
+              </p>
+              {isRatio && entry.payload?._expense !== undefined && (
+                <p className="text-[10px] text-gray-400 ml-4">
+                  (开支 {formatCurrency(entry.payload._expense)} / 产值 {formatCurrency(entry.payload._revenue)})
+                </p>
+              )}
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -160,7 +171,7 @@ export default function FlexibleChartAnalysis({ stores }) {
   const multiStoreData = useMemo(() => {
     if (mode !== 'multi' || multiStoreIds.length === 0) return [];
     
-    return multiStoreIds.map(id => {
+    const data = multiStoreIds.map(id => {
       const store = loadedStores.find(s => s.storeId === id);
       const storeName = store ? store.storeName.replace(/店$/, "") : id;
 
@@ -172,10 +183,31 @@ export default function FlexibleChartAnalysis({ stores }) {
         };
       }
 
+      if (multiMetricType === 'expense_ratio') {
+        const expense = store ? getSubCategoryValue(store, 'expense', multiSubCategory) : 0;
+        // Use recognized revenue (核算总实收) as requested by user
+        const denominator = store ? (store.revenue || 0) : 0;
+        const ratio = denominator > 0 ? (expense / denominator) * 100 : 0;
+        return {
+          storeName,
+          金额: ratio,
+          _isRatio: true,
+          _expense: expense,
+          _revenue: denominator
+        };
+      }
+
       return {
         storeName,
         金额: store ? getSubCategoryValue(store, multiMetricType, multiSubCategory) : 0
       };
+    });
+
+    // Always sort by value (rank) for multi-store comparison as requested
+    return data.sort((a, b) => {
+      const valA = a.金额 !== undefined ? a.金额 : (a.收入 || 0);
+      const valB = b.金额 !== undefined ? b.金额 : (b.收入 || 0);
+      return valB - valA;
     });
   }, [mode, multiStoreIds, multiMetricType, multiSubCategory, loadedStores]);
 
@@ -286,6 +318,9 @@ export default function FlexibleChartAnalysis({ stores }) {
     if (!multiStoreData.length) return <div className="flex h-full items-center justify-center text-slate-400">暂无数据</div>;
 
     const hasBoth = multiMetricType === 'both';
+    const isRatio = multiMetricType === 'expense_ratio';
+
+    const yAxisFormatter = (v) => isRatio ? `${v.toFixed(1)}%` : formatCurrency(v).replace('¥', '');
 
     if (multiChartType === 'composed') {
       return (
@@ -293,7 +328,7 @@ export default function FlexibleChartAnalysis({ stores }) {
           <ComposedChart data={multiStoreData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e0d8" />
             <XAxis dataKey="storeName" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} dy={10} />
-            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} tickFormatter={(v) => formatCurrency(v).replace('¥', '')} />
+            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} tickFormatter={yAxisFormatter} />
             <Tooltip content={<CustomTooltip />} />
             <Legend 
               verticalAlign="top" 
@@ -305,16 +340,16 @@ export default function FlexibleChartAnalysis({ stores }) {
             {hasBoth ? (
               <>
                 <Bar dataKey="收入" fill="#d96e42" radius={[4, 4, 0, 0]} barSize={20} name="总收入" />
-                <Line type="monotone" dataKey="支出" stroke="#5c829e" strokeWidth={2} dot={{ r: 4 }} name="总支出趋势" />
+                <Line type="monotone" dataKey="支出" stroke="#5c829e" strokeWidth={2} dot={{ r: 4 }} name="总支出" />
               </>
             ) : (
               <>
-                <Bar dataKey="金额" fill="#d96e42" radius={[4, 4, 0, 0]} barSize={32} name={multiSubCategory}>
+                <Bar dataKey="金额" fill="#d96e42" radius={[4, 4, 0, 0]} barSize={32} name={isRatio ? `${multiSubCategory}比例` : multiSubCategory}>
                   {multiStoreData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Bar>
-                <Line type="monotone" dataKey="金额" stroke="#5c829e" strokeWidth={2} dot={{ r: 4 }} name={`${multiSubCategory}趋势`} />
+                <Line type="monotone" dataKey="金额" stroke="#5c829e" strokeWidth={2} dot={{ r: 4 }} name={isRatio ? `${multiSubCategory}比例曲线` : `${multiSubCategory}曲线`} />
               </>
             )}
           </ComposedChart>
@@ -333,7 +368,7 @@ export default function FlexibleChartAnalysis({ stores }) {
         <ChartComponent data={multiStoreData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e0d8" />
           <XAxis dataKey="storeName" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} dy={10} />
-          <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} tickFormatter={(v) => formatCurrency(v).replace('¥', '')} />
+          <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} tickFormatter={yAxisFormatter} />
           <Tooltip content={<CustomTooltip />} />
           <Legend 
             verticalAlign="top" 
@@ -345,7 +380,7 @@ export default function FlexibleChartAnalysis({ stores }) {
           <DataComponent 
             type="monotone" 
             dataKey={hasBoth ? "收入" : "金额"} 
-            name={hasBoth ? "总收入" : multiSubCategory} 
+            name={hasBoth ? "总收入" : (isRatio ? `${multiSubCategory}比例` : multiSubCategory)} 
             {...dataProps("#d96e42")}
           >
             {!hasBoth && multiChartType === 'bar' && multiStoreData.map((entry, index) => (
@@ -456,8 +491,13 @@ export default function FlexibleChartAnalysis({ stores }) {
               <div className="flex items-center gap-4">
                 <span className="w-16 text-right text-[12px] font-bold text-slate-500 uppercase tracking-wider">指标</span>
                 <div className="flex flex-wrap gap-2">
-                  {[{id: 'income', label: '收入'}, {id: 'expense', label: '支出'}, {id: 'both', label: '收入和支出'}].map(opt => (
-                    <button key={opt.id} onClick={() => { setMultiMetricType(opt.id); setMultiSubCategory('合计'); }} className={cn("px-3 py-1 text-[13px] font-medium rounded-full border transition-all", multiMetricType === opt.id ? "bg-[#d96e42]/10 border-[#d96e42] text-[#d96e42]" : "border-black/5 bg-white text-slate-600 hover:bg-slate-50")}>
+                  {[
+                    {id: 'income', label: '收入'}, 
+                    {id: 'expense', label: '支出'}, 
+                    {id: 'expense_ratio', label: '开支比例'},
+                    {id: 'both', label: '收入和支出'}
+                  ].map(opt => (
+                    <button key={opt.id} onClick={() => { setMultiMetricType(opt.id); setMultiSubCategory(opt.id === 'expense_ratio' ? '租金' : '合计'); }} className={cn("px-3 py-1 text-[13px] font-medium rounded-full border transition-all", multiMetricType === opt.id ? "bg-[#d96e42]/10 border-[#d96e42] text-[#d96e42]" : "border-black/5 bg-white text-slate-600 hover:bg-slate-50")}>
                       {opt.label}
                     </button>
                   ))}
@@ -472,7 +512,7 @@ export default function FlexibleChartAnalysis({ stores }) {
                     onChange={(e) => setMultiSubCategory(e.target.value)}
                     className="border border-black/10 rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-700 bg-[#fbf8f4] outline-none focus:border-[#d96e42]"
                   >
-                    <option value="合计">合计</option>
+                    {multiMetricType !== 'expense_ratio' && <option value="合计">合计</option>}
                     {(multiMetricType === 'income' ? INCOME_CATEGORIES : (multiMetricType === 'both' ? [...new Set([...INCOME_CATEGORIES, ...EXPENSE_CATEGORIES])] : EXPENSE_CATEGORIES)).map(cat => (
                       <option key={cat} value={cat}>{cat}</option>
                     ))}
