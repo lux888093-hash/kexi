@@ -62,6 +62,7 @@ export default function FlexibleChartAnalysis({ stores }) {
   const [singleStoreId, setSingleStoreId] = useState('');
   const [singleMetricType, setSingleMetricType] = useState('income'); // 'income' | 'expense' | 'both'
   const [singleChartType, setSingleChartType] = useState('bar'); // 'bar' | 'line' | 'pie' | 'composed'
+  const [singleExpenseCategory, setSingleExpenseCategory] = useState('所有大类'); // '所有大类' or specific category
   
   // Multi Store State
   const [multiStoreIds, setMultiStoreIds] = useState([]);
@@ -85,12 +86,17 @@ export default function FlexibleChartAnalysis({ stores }) {
   const getSubCategoryValue = (store, type, subCategory) => {
     if (type === 'income') {
       if (subCategory === '合计') return store.revenue || 0;
-      const channel = (store.channels || []).find(c => c.name.includes(subCategory) || subCategory.includes(c.name));
+      const channel = (store.channels || []).find(c => c.name === subCategory || c.name.includes(subCategory) || subCategory.includes(c.name));
       return channel ? channel.value : 0;
     } else {
       if (subCategory === '合计') return store.cost || 0;
-      // Also try costBreakdown for top-level categories, but mainly allCostItems for detailed items
-      const item = (store.allCostItems || []).find(c => c.name.includes(subCategory) || subCategory.includes(c.name)) || 
+      
+      // First, try exact match in costBreakdown (top-level category)
+      const exactCategory = (store.costBreakdown || []).find(c => c.name === subCategory);
+      if (exactCategory) return exactCategory.value;
+
+      // If not an exact category, look for it as an item or fuzzy match
+      const item = (store.allCostItems || []).find(c => c.name === subCategory || c.name.includes(subCategory) || subCategory.includes(c.name)) || 
                    (store.costBreakdown || []).find(c => c.name.includes(subCategory) || subCategory.includes(c.name));
       return item ? item.value : 0;
     }
@@ -112,13 +118,32 @@ export default function FlexibleChartAnalysis({ stores }) {
       });
     }
     if (singleMetricType === 'expense' || singleMetricType === 'both') {
-      EXPENSE_CATEGORIES.forEach(cat => {
-        data.push({
-          name: cat,
-          [singleMetricType === 'both' ? '支出' : '金额']: getSubCategoryValue(store, 'expense', cat),
-          type: '支出'
+      if (singleMetricType === 'expense' && singleExpenseCategory !== '所有大类') {
+        const detailedItems = (store.allCostItems || []).filter(item => item.categoryName === singleExpenseCategory || item.name.includes(singleExpenseCategory));
+        if (detailedItems.length > 0) {
+          detailedItems.forEach(item => {
+            data.push({
+              name: item.name,
+              金额: item.value,
+              type: '支出'
+            });
+          });
+        } else {
+          data.push({
+            name: singleExpenseCategory,
+            金额: getSubCategoryValue(store, 'expense', singleExpenseCategory),
+            type: '支出'
+          });
+        }
+      } else {
+        EXPENSE_CATEGORIES.forEach(cat => {
+          data.push({
+            name: cat,
+            [singleMetricType === 'both' ? '支出' : '金额']: getSubCategoryValue(store, 'expense', cat),
+            type: '支出'
+          });
         });
-      });
+      }
     }
 
     if (singleMetricType === 'both' && (singleChartType === 'pie')) {
@@ -130,7 +155,7 @@ export default function FlexibleChartAnalysis({ stores }) {
     }
 
     return data;
-  }, [mode, singleStoreId, singleMetricType, singleChartType, loadedStores]);
+  }, [mode, singleStoreId, singleMetricType, singleChartType, singleExpenseCategory, loadedStores]);
 
   const multiStoreData = useMemo(() => {
     if (mode !== 'multi' || multiStoreIds.length === 0) return [];
@@ -379,6 +404,24 @@ export default function FlexibleChartAnalysis({ stores }) {
                   ))}
                 </div>
               </div>
+
+              {singleMetricType === 'expense' && (
+                <div className="flex items-center gap-4">
+                  <span className="w-16 text-right text-[12px] font-bold text-slate-500 uppercase tracking-wider">明细</span>
+                  <div className="flex flex-wrap gap-2">
+                    <select 
+                      value={singleExpenseCategory} 
+                      onChange={(e) => setSingleExpenseCategory(e.target.value)}
+                      className="border border-black/10 rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-700 bg-[#fbf8f4] outline-none focus:border-[#d96e42]"
+                    >
+                      <option value="所有大类">所有大类</option>
+                      {EXPENSE_CATEGORIES.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
 
               <div className="flex items-center gap-4">
                 <span className="w-16 text-right text-[12px] font-bold text-slate-500 uppercase tracking-wider">图表</span>
