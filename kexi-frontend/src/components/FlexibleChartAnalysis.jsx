@@ -137,8 +137,18 @@ export default function FlexibleChartAnalysis({ stores }) {
     
     return multiStoreIds.map(id => {
       const store = loadedStores.find(s => s.storeId === id);
+      const storeName = store ? store.storeName.replace(/店$/, "") : id;
+
+      if (multiMetricType === 'both') {
+        return {
+          storeName,
+          收入: store ? getSubCategoryValue(store, 'income', multiSubCategory) : 0,
+          支出: store ? getSubCategoryValue(store, 'expense', multiSubCategory) : 0,
+        };
+      }
+
       return {
-        storeName: store ? store.storeName.replace(/店$/, "") : id,
+        storeName,
         金额: store ? getSubCategoryValue(store, multiMetricType, multiSubCategory) : 0
       };
     });
@@ -204,6 +214,9 @@ export default function FlexibleChartAnalysis({ stores }) {
 
     const ChartComponent = singleChartType === 'line' ? LineChart : BarChart;
     const DataComponent = singleChartType === 'line' ? Line : Bar;
+    const dataProps = (color) => singleChartType === 'line' 
+      ? { stroke: color, strokeWidth: 2, dot: { r: 4 } }
+      : { fill: color, radius: [4, 4, 0, 0] };
 
     return (
       <ResponsiveContainer width="100%" height="100%">
@@ -212,14 +225,20 @@ export default function FlexibleChartAnalysis({ stores }) {
           <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} angle={-35} textAnchor="end" height={60} />
           <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} tickFormatter={(v) => formatCurrency(v).replace('¥', '')} />
           <Tooltip content={<CustomTooltip />} />
-          <Legend />
+          <Legend 
+            verticalAlign="top" 
+            align="right" 
+            iconType="circle" 
+            iconSize={8}
+            wrapperStyle={{ fontSize: '12px', fontWeight: '600', paddingBottom: '20px', color: '#64748b' }} 
+          />
           {hasBoth ? (
             <>
-              <DataComponent type="monotone" dataKey="收入" fill="#d96e42" stroke="#d96e42" strokeWidth={2} radius={[4, 4, 0, 0]} />
-              <DataComponent type="monotone" dataKey="支出" fill="#5c829e" stroke="#5c829e" strokeWidth={2} radius={[4, 4, 0, 0]} />
+              <DataComponent type="monotone" dataKey="收入" {...dataProps("#d96e42")} />
+              <DataComponent type="monotone" dataKey="支出" {...dataProps("#5c829e")} />
             </>
           ) : (
-            <DataComponent type="monotone" dataKey="金额" fill="#d96e42" stroke="#d96e42" strokeWidth={2} radius={[4, 4, 0, 0]} />
+            <DataComponent type="monotone" dataKey="金额" {...dataProps("#d96e42")} />
           )}
         </ChartComponent>
       </ResponsiveContainer>
@@ -229,8 +248,48 @@ export default function FlexibleChartAnalysis({ stores }) {
   const renderMultiStoreChart = () => {
     if (!multiStoreData.length) return <div className="flex h-full items-center justify-center text-slate-400">暂无数据</div>;
 
+    const hasBoth = multiMetricType === 'both';
+
+    if (multiChartType === 'composed') {
+      return (
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={multiStoreData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e0d8" />
+            <XAxis dataKey="storeName" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} dy={10} />
+            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} tickFormatter={(v) => formatCurrency(v).replace('¥', '')} />
+            <Tooltip content={<CustomTooltip />} />
+            <Legend 
+              verticalAlign="top" 
+              align="right" 
+              iconType="circle" 
+              iconSize={8}
+              wrapperStyle={{ fontSize: '12px', fontWeight: '600', paddingBottom: '20px', color: '#64748b' }} 
+            />
+            {hasBoth ? (
+              <>
+                <Bar dataKey="收入" fill="#d96e42" radius={[4, 4, 0, 0]} barSize={20} name="总收入" />
+                <Line type="monotone" dataKey="支出" stroke="#5c829e" strokeWidth={2} dot={{ r: 4 }} name="总支出趋势" />
+              </>
+            ) : (
+              <>
+                <Bar dataKey="金额" fill="#d96e42" radius={[4, 4, 0, 0]} barSize={32} name={multiSubCategory}>
+                  {multiStoreData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Bar>
+                <Line type="monotone" dataKey="金额" stroke="#5c829e" strokeWidth={2} dot={{ r: 4 }} name={`${multiSubCategory}趋势`} />
+              </>
+            )}
+          </ComposedChart>
+        </ResponsiveContainer>
+      );
+    }
+
     const ChartComponent = multiChartType === 'line' ? LineChart : BarChart;
     const DataComponent = multiChartType === 'line' ? Line : Bar;
+    const dataProps = (color) => multiChartType === 'line'
+      ? { stroke: color, strokeWidth: 2, dot: { r: 4 } }
+      : { fill: color, radius: [4, 4, 0, 0], barSize: 32 };
 
     return (
       <ResponsiveContainer width="100%" height="100%">
@@ -239,12 +298,24 @@ export default function FlexibleChartAnalysis({ stores }) {
           <XAxis dataKey="storeName" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} dy={10} />
           <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} tickFormatter={(v) => formatCurrency(v).replace('¥', '')} />
           <Tooltip content={<CustomTooltip />} />
-          <Legend />
-          <DataComponent type="monotone" dataKey="金额" name={multiSubCategory} fill="#d96e42" stroke="#d96e42" strokeWidth={2} radius={[4, 4, 0, 0]} barSize={32}>
-            {multiChartType === 'bar' && multiStoreData.map((entry, index) => (
+          <Legend 
+            verticalAlign="top" 
+            align="right" 
+            iconType="circle" 
+            iconSize={8}
+            wrapperStyle={{ fontSize: '12px', fontWeight: '600', paddingBottom: '20px', color: '#64748b' }} 
+          />
+          <DataComponent 
+            type="monotone" 
+            dataKey={hasBoth ? "收入" : "金额"} 
+            name={hasBoth ? "总收入" : multiSubCategory} 
+            {...dataProps("#d96e42")}
+          >
+            {!hasBoth && multiChartType === 'bar' && multiStoreData.map((entry, index) => (
               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
             ))}
           </DataComponent>
+          {hasBoth && <DataComponent type="monotone" dataKey="支出" name="总支出" {...dataProps("#5c829e")} />}
         </ChartComponent>
       </ResponsiveContainer>
     );
@@ -330,7 +401,7 @@ export default function FlexibleChartAnalysis({ stores }) {
               <div className="flex items-center gap-4">
                 <span className="w-16 text-right text-[12px] font-bold text-slate-500 uppercase tracking-wider">指标</span>
                 <div className="flex flex-wrap gap-2">
-                  {[{id: 'income', label: '收入'}, {id: 'expense', label: '支出'}].map(opt => (
+                  {[{id: 'income', label: '收入'}, {id: 'expense', label: '支出'}, {id: 'both', label: '收入和支出'}].map(opt => (
                     <button key={opt.id} onClick={() => { setMultiMetricType(opt.id); setMultiSubCategory('合计'); }} className={cn("px-3 py-1 text-[13px] font-medium rounded-full border transition-all", multiMetricType === opt.id ? "bg-[#d96e42]/10 border-[#d96e42] text-[#d96e42]" : "border-black/5 bg-white text-slate-600 hover:bg-slate-50")}>
                       {opt.label}
                     </button>
@@ -347,7 +418,7 @@ export default function FlexibleChartAnalysis({ stores }) {
                     className="border border-black/10 rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-700 bg-[#fbf8f4] outline-none focus:border-[#d96e42]"
                   >
                     <option value="合计">合计</option>
-                    {(multiMetricType === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).map(cat => (
+                    {(multiMetricType === 'income' ? INCOME_CATEGORIES : (multiMetricType === 'both' ? [...new Set([...INCOME_CATEGORIES, ...EXPENSE_CATEGORIES])] : EXPENSE_CATEGORIES)).map(cat => (
                       <option key={cat} value={cat}>{cat}</option>
                     ))}
                   </select>
@@ -357,7 +428,7 @@ export default function FlexibleChartAnalysis({ stores }) {
               <div className="flex items-center gap-4">
                 <span className="w-16 text-right text-[12px] font-bold text-slate-500 uppercase tracking-wider">图表</span>
                 <div className="flex flex-wrap gap-2">
-                  {[{id: 'bar', label: '柱状图'}, {id: 'line', label: '折线图'}].map(opt => (
+                  {[{id: 'bar', label: '柱状图'}, {id: 'line', label: '折线图'}, {id: 'composed', label: '柱状图和折线图'}].map(opt => (
                     <button key={opt.id} onClick={() => setMultiChartType(opt.id)} className={cn("px-3 py-1 text-[13px] font-medium rounded-full border transition-all", multiChartType === opt.id ? "bg-[#5c829e]/10 border-[#5c829e] text-[#5c829e]" : "border-black/5 bg-white text-slate-600 hover:bg-slate-50")}>
                       {opt.label}
                     </button>
