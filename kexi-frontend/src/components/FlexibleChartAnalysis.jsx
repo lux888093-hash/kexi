@@ -181,7 +181,13 @@ export default function FlexibleChartAnalysis({ stores }) {
               ))}
             </Pie>
             <Tooltip content={<CustomTooltip />} />
-            <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '20px' }} />
+            <Legend 
+              verticalAlign="bottom" 
+              align="center" 
+              iconType="circle" 
+              iconSize={8}
+              wrapperStyle={{ fontSize: '12px', fontWeight: '600', paddingTop: '20px', color: '#64748b' }} 
+            />
           </PieChart>
         </ResponsiveContainer>
       );
@@ -195,16 +201,22 @@ export default function FlexibleChartAnalysis({ stores }) {
             <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} angle={hasBoth ? -45 : 0} textAnchor={hasBoth ? "end" : "middle"} />
             <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} tickFormatter={(v) => formatCurrency(v).replace('¥', '')} />
             <Tooltip content={<CustomTooltip />} />
-            <Legend />
+            <Legend 
+              verticalAlign="top" 
+              align="right" 
+              iconType="circle" 
+              iconSize={8}
+              wrapperStyle={{ fontSize: '12px', fontWeight: '600', paddingBottom: '20px', color: '#64748b' }} 
+            />
             {hasBoth ? (
               <>
-                <Bar dataKey="收入" fill="#d96e42" radius={[4, 4, 0, 0]} barSize={20} />
-                <Line type="monotone" dataKey="支出" stroke="#5c829e" strokeWidth={2} dot={{ r: 4 }} />
+                <Bar dataKey="收入" fill="#d96e42" radius={[4, 4, 0, 0]} barSize={20} name="总收入" />
+                <Line type="monotone" dataKey="支出" stroke="#5c829e" strokeWidth={2} dot={{ r: 4 }} name="总支出趋势" />
               </>
             ) : (
               <>
-                <Bar dataKey="金额" fill="#d96e42" radius={[4, 4, 0, 0]} barSize={32} />
-                <Line type="monotone" dataKey="金额" stroke="#5c829e" strokeWidth={2} dot={{ r: 4 }} />
+                <Bar dataKey="金额" fill="#d96e42" radius={[4, 4, 0, 0]} barSize={32} name="核算金额" />
+                <Line type="monotone" dataKey="金额" stroke="#5c829e" strokeWidth={2} dot={{ r: 4 }} name="金额趋势" />
               </>
             )}
           </ComposedChart>
@@ -234,11 +246,11 @@ export default function FlexibleChartAnalysis({ stores }) {
           />
           {hasBoth ? (
             <>
-              <DataComponent type="monotone" dataKey="收入" {...dataProps("#d96e42")} />
-              <DataComponent type="monotone" dataKey="支出" {...dataProps("#5c829e")} />
+              <DataComponent type="monotone" dataKey="收入" name="总收入" {...dataProps("#d96e42")} />
+              <DataComponent type="monotone" dataKey="支出" name="总支出" {...dataProps("#5c829e")} />
             </>
           ) : (
-            <DataComponent type="monotone" dataKey="金额" {...dataProps("#d96e42")} />
+            <DataComponent type="monotone" dataKey="金额" name="核算金额" {...dataProps("#d96e42")} />
           )}
         </ChartComponent>
       </ResponsiveContainer>
