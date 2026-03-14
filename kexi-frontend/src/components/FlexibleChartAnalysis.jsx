@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, ReferenceLine
 } from 'recharts';
 
 const formatCurrency = (value) => {
@@ -16,7 +16,7 @@ const formatCurrency = (value) => {
 const COLORS = ['#5c829e', '#d96e42', '#d4a04c', '#508b79', '#c66f70', '#8b739e', '#45637a', '#a88661', '#759068', '#4b6e56', '#a16d5d', '#5a4f66', '#d69e4e'];
 
 const INCOME_CATEGORIES = ['微信银联支付宝', '现金', '美团', '抖音'];
-const EXPENSE_CATEGORIES = ['头疗师工资', '管理工资', '其他工资', '付管理公司', '门店宿舍', '租金', '水电', '生活费', '增值服务', '消耗品', '手续费', '工程维修', '其他开支'];
+const EXPENSE_CATEGORIES = ['头疗师工资', '管理工资', '其他工资', '付管理公司', '门店宿舍租金', '水电', '生活费', '增值服务', '消耗品', '手续费', '工程维修', '其他开支'];
 
 function cn(...classes) {
   return classes.filter(Boolean).join(' ');
@@ -80,13 +80,17 @@ export default function FlexibleChartAnalysis({ stores }) {
   const [multiMetricType, setMultiMetricType] = useState('income'); // 'income' | 'expense'
   const [multiSubCategory, setMultiSubCategory] = useState('合计'); // '合计' or specific
   const [multiChartType, setMultiChartType] = useState('bar'); // 'bar' | 'line'
+  const [multiShowAverageLine, setMultiShowAverageLine] = useState(false);
 
   // Initialize defaults
-  const loadedStores = (stores || []).filter(s => s.isLoaded);
-  if (loadedStores.length > 0 && !singleStoreId) {
-    setSingleStoreId(loadedStores[0].storeId);
-    setMultiStoreIds([loadedStores[0].storeId]);
-  }
+  const loadedStores = useMemo(() => (stores || []).filter(s => s.isLoaded), [stores]);
+  
+  React.useEffect(() => {
+    if (loadedStores.length > 0) {
+      if (!singleStoreId) setSingleStoreId(loadedStores[0].storeId);
+      if (multiStoreIds.length === 0) setMultiStoreIds(loadedStores.map(s => s.storeId));
+    }
+  }, [loadedStores, singleStoreId, multiStoreIds.length]);
 
   const toggleMultiStore = (storeId) => {
     setMultiStoreIds(prev => 
@@ -95,13 +99,27 @@ export default function FlexibleChartAnalysis({ stores }) {
   };
 
   const getSubCategoryValue = (store, type, subCategory) => {
+    if (!store) return 0;
     if (type === 'income') {
       if (subCategory === '合计') return store.revenue || 0;
-      const channel = (store.channels || []).find(c => c.name === subCategory || c.name.includes(subCategory) || subCategory.includes(c.name));
+      const channel = (store.channels || []).find(c => 
+        c.name === subCategory || c.name.includes(subCategory) || subCategory.includes(c.name)
+      );
       return channel ? channel.value : 0;
     } else {
       if (subCategory === '合计') return store.cost || 0;
       
+      // Special case for combined Rent and Dormitory
+      if (subCategory === '门店宿舍租金') {
+        const dormitory = (store.costBreakdown || []).find(c => 
+          c.name.includes('宿舍') || c.name.includes('门店宿舍')
+        )?.value || 0;
+        const rent = (store.costBreakdown || []).find(c => 
+          c.name.includes('租金') || c.name.includes('房租')
+        )?.value || 0;
+        return dormitory + rent;
+      }
+
       // First, try exact match in costBreakdown (top-level category)
       const exactCategory = (store.costBreakdown || []).find(c => c.name === subCategory);
       if (exactCategory) return exactCategory.value;
@@ -111,6 +129,12 @@ export default function FlexibleChartAnalysis({ stores }) {
                    (store.costBreakdown || []).find(c => c.name.includes(subCategory) || subCategory.includes(c.name));
       return item ? item.value : 0;
     }
+  };
+
+  const calculateAverage = (data, key) => {
+    if (!data || data.length === 0) return 0;
+    const sum = data.reduce((acc, curr) => acc + (curr[key] || 0), 0);
+    return sum / data.length;
   };
 
   const singleStoreData = useMemo(() => {
@@ -130,7 +154,14 @@ export default function FlexibleChartAnalysis({ stores }) {
     }
     if (singleMetricType === 'expense' || singleMetricType === 'both') {
       if (singleMetricType === 'expense' && singleExpenseCategory !== '所有大类') {
-        const detailedItems = (store.allCostItems || []).filter(item => item.categoryName === singleExpenseCategory || item.name.includes(singleExpenseCategory));
+        const detailedItems = (store.allCostItems || []).filter(item => {
+          if (singleExpenseCategory === '门店宿舍租金') {
+            return item.categoryName === '租金' || item.categoryName === '门店宿舍' || 
+                   item.name.includes('租金') || item.name.includes('宿舍');
+          }
+          return item.categoryName === singleExpenseCategory || item.name.includes(singleExpenseCategory);
+        });
+        
         if (detailedItems.length > 0) {
           detailedItems.forEach(item => {
             data.push({
@@ -319,8 +350,29 @@ export default function FlexibleChartAnalysis({ stores }) {
 
     const hasBoth = multiMetricType === 'both';
     const isRatio = multiMetricType === 'expense_ratio';
+    const avgValue = !hasBoth && multiShowAverageLine ? calculateAverage(multiStoreData, '金额') : 0;
 
     const yAxisFormatter = (v) => isRatio ? `${v.toFixed(1)}%` : formatCurrency(v).replace('¥', '');
+
+    const renderAverageLine = () => {
+      if (hasBoth || !multiShowAverageLine) return null;
+      return (
+        <ReferenceLine 
+          y={avgValue} 
+          stroke="#ef4444" 
+          strokeDasharray="5 5" 
+          strokeWidth={2}
+          label={{ 
+            value: `平均: ${isRatio ? avgValue.toFixed(2) + '%' : formatCurrency(avgValue)}`, 
+            position: 'insideBottomLeft', 
+            fill: '#ef4444', 
+            fontSize: 10,
+            fontWeight: 'bold',
+            dy: -10
+          }} 
+        />
+      );
+    };
 
     if (multiChartType === 'composed') {
       return (
@@ -337,6 +389,7 @@ export default function FlexibleChartAnalysis({ stores }) {
               iconSize={8}
               wrapperStyle={{ fontSize: '12px', fontWeight: '600', paddingBottom: '20px', color: '#64748b' }} 
             />
+            {renderAverageLine()}
             {hasBoth ? (
               <>
                 <Bar dataKey="收入" fill="#d96e42" radius={[4, 4, 0, 0]} barSize={20} name="总收入" />
@@ -377,6 +430,7 @@ export default function FlexibleChartAnalysis({ stores }) {
             iconSize={8}
             wrapperStyle={{ fontSize: '12px', fontWeight: '600', paddingBottom: '20px', color: '#64748b' }} 
           />
+          {renderAverageLine()}
           <DataComponent 
             type="monotone" 
             dataKey={hasBoth ? "收入" : "金额"} 
@@ -497,7 +551,7 @@ export default function FlexibleChartAnalysis({ stores }) {
                     {id: 'expense_ratio', label: '开支比例'},
                     {id: 'both', label: '收入和支出'}
                   ].map(opt => (
-                    <button key={opt.id} onClick={() => { setMultiMetricType(opt.id); setMultiSubCategory(opt.id === 'expense_ratio' ? '租金' : '合计'); }} className={cn("px-3 py-1 text-[13px] font-medium rounded-full border transition-all", multiMetricType === opt.id ? "bg-[#d96e42]/10 border-[#d96e42] text-[#d96e42]" : "border-black/5 bg-white text-slate-600 hover:bg-slate-50")}>
+                    <button key={opt.id} onClick={() => { setMultiMetricType(opt.id); setMultiSubCategory(opt.id === 'expense_ratio' ? '门店宿舍租金' : '合计'); }} className={cn("px-3 py-1 text-[13px] font-medium rounded-full border transition-all", multiMetricType === opt.id ? "bg-[#d96e42]/10 border-[#d96e42] text-[#d96e42]" : "border-black/5 bg-white text-slate-600 hover:bg-slate-50")}>
                       {opt.label}
                     </button>
                   ))}
@@ -528,6 +582,21 @@ export default function FlexibleChartAnalysis({ stores }) {
                       {opt.label}
                     </button>
                   ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="w-16 text-right text-[12px] font-bold text-slate-500 uppercase tracking-wider">辅助线</span>
+                <div className="flex flex-wrap gap-2">
+                  <button 
+                    onClick={() => setMultiShowAverageLine(!multiShowAverageLine)} 
+                    className={cn(
+                      "px-3 py-1 text-[13px] font-medium rounded-full border transition-all flex items-center gap-1", 
+                      multiShowAverageLine ? "bg-[#ef4444]/10 border-[#ef4444] text-[#ef4444]" : "border-black/5 bg-white text-slate-600 hover:bg-slate-50"
+                    )}
+                  >
+                    {multiShowAverageLine && <span className="material-symbols-outlined text-[14px]">insights</span>}
+                    平均值基准线
+                  </button>
                 </div>
               </div>
             </>
