@@ -542,5 +542,7 @@ function resolveParsingExportPath(token = '') {
 
 module.exports = {
   createParsingDraftWorkbook,
+  matchExpenseDetail,
+  resolveTemplateWorkbook,
   resolveParsingExportPath,
 };

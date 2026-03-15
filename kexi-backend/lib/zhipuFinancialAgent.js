@@ -629,6 +629,7 @@ async function runZhipuFinancialChatAgent({
             model,
             reply,
             rawContent: result.rawContent,
+            reasoningContent: result.reasoningContent,
             finishReason: result.finishReason,
             webSearchEnabled: webSearchPlan.enabled,
             webSearchQuery: webSearchPlan.query,

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import AppShell from "../components/AppShell";
 import PhysicalTablePanel from "../components/PhysicalTablePanel";
+import { buildParsingInsightMarkdown } from "../lib/parsingInsightReport";
 import { buildApiUrl } from "../lib/runtimeConfig";
 
 const STORES = ["华创店", "佳兆业店", "德思勤店", "凯德壹店", "梅溪湖店", "万象城店"];
@@ -30,51 +31,22 @@ const REQUIRED_SOURCE_GROUPS = [
 ];
 
 function getParserModeLabel(mode = "") {
-  if (mode === "pdf-text") {
-    return "PDF 文本解析";
-  }
-
-  if (mode === "spreadsheet") {
-    return "表格直读";
-  }
-
-  if (mode === "document") {
-    return "参考文本";
-  }
-
-  if (mode === "error") {
-    return "解析失败";
-  }
-
+  if (mode === "pdf-text") return "PDF 文本解析";
+  if (mode === "spreadsheet") return "表格直读";
+  if (mode === "document") return "参考文本";
+  if (mode === "error") return "解析失败";
   return "待处理";
 }
 
 function buildFileMetaSummary(metrics = {}) {
   const items = [];
-
-  if (metrics.sheetName) {
-    items.push(metrics.sheetName);
-  }
-
-  if (metrics.rowCount) {
-    items.push(`${metrics.rowCount} 行`);
-  }
-
-  if (metrics.pageCount) {
-    items.push(`${metrics.pageCount} 页`);
-  }
-
-  if (metrics.charCount) {
-    items.push(`${metrics.charCount} 字`);
-  }
-
+  if (metrics.sheetName) items.push(metrics.sheetName);
+  if (metrics.rowCount) items.push(`${metrics.rowCount} 行`);
+  if (metrics.pageCount) items.push(`${metrics.pageCount} 页`);
+  if (metrics.charCount) items.push(`${metrics.charCount} 字`);
   if (typeof metrics.totalAmount === "number" && Number.isFinite(metrics.totalAmount)) {
-    items.push(`总计 ¥${metrics.totalAmount.toLocaleString("zh-CN", {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    })}`);
+    items.push(`总计 ¥${metrics.totalAmount.toLocaleString("zh-CN", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`);
   }
-
   return items;
 }
 
@@ -106,56 +78,33 @@ function normalizeReviewFile(file = {}) {
 
 function mergeFilesByName(currentFiles = [], incomingFiles = []) {
   const merged = new Map();
-
   [...currentFiles, ...incomingFiles].forEach((file) => {
     const key = file?.fileName || file?.name || `${file?.sourceGroupKey || "file"}-${merged.size}`;
     merged.set(key, file);
   });
-
   return [...merged.values()];
 }
 
 function renderInlineMarkdown(text) {
   const source = String(text || "");
-  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g;
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\)|\[\^\d+\])/g;
   const parts = source.split(pattern).filter(Boolean);
 
   return parts.map((part, index) => {
     if (part.startsWith("**") && part.endsWith("**")) {
-      return (
-        <strong key={`${part}-${index}`} className="font-extrabold text-[#171412]">
-          {part.slice(2, -2)}
-        </strong>
-      );
+      return <strong key={`${part}-${index}`} className="font-extrabold text-[#171412]">{part.slice(2, -2)}</strong>;
     }
-
     if (part.startsWith("`") && part.endsWith("`")) {
-      return (
-        <code
-          key={`${part}-${index}`}
-          className="rounded-md bg-[#f7efe7] px-1.5 py-0.5 font-mono text-[0.92em] text-[#8f5138]"
-        >
-          {part.slice(1, -1)}
-        </code>
-      );
+      return <code key={`${part}-${index}`} className="rounded-md bg-[#f7efe7] px-1.5 py-0.5 font-mono text-[0.92em] text-[#8f5138]">{part.slice(1, -1)}</code>;
     }
-
+    if (part.startsWith("[^") && part.endsWith("]")) {
+      const num = part.slice(2, -1);
+      return <span key={`${part}-${index}`} className="inline-flex items-center justify-center size-4 rounded-full bg-[#b6860c]/10 text-[#b6860c] text-[10px] font-bold ml-0.5 align-top cursor-help group-hover:bg-[#b6860c]/20 transition-colors" title={`查看引用来源 [${num}]`}>{num}</span>;
+    }
     const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-
     if (linkMatch) {
-      return (
-        <a
-          key={`${part}-${index}`}
-          className="font-semibold text-[#b4542e] underline decoration-[#d96e42]/30 underline-offset-4"
-          href={linkMatch[2]}
-          rel="noreferrer"
-          target="_blank"
-        >
-          {linkMatch[1]}
-        </a>
-      );
+      return <a key={`${part}-${index}`} className="font-semibold text-[#b4542e] underline decoration-[#d96e42]/30 underline-offset-4" href={linkMatch[2]} rel="noreferrer" target="_blank">{linkMatch[1]}</a>;
     }
-
     return <span key={`${part}-${index}`}>{part}</span>;
   });
 }
@@ -168,79 +117,47 @@ function MarkdownMessage({ content }) {
   while (index < lines.length) {
     const line = lines[index];
     const trimmed = line.trim();
-
-    if (!trimmed) {
-      index += 1;
-      continue;
-    }
-
+    if (!trimmed) { index += 1; continue; }
     const headingMatch = trimmed.match(/^(#{1,3})\s+(.+)$/);
-
     if (headingMatch) {
-      blocks.push({
-        type: "heading",
-        depth: headingMatch[1].length,
-        text: headingMatch[2],
-      });
+      blocks.push({ type: "heading", depth: headingMatch[1].length, text: headingMatch[2] });
       index += 1;
       continue;
     }
-
     if (/^[-*]\s+/.test(trimmed)) {
       const items = [];
-
       while (index < lines.length && /^[-*]\s+/.test(lines[index].trim())) {
         items.push(lines[index].trim().replace(/^[-*]\s+/, ""));
         index += 1;
       }
-
       blocks.push({ type: "ul", items });
       continue;
     }
-
     if (/^\d+\.\s+/.test(trimmed)) {
       const items = [];
-
       while (index < lines.length && /^\d+\.\s+/.test(lines[index].trim())) {
         items.push(lines[index].trim().replace(/^\d+\.\s+/, ""));
         index += 1;
       }
-
       blocks.push({ type: "ol", items });
       continue;
     }
-
     if (/^>\s?/.test(trimmed)) {
       const quotes = [];
-
       while (index < lines.length && /^>\s?/.test(lines[index].trim())) {
         quotes.push(lines[index].trim().replace(/^>\s?/, ""));
         index += 1;
       }
-
       blocks.push({ type: "quote", text: quotes.join(" ") });
       continue;
     }
-
     const paragraph = [];
-
     while (index < lines.length) {
       const candidate = lines[index].trim();
-
-      if (
-        !candidate ||
-        /^(#{1,3})\s+/.test(candidate) ||
-        /^[-*]\s+/.test(candidate) ||
-        /^\d+\.\s+/.test(candidate) ||
-        /^>\s?/.test(candidate)
-      ) {
-        break;
-      }
-
+      if (!candidate || /^(#{1,3})\s+/.test(candidate) || /^[-*]\s+/.test(candidate) || /^\d+\.\s+/.test(candidate) || /^>\s?/.test(candidate)) break;
       paragraph.push(candidate);
       index += 1;
     }
-
     blocks.push({ type: "p", text: paragraph.join(" ") });
   }
 
@@ -248,196 +165,113 @@ function MarkdownMessage({ content }) {
     <div className="space-y-4">
       {blocks.map((block, blockIndex) => {
         if (block.type === "heading") {
-          const headingClass =
-            block.depth === 1
-              ? "text-xl font-extrabold tracking-[-0.04em] text-[#171412]"
-              : block.depth === 2
-                ? "text-[11px] font-bold uppercase tracking-[0.26em] text-[#b6860c]"
-                : "text-sm font-bold text-[#171412]";
-
-          return (
-            <h3 className={headingClass} key={`block-${blockIndex}`}>
-              {renderInlineMarkdown(block.text)}
-            </h3>
-          );
+          const headingClass = block.depth === 1 ? "text-[22px] font-extrabold tracking-[-0.02em] text-[#171412] mt-8 mb-3" : block.depth === 2 ? "text-[18px] font-bold tracking-[-0.02em] text-[#171412] mt-6 mb-2" : "text-[16px] font-bold text-[#171412] mt-4";
+          return <h3 className={headingClass} key={`block-${blockIndex}`}>{renderInlineMarkdown(block.text)}</h3>;
         }
-
         if (block.type === "ul") {
-          return (
-            <ul
-              className="list-disc space-y-2 pl-5 text-[14px] leading-7 text-[#4a4036] marker:text-[#d96e42]"
-              key={`block-${blockIndex}`}
-            >
-              {block.items.map((item, itemIndex) => (
-                <li key={`item-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
-              ))}
-            </ul>
-          );
+          return <ul className="list-disc space-y-3 pl-5 text-[15px] leading-relaxed text-[#3c3733] marker:text-[#b6860c]" key={`block-${blockIndex}`}>{block.items.map((item, itemIndex) => (<li key={`item-${itemIndex}`}>{renderInlineMarkdown(item)}</li>))}</ul>;
         }
-
         if (block.type === "ol") {
-          return (
-            <ol
-              className="list-decimal space-y-2 pl-5 text-[14px] leading-7 text-[#4a4036] marker:font-bold marker:text-[#b4542e]"
-              key={`block-${blockIndex}`}
-            >
-              {block.items.map((item, itemIndex) => (
-                <li key={`item-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
-              ))}
-            </ol>
-          );
+          return <ol className="list-decimal space-y-3 pl-5 text-[15px] leading-relaxed text-[#3c3733] marker:font-bold marker:text-[#b6860c]" key={`block-${blockIndex}`}>{block.items.map((item, itemIndex) => (<li key={`item-${itemIndex}`}>{renderInlineMarkdown(item)}</li>))}</ol>;
         }
-
         if (block.type === "quote") {
-          return (
-            <blockquote
-              className="rounded-2xl border-l-4 border-[#d96e42]/35 bg-[#fcf5ef] px-4 py-3 text-[13px] leading-7 text-[#6a5647]"
-              key={`block-${blockIndex}`}
-            >
-              {renderInlineMarkdown(block.text)}
-            </blockquote>
-          );
+          return <blockquote className="rounded-2xl border-l-4 border-[#e8dcc4] bg-[#fcfaf7] px-5 py-3 text-[14px] leading-relaxed text-[#6a5647]" key={`block-${blockIndex}`}>{renderInlineMarkdown(block.text)}</blockquote>;
         }
-
-        return (
-          <p
-            className="text-[14px] leading-7 text-[#4a4036]"
-            key={`block-${blockIndex}`}
-          >
-            {renderInlineMarkdown(block.text)}
-          </p>
-        );
+        return <p className="text-[15px] leading-relaxed text-[#3c3733]" key={`block-${blockIndex}`}>{renderInlineMarkdown(block.text)}</p>;
       })}
     </div>
   );
 }
 
-function getPrimaryReportFile(report = {}) {
+function FileChip({ fileName, size, onClick, status }) {
+  const isPdf = fileName.toLowerCase().endsWith('.pdf');
+  const isExcel = fileName.toLowerCase().endsWith('.xlsx') || fileName.toLowerCase().endsWith('.xls');
+  const icon = isPdf ? 'picture_as_pdf' : (isExcel ? 'table_view' : 'draft');
+  const iconColor = isPdf ? 'text-red-500' : (isExcel ? 'text-emerald-500' : 'text-amber-500');
   return (
-    report.successFiles?.[0] ||
-    report.reviewFiles?.[0] ||
-    report.failFiles?.[0] ||
-    null
+    <div onClick={onClick} className="inline-flex items-center gap-2.5 rounded-2xl bg-white border border-[#e8dcc4]/60 px-3.5 py-2 text-[13px] font-bold text-[#171412] shadow-sm transition-all hover:bg-[#fcfaf7] hover:border-[#b6860c]/40 cursor-pointer group">
+      <span className={`material-symbols-outlined text-[18px] ${iconColor}`}>{icon}</span>
+      <span className="max-w-[120px] truncate">{fileName}</span>
+      {size && <span className="text-[10px] text-[#8c8273] font-medium opacity-60">{size}</span>}
+      {status === 'PARTIAL' && <span className="size-1.5 rounded-full bg-amber-400"></span>}
+    </div>
   );
+}
+
+function ThoughtProcess({ thought }) {
+  const [isOpen, setIsOpen] = useState(false);
+  if (!thought) return null;
+  return (
+    <div className="mb-4">
+      <button onClick={() => setIsOpen(!isOpen)} className="flex items-center gap-1.5 text-[12px] font-bold text-[#b6860c] hover:text-[#d96e42] transition-colors"><span className="material-symbols-outlined text-[16px]">temp_preferences_custom</span>{isOpen ? '隐藏思路' : '查看思路'}</button>
+      {isOpen && <div className="mt-2 rounded-2xl bg-[#fcfaf7] border border-[#e8dcc4]/40 p-4 text-[13px] leading-relaxed text-[#6a5647] font-medium animate-in fade-in slide-in-from-top-1"><div className="whitespace-pre-wrap">{thought}</div></div>}
+    </div>
+  );
+}
+
+function getPrimaryReportFile(report = {}) {
+  return report.successFiles?.[0] || report.reviewFiles?.[0] || report.failFiles?.[0] || null;
 }
 
 function buildReportSummary({ report, index, total }) {
   const primaryFile = getPrimaryReportFile(report);
-
-  if (!primaryFile) {
-    return `第 ${index}/${total} 份文件已处理完成，但当前还没有拿到可展示的解析结果。`;
-  }
-
-  if (report.failFiles?.length > 0) {
-    return `第 ${index}/${total} 份文件《${primaryFile.name}》暂不支持解析，当前未纳入体质表，请替换成可识别格式后再试。`;
-  }
-
+  if (!primaryFile) return `第 ${index}/${total} 份文件已处理。`;
+  if (report.failFiles?.length > 0) return `### ❌ ${primaryFile.name}\n> **状态**：解析失败\n> **原因**：${primaryFile.reason || "格式暂不支持"}`;
+  
   const sectionLabel = primaryFile.bodySheetSection?.label;
-  const summary = (primaryFile.parsedDataSummary || []).slice(0, 3);
-  const alreadyMentionedSection = sectionLabel
-    ? summary.some((item) => String(item || "").includes(sectionLabel))
-    : false;
+  const target = primaryFile.bodySheetSection?.target;
+  const metrics = (primaryFile.metricsSummary || []).join(' | ');
+  const details = (primaryFile.parsedDataSummary || []);
+  
+  const detailsList = details.length > 0 
+    ? details.map(d => `  - ${d}`).join('\n')
+    : "  - 基础文本及业务元数据";
 
-  return [
-    `第 ${index}/${total} 份文件《${primaryFile.name}》已完成解析。`,
-    ...summary,
-    sectionLabel && !alreadyMentionedSection ? `本次先纳入体质表「${sectionLabel}」。` : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+  return `### 📄 ${primaryFile.name}
+- **基础属性**：${metrics || '常规文档'}
+- **数据归口**：已归类至「**${sectionLabel || '财务数据'}**」→ **${target || '财务明细区'}**
+- **解析详情**：
+${detailsList}
+- **文档总结**：${primaryFile.note || '已完成高精度数据提取，相关指标已同步至体质表。'}`;
 }
 
 function buildBatchSummary({ fileCount, matchedGroupKeys, storeName, periodLabel }) {
-  const missingFiles = REQUIRED_SOURCE_GROUPS.filter(
-    (group) => !matchedGroupKeys.has(group.key),
-  ).map((group) => group.label);
-
-  const coveredGroups = REQUIRED_SOURCE_GROUPS.filter((group) =>
-    matchedGroupKeys.has(group.key),
-  ).map((group) => group.label.replace(/\.(xlsx|xls|csv|pdf)$/i, ""));
-
-  const parts = [
-    `本轮共完成 ${fileCount} 份源文件解析。`,
-    coveredGroups.length
-      ? `已补齐：${coveredGroups.join("、")}。`
-      : "当前还没有补齐到可直接入表的核心来源。",
-    missingFiles.length
-      ? `仍缺：${missingFiles.join("、")}。`
-      : `当前 ${storeName} ${periodLabel} 的核心源文件已基本补齐，可以进入体质表汇总。`,
+  const missingFiles = REQUIRED_SOURCE_GROUPS.filter((group) => !matchedGroupKeys.has(group.key)).map((group) => group.label);
+  const coveredGroups = REQUIRED_SOURCE_GROUPS.filter((group) => matchedGroupKeys.has(group.key)).map((group) => group.label.replace(/\.(xlsx|xls|csv|pdf)$/i, ""));
+  const summary = [
+    `**本轮扫描汇总**：已完成 ${fileCount} 份源文件深度解析。`,
+    coveredGroups.length ? `✅ **核心就绪**：${coveredGroups.join('、')}。` : "⚠️ **预警**：尚未识别到任何关键财务经营项。",
+    missingFiles.length ? `❌ **缺失提醒**：仍缺「${missingFiles.join('、')}」，建议补齐以获得完整分析。` : `✨ **数据大满贯**：${storeName} ${periodLabel} 核心数据链条已完全闭合。`,
   ];
-
-  return parts.join(" ");
+  return summary.filter(Boolean).join("\n- ");
 }
 
 function buildMissingSourceGroups(matchedGroupKeys) {
-  return REQUIRED_SOURCE_GROUPS.filter((group) => !matchedGroupKeys.has(group.key))
-    .map((group) => group.label);
+  return REQUIRED_SOURCE_GROUPS.filter((group) => !matchedGroupKeys.has(group.key)).map((group) => group.label);
 }
 
 function resolveDownloadUrl(downloadPath = "", downloadFileName = "") {
-  if (!downloadPath) {
-    return "";
-  }
-
+  if (!downloadPath) return "";
   const separator = downloadPath.includes("?") ? "&" : "?";
-  const pathWithName = downloadFileName
-    ? `${downloadPath}${separator}name=${encodeURIComponent(downloadFileName)}`
-    : downloadPath;
-
+  const pathWithName = downloadFileName ? `${downloadPath}${separator}name=${encodeURIComponent(downloadFileName)}` : downloadPath;
   return buildApiUrl(pathWithName);
 }
 
 async function uploadSourceFiles(files, { storeName, periodLabel }) {
   const formData = new FormData();
-  files.forEach((file) => {
-    formData.append("files", file);
-  });
+  files.forEach((file) => formData.append("files", file));
   formData.append("storeName", storeName);
   formData.append("periodLabel", periodLabel);
-
-  const response = await fetch(buildApiUrl("/api/parsing/upload"), {
-    method: "POST",
-    body: formData,
-  });
-
+  const response = await fetch(buildApiUrl("/api/parsing/upload"), { method: "POST", body: formData });
   const payload = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    throw new Error(payload.message || "源文件解析失败，请稍后重试。");
-  }
-
+  if (!response.ok) throw new Error(payload.message || "源文件解析失败。");
   return payload;
 }
 
-async function exportParsingDraft({
-  storeName,
-  periodLabel,
-  parsedFiles,
-  reviewFiles,
-  failFiles,
-  missingFiles,
-}) {
-  const response = await fetch(buildApiUrl("/api/parsing/export-draft"), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      storeName,
-      periodLabel,
-      parsedFiles,
-      reviewFiles,
-      failFiles,
-      missingFiles,
-    }),
-  });
-
+async function exportParsingDraft({ storeName, periodLabel, parsedFiles, reviewFiles, failFiles, missingFiles }) {
+  const response = await fetch(buildApiUrl("/api/parsing/export-draft"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ storeName, periodLabel, parsedFiles, reviewFiles, failFiles, missingFiles }) });
   const payload = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    throw new Error(payload.message || "体质表生成失败，请稍后重试。");
-  }
-
+  if (!response.ok) throw new Error(payload.message || "生成失败。");
   return payload;
 }
 
@@ -446,785 +280,211 @@ export default function DataParsing() {
   const [selectedMonth, setSelectedMonth] = useState("2026年1月");
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [chatParsingContext, setChatParsingContext] = useState(() => ({
-    storeId: STORE_MAP["华创店"],
-    storeName: "华创店",
-    periodLabel: "2026年1月",
-    period: getPeriodId("2026年1月"),
-    parsedFiles: [],
-    reviewFiles: [],
-    failFiles: [],
-    missingFiles: [],
+    storeId: STORE_MAP["华创店"], storeName: "华创店", periodLabel: "2026年1月", period: getPeriodId("2026年1月"),
+    parsedFiles: [], reviewFiles: [], failFiles: [], missingFiles: [],
   }));
-  const [messages, setMessages] = useState([
-    {
-      id: "init-msg-1",
-      sender: "ai",
-      text: `您好！我是 **珂溪 AI 洞察助手**。
-
-  请在右上角确认当前的**门店**和**月份**。您可以随时向我发送指令修改报表参数，或在下方点击 **"+"** 上传当月相关源文件（如营业报表、出入库登记表等），我将为您进行深度解析并生成《体质检测表》。`,
-    }
-  ]);
+  const [messages, setMessages] = useState([{ id: "init-msg-1", sender: "ai", text: `您好！我是 **珂溪 AI 洞察助手**。\n\n请在上方确认当前的门店和月份。点击下方 **"+"** 上传报表，我将为您进行深度解析并自动补齐《体质检测表》。` }]);
   const [isTyping, setIsTyping] = useState(false);
-  const [typingText, setTypingText] = useState("");
   const [inputText, setInputText] = useState("");
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  useEffect(() => scrollToBottom(), [messages]);
 
   useEffect(() => {
     setChatParsingContext((previous) => {
-      if (
-        previous.storeName === selectedStore &&
-        previous.periodLabel === selectedMonth
-      ) {
-        return previous;
-      }
-
-      return {
-        storeId: STORE_MAP[selectedStore],
-        storeName: selectedStore,
-        periodLabel: selectedMonth,
-        period: getPeriodId(selectedMonth),
-        parsedFiles: [],
-        reviewFiles: [],
-        failFiles: [],
-        missingFiles: [],
-      };
+      if (previous.storeName === selectedStore && previous.periodLabel === selectedMonth) return previous;
+      return { storeId: STORE_MAP[selectedStore], storeName: selectedStore, periodLabel: selectedMonth, period: getPeriodId(selectedMonth), parsedFiles: [], reviewFiles: [], failFiles: [], missingFiles: [] };
     });
   }, [selectedMonth, selectedStore]);
 
   const handleFileUpload = async (e) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
-
-    const newMsg = {
-      id: Date.now(),
-      sender: "user",
-      files: files.map((f) => f.name),
-    };
-    setMessages((prev) => [...prev, newMsg]);
-
+    const currentBatchId = `batch-${Date.now()}`;
+    const userMsgId = `user-${Date.now()}`;
+    
+    setMessages((prev) => [...prev, { id: userMsgId, sender: "user", files: files.map((f) => ({ name: f.name, size: (f.size / 1024).toFixed(1) + ' KB' })) }, { id: currentBatchId, sender: "ai", text: "正在启动报表深度解析程序...", loading: true, status: `待处理：${files.length} 份` }]);
     setIsTyping(true);
     const matchedGroupKeys = new Set();
     const parsedDraftFiles = [];
     const reviewDraftFiles = [];
     const failDraftFiles = [];
+    const summaryItems = [];
 
     try {
       for (let index = 0; index < files.length; index += 1) {
         const file = files[index];
-        setTypingText(`正在解析第 ${index + 1}/${files.length} 份：${file.name}`);
-
+        const currentStatus = `正在提取 (${index + 1}/${files.length})：${file.name}`;
+        setMessages((prev) => prev.map(m => m.id === currentBatchId ? { ...m, status: currentStatus } : m));
         try {
-          const result = await uploadSourceFiles([file], {
-            storeName: selectedStore,
-            periodLabel: selectedMonth,
-          });
-
+          const result = await uploadSourceFiles([file], { storeName: selectedStore, periodLabel: selectedMonth });
           const successFiles = (result.parsedFiles || []).map(normalizeParsedFile);
           const reviewFiles = (result.reviewFiles || []).map(normalizeReviewFile);
-          const failFiles = (result.failFiles || []).map((parsedFile) => ({
-            name: parsedFile.fileName || file.name || "",
-            reason: parsedFile.reason || "当前文件暂不支持解析。",
-            bodySheetSection: parsedFile.bodySheetSection || null,
-            parsedDataSummary: Array.isArray(parsedFile.parsedDataSummary)
-              ? parsedFile.parsedDataSummary
-              : [],
-          }));
-
+          const failFiles = (result.failFiles || []).map((parsedFile) => ({ name: parsedFile.fileName || file.name || "", reason: parsedFile.reason || "暂不支持解析。", bodySheetSection: parsedFile.bodySheetSection || null, parsedDataSummary: Array.isArray(parsedFile.parsedDataSummary) ? parsedFile.parsedDataSummary : [] }));
           parsedDraftFiles.push(...(result.parsedFiles || []));
           reviewDraftFiles.push(...(result.reviewFiles || []));
           failDraftFiles.push(...(result.failFiles || []));
-
-          [...successFiles, ...reviewFiles].forEach((parsedFile) => {
-            if (parsedFile.sourceGroupKey) {
-              matchedGroupKeys.add(parsedFile.sourceGroupKey);
-            }
-          });
-
-          const hasBlockingIssue = failFiles.length > 0;
-          const needsFollowUp = reviewFiles.length > 0;
-          const aiResponse = {
-            id: Date.now() + index + 1,
-            sender: "ai",
-            type: "report",
-            fileName: file.name,
-            store: selectedStore,
-            month: selectedMonth,
-            summaryText: "",
-            statusLabel: hasBlockingIssue
-              ? "PARTIAL"
-              : needsFollowUp
-                ? "REVIEW"
-                : "COMPLETED",
-            successFiles,
-            reviewFiles,
-            failFiles,
-            missingFiles: [],
-            downloadUrl: "",
-            downloadFileName: "",
-          };
-
-          aiResponse.summaryText = buildReportSummary({
-            report: aiResponse,
-            index: index + 1,
-            total: files.length,
-          });
-
-          setMessages((prev) => [...prev, aiResponse]);
+          [...successFiles, ...reviewFiles].forEach((parsedFile) => { if (parsedFile.sourceGroupKey) matchedGroupKeys.add(parsedFile.sourceGroupKey); });
+          summaryItems.push(buildReportSummary({ report: { successFiles, reviewFiles, failFiles }, index: index + 1, total: files.length }));
+          setMessages((prev) => prev.map(m => m.id === currentBatchId ? { ...m, text: `## 📑 报表解析进度 (${index + 1}/${files.length})\n\n${summaryItems.join('\n\n')}` } : m));
         } catch (singleError) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: Date.now() + index + 1,
-              sender: "ai",
-              type: "report",
-              fileName: file.name,
-              store: selectedStore,
-              month: selectedMonth,
-              summaryText: `第 ${index + 1}/${files.length} 份文件《${file.name}》解析失败：${singleError.message || "请稍后重试。"}`,
-              statusLabel: "PARTIAL",
-              successFiles: [],
-              reviewFiles: [],
-              failFiles: [
-                {
-                  name: file.name,
-                  reason: singleError.message || "请稍后重试。",
-                  bodySheetSection: null,
-                  parsedDataSummary: [],
-                },
-              ],
-              missingFiles: [],
-              downloadUrl: "",
-              downloadFileName: "",
-            },
-          ]);
+          summaryItems.push(`### ❌ ${file.name}\n> **异常**：${singleError.message || "内部解析失败"}`);
+          setMessages((prev) => prev.map(m => m.id === currentBatchId ? { ...m, text: `## 📑 报表解析进度 (${index + 1}/${files.length})\n\n${summaryItems.join('\n\n')}` } : m));
         }
       }
-
-      const batchSummary = buildBatchSummary({
-        fileCount: files.length,
-        matchedGroupKeys,
-        storeName: selectedStore,
-        periodLabel: selectedMonth,
-      });
+      const batchSummary = buildBatchSummary({ fileCount: files.length, matchedGroupKeys, storeName: selectedStore, periodLabel: selectedMonth });
       const missingFiles = buildMissingSourceGroups(matchedGroupKeys);
-
-      setChatParsingContext((previous) => ({
-        storeId: STORE_MAP[selectedStore],
+      const mergedParsedFiles = mergeFilesByName(chatParsingContext.parsedFiles, parsedDraftFiles);
+      const mergedReviewFiles = mergeFilesByName(chatParsingContext.reviewFiles, reviewDraftFiles);
+      const mergedFailFiles = mergeFilesByName(chatParsingContext.failFiles, failDraftFiles);
+      setChatParsingContext((previous) => ({ ...previous, parsedFiles: mergedParsedFiles, reviewFiles: mergedReviewFiles, failFiles: mergedFailFiles, missingFiles }));
+      let downloadSection = "";
+      try {
+        setMessages((prev) => prev.map(m => m.id === currentBatchId ? { ...m, status: "正在汇汇总体质表..." } : m));
+        const exportResult = await exportParsingDraft({ storeName: selectedStore, periodLabel: selectedMonth, parsedFiles: parsedDraftFiles, reviewFiles: reviewDraftFiles, failFiles: failDraftFiles, missingFiles });
+        const downloadUrl = resolveDownloadUrl(exportResult.downloadPath, exportResult.downloadFileName);
+        downloadSection = `\n\n---\n\n✅ **解析已完成**：所有识别数据已按规口回填至体质表。\n\n[点击下载《${exportResult.downloadFileName}》](${downloadUrl})`;
+      } catch (exportError) {
+        downloadSection = `\n\n---\n\n⚠️ **提示**：解析成功，但生成下载文件时出错。请点击右上角查阅。`;
+      }
+      setMessages((prev) => prev.map(m => m.id === currentBatchId ? { ...m, text: `## 📊 解析报告完成\n\n${summaryItems.join('\n\n')}\n\n---\n\n${batchSummary}${downloadSection}`, status: "" } : m));
+      const insightMarkdown = buildParsingInsightMarkdown({
         storeName: selectedStore,
         periodLabel: selectedMonth,
-        period: getPeriodId(selectedMonth),
-        parsedFiles: mergeFilesByName(previous.parsedFiles, parsedDraftFiles),
-        reviewFiles: mergeFilesByName(previous.reviewFiles, reviewDraftFiles),
-        failFiles: mergeFilesByName(previous.failFiles, failDraftFiles),
+        parsedFiles: mergedParsedFiles,
+        reviewFiles: mergedReviewFiles,
+        failFiles: mergedFailFiles,
         missingFiles,
-      }));
+      });
+      setMessages((prev) => prev.map(m => m.id === currentBatchId ? {
+        ...m,
+        text: `${m.text}\n\n---\n\n## 数据洞察\n\n${insightMarkdown}`,
+        reasoning: "",
+        loading: false,
+        status: "",
+      } : m));
+      if (false && (parsedDraftFiles.length > 0 || reviewDraftFiles.length > 0)) {
+        setMessages((prev) => prev.map(m => m.id === currentBatchId ? { ...m, status: "正在进行全量数据深度洞察..." } : m));
+        try {
+          const autoAnalysisResponse = await fetch(buildApiUrl("/api/agents/chat"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agentId: "financial_analyst", message: `请针对刚才上传的文件及体质表背景数据做深度的经营洞察。请务必**严格按照以下 Markdown 格式和排版风格**输出，不要省略任何换行和列表符号（-）：
 
-      setTypingText("正在按模板汇总体质表并生成下载文件...");
+这两份文档（或这些文档）分别记录了门店在日常经营中的[一句话简述核心内容]。
 
-      try {
-        const exportResult = await exportParsingDraft({
-          storeName: selectedStore,
-          periodLabel: selectedMonth,
-          parsedFiles: parsedDraftFiles,
-          reviewFiles: reviewDraftFiles,
-          failFiles: failDraftFiles,
-          missingFiles,
-        });
+将这类手工记账的表格和零散的报销单据进行结构化，是实现多门店数据看板和自动化AI分析的基础。以下是文档的详细数据梳理与总结：
 
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `batch-summary-${Date.now()}`,
-            sender: "ai",
-            text: `${batchSummary} 我已按标准体质表模板完成回填，可直接下载。`,
-            downloadUrl: resolveDownloadUrl(
-              exportResult.downloadPath,
-              exportResult.downloadFileName,
-            ),
-            downloadFileName: exportResult.downloadFileName || "",
-          },
-        ]);
-      } catch (exportError) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `batch-summary-${Date.now()}`,
-            sender: "ai",
-            text: `${batchSummary} 但体质表生成失败：${exportError.message || "请稍后重试。"}`,
-          },
-        ]);
-      }
-    } catch (error) {
-      setIsTyping(false);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now() + 1,
-          sender: "ai",
-          text: `解析失败：${error.message || "请稍后重试。"}`,
-        },
-      ]);
-    } finally {
-      setIsTyping(false);
-      setTypingText("");
-    }
+### 1. 《[文件名]》数据详情
+这份文档主要记录了[简述文档内容]，数据可拆分为以下几个核心模块：
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
+- **[模块名称1]**：
+  - [具体明细数据1]
+  - [具体明细数据2]
+
+- **[模块名称2]**：
+  - [具体明细数据1]
+
+### 2. 《[文件名]》数据详情
+[简述该表维度等]：
+
+**表A：[表名]**
+[简述追踪内容]：
+- **[分类名称1]**：[具体明细]
+- **[分类名称2]**：[具体明细]
+
+---
+
+### 数据综合总结
+
+1. **[总结要点1标题]**：[总结内容解释，包含具体发现]
+2. **[总结要点2标题]**：[总结内容解释，如核心业务聚焦等]
+3. **底层数据函待规范化及体质表归口说明**：目前的 Excel 记录方式依赖人工每日盘点... 
+   **(此处必须详细列出：以上解析出的各项具体数据，分别应当归类、回填到《体质检测表》中的哪个具体 Sheet 页（例如：收银核对表、日营业报表、总开支、各岗位工资提成表等）以及对应的行/列或模块中。)**
+4. **缺失预警**：[明确指出缺失了哪些关键报表（如月报）对洞察的限制]
+
+请严格根据上述 Markdown 模板填充实际解析出来的数据，确保格式完全一致，必须包含黑体加粗、无序列表和有序列表。`, history: [], chatScope: "parsing", parsingContext: { storeId: STORE_MAP[selectedStore], storeName: selectedStore, periodLabel: selectedMonth, period: getPeriodId(selectedMonth), parsedFiles: mergeFilesByName(chatParsingContext.parsedFiles, parsedDraftFiles), reviewFiles: mergeFilesByName(chatParsingContext.reviewFiles, reviewDraftFiles), failFiles: mergeFilesByName(chatParsingContext.failFiles, failDraftFiles), missingFiles: buildMissingSourceGroups(matchedGroupKeys) } }) });
+          const autoPayload = await autoAnalysisResponse.json();
+          if (autoPayload.reply) setMessages((prev) => prev.map(m => m.id === currentBatchId ? { ...m, text: `${m.text}\n\n---\n\n## 💡 AI 经营深度洞察\n\n${autoPayload.reply}`, reasoning: autoPayload.reasoning, loading: false, status: "" } : m));
+        } catch { setMessages((prev) => prev.map(m => m.id === currentBatchId ? { ...m, loading: false, status: "" } : m)); }
+      } else { setMessages((prev) => prev.map(m => m.id === currentBatchId ? { ...m, loading: false, status: "" } : m)); }
+    } catch (error) { setMessages((prev) => prev.map(m => m.id === currentBatchId ? { ...m, text: `## ⚠️ 处理中断\n\n系统错误：${error.message}`, loading: false, status: "" } : m)); }
+    finally { setIsTyping(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
   };
 
   const handleSendMessage = async () => {
     if (!inputText.trim()) return;
-
     const currentInput = inputText;
-    const newMsg = {
-      id: Date.now(),
-      sender: "user",
-      text: currentInput,
-    };
-    setMessages((prev) => [...prev, newMsg]);
+    const msgId = Date.now();
+    setMessages((prev) => [...prev, { id: msgId, sender: "user", text: currentInput }]);
     setInputText("");
     setIsTyping(true);
-    setTypingText("思考中...");
-
+    const aiMsgId = msgId + 1;
+    setMessages((prev) => [...prev, { id: aiMsgId, sender: "ai", text: "", loading: true, status: "思考中..." }]);
     try {
-      const response = await fetch(buildApiUrl("/api/agents/chat"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          agentId: "financial_analyst",
-          message: currentInput,
-          history: messages.map((m) => ({
-            role: m.sender === "ai" ? "assistant" : "user",
-            content: m.text,
-          })).slice(-10),
-          chatScope: "parsing",
-          parsingContext: {
-            storeId: STORE_MAP[selectedStore],
-            storeName: selectedStore,
-            periodLabel: selectedMonth,
-            period: getPeriodId(selectedMonth),
-            parsedFiles:
-              chatParsingContext.storeName === selectedStore &&
-              chatParsingContext.periodLabel === selectedMonth
-                ? chatParsingContext.parsedFiles
-                : [],
-            reviewFiles:
-              chatParsingContext.storeName === selectedStore &&
-              chatParsingContext.periodLabel === selectedMonth
-                ? chatParsingContext.reviewFiles
-                : [],
-            failFiles:
-              chatParsingContext.storeName === selectedStore &&
-              chatParsingContext.periodLabel === selectedMonth
-                ? chatParsingContext.failFiles
-                : [],
-            missingFiles:
-              chatParsingContext.storeName === selectedStore &&
-              chatParsingContext.periodLabel === selectedMonth
-                ? chatParsingContext.missingFiles
-                : [],
-          },
-        }),
-      });
-      
+      const response = await fetch(buildApiUrl("/api/agents/chat"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agentId: "financial_analyst", message: currentInput, history: messages.map((m) => ({ role: m.sender === "ai" ? "assistant" : "user", content: m.text })).slice(-10), chatScope: "parsing", parsingContext: chatParsingContext }) });
       const payload = await response.json();
-      
-      setIsTyping(false);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now() + 1,
-          sender: "ai",
-          text: payload.reply || "已收到，处理完成。",
-        },
-      ]);
-    } catch {
-      setIsTyping(false);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now() + 1,
-          sender: "ai",
-          text: "网络请求失败，请检查服务是否正常。",
-        },
-      ]);
-    }
+      setMessages((prev) => prev.map(m => m.id === aiMsgId ? { ...m, text: payload.reply || "分析已完成。", reasoning: payload.reasoning, loading: false, status: "" } : m));
+    } catch { setMessages((prev) => prev.map(m => m.id === aiMsgId ? { ...m, text: "网络异常。", loading: false, status: "" } : m)); }
+    finally { setIsTyping(false); }
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  };
-
-  const triggerFileInput = () => {
-    fileInputRef.current?.click();
-  };
+  const handleKeyDown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } };
+  const triggerFileInput = () => fileInputRef.current?.click();
 
   return (
     <AppShell>
       <div className="-mx-4 -my-6 lg:-mx-8 lg:-my-6 flex h-[calc(100vh-100px)] flex-col relative font-sans bg-[#fcfbf9] overflow-hidden">
-        
-        {/* Ambient Background Blur Elements for Depth */}
-        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-[-10%] left-[10%] w-[40vw] h-[40vh] rounded-full bg-[#d4a373]/10 blur-[100px]" />
-          <div className="absolute bottom-[-10%] right-[10%] w-[40vw] h-[40vh] rounded-full bg-[#b6860c]/5 blur-[120px]" />
-        </div>
-        
-        {/* Header: Selectors (Glassmorphic) */}
-        <div className="relative z-20 flex items-center justify-between px-6 lg:px-10 py-5 border-b border-[#e8dcc4]/40 bg-white/60 backdrop-blur-xl shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+        <div className="relative z-20 flex items-center justify-between px-6 lg:px-10 py-4 border-b border-[#e8dcc4]/30 bg-white/60 backdrop-blur-xl">
           <div className="flex items-center gap-3">
-            <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#171412] to-[#2c2724] shadow-sm">
-              <span className="material-symbols-outlined text-[20px] text-[#e8dcc4]">graphic_eq</span>
-            </div>
-            <div>
-              <span className="text-[17px] font-extrabold tracking-tight text-[#171412]">数据洞察</span>
-              <span className="ml-2 text-xs font-semibold uppercase tracking-wider text-[#b6860c] bg-[#b6860c]/10 px-2 py-0.5 rounded-full">AI Agent</span>
-            </div>
+             <div className="size-8 rounded-lg bg-[#171412] flex items-center justify-center"><span className="material-symbols-outlined text-[18px] text-[#e8dcc4]">graphic_eq</span></div>
+             <span className="text-[16px] font-bold text-[#171412]">数据洞察</span>
           </div>
-          
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setIsPanelOpen(true)}
-              className="group flex items-center gap-1.5 rounded-xl bg-white/80 border border-[#b6860c]/30 px-4 py-2 text-sm font-bold text-[#b6860c] shadow-sm transition-all hover:bg-[#b6860c]/10 hover:shadow-md backdrop-blur-md mr-2"
-            >
-              <span className="material-symbols-outlined text-[18px]">table_chart</span>
-              查看体质表
-            </button>
-            <div className="relative group">
-              <select
-                value={selectedStore}
-                onChange={(e) => setSelectedStore(e.target.value)}
-                className="appearance-none rounded-xl bg-white/80 border border-[#e8dcc4]/60 px-4 py-2 pr-9 text-sm font-bold text-[#171412] shadow-sm outline-none transition-all hover:bg-white focus:ring-2 focus:ring-[#b6860c]/20 cursor-pointer backdrop-blur-md"
-              >
-                {STORES.map((store) => (
-                  <option key={store} value={store}>{store}</option>
-                ))}
-              </select>
-              <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-[#a89b82] pointer-events-none text-[18px] group-hover:text-[#b6860c] transition-colors">
-                unfold_more
-              </span>
-            </div>
-            <div className="h-5 w-[1px] bg-[#e8dcc4]/60 mx-1"></div>
-            <div className="relative group">
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-                className="appearance-none rounded-xl bg-white/80 border border-[#e8dcc4]/60 px-4 py-2 pr-9 text-sm font-bold text-[#171412] shadow-sm outline-none transition-all hover:bg-white focus:ring-2 focus:ring-[#b6860c]/20 cursor-pointer backdrop-blur-md"
-              >
-                {MONTHS.map((month) => (
-                  <option key={month} value={month}>{month}</option>
-                ))}
-              </select>
-              <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-[#a89b82] pointer-events-none text-[18px] group-hover:text-[#b6860c] transition-colors">
-                unfold_more
-              </span>
-            </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setIsPanelOpen(true)} className="px-3 py-1.5 rounded-xl border border-[#b6860c]/40 text-[#b6860c] text-[13px] font-bold hover:bg-[#b6860c]/5 transition-colors mr-2">查看体质表</button>
+            <select value={selectedStore} onChange={(e) => setSelectedStore(e.target.value)} className="appearance-none bg-transparent border-none text-[13px] font-bold text-[#171412] focus:ring-0 cursor-pointer outline-none">{STORES.map((s) => <option key={s} value={s}>{s}</option>)}</select>
+            <div className="h-3 w-[1px] bg-[#e8dcc4] mx-1"></div>
+            <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="appearance-none bg-transparent border-none text-[13px] font-bold text-[#171412] focus:ring-0 cursor-pointer outline-none">{MONTHS.map((m) => <option key={m} value={m}>{m}</option>)}</select>
           </div>
         </div>
-
-        {/* Chat Area */}
         <div className="relative z-10 flex-1 overflow-y-auto px-4 lg:px-0 custom-scrollbar">
-          <div className="mx-auto max-w-[840px] pt-10 pb-40 space-y-10">
-            
+          <div className="mx-auto max-w-[760px] pt-12 pb-48 space-y-12">
             {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex gap-5 w-full ${msg.sender === "user" ? "justify-end" : "justify-start"}`}
-              >
-                {/* AI Avatar */}
-                {msg.sender === "ai" && (
-                  <div className="relative flex size-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-b from-[#fffaf2] to-[#f5ebd9] border border-[#e8dcc4] shadow-sm mt-1">
-                    <span className="material-symbols-outlined text-[20px] text-[#b6860c]">graphic_eq</span>
-                    {/* Glowing dot */}
-                    <div className="absolute -top-1 -right-1 size-2.5 rounded-full bg-[#d96e42] border-2 border-white"></div>
+              <div key={msg.id} className={`flex gap-5 w-full ${msg.sender === "user" ? "justify-end" : "justify-start"}`}>
+                {msg.sender === "ai" && (<div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[#fffaf2] border border-[#e8dcc4] text-[#b6860c] mt-1"><span className="material-symbols-outlined text-[18px]">graphic_eq</span></div>)}
+                <div className={`flex flex-col gap-3 ${msg.sender === "user" ? "max-w-[85%] items-end" : "w-full items-start"}`}>
+                  {msg.files && (<div className="flex flex-wrap gap-2 mb-1">{msg.files.map((f, i) => <FileChip key={i} fileName={f.name} size={f.size} />)}</div>)}
+                  <div className={`${msg.sender === "user" ? "bg-[#171412] text-white/95 rounded-[22px] rounded-br-sm px-5 py-3 shadow-md" : "w-full rounded-[32px] border border-[#eadfcb] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(252,248,242,0.92))] px-6 py-6 shadow-[0_24px_80px_rgba(95,73,56,0.08)] backdrop-blur-sm"}`}>
+                    {msg.sender === "ai" && <ThoughtProcess thought={msg.reasoning} />}
+                    {msg.text && <MarkdownMessage content={msg.text} />}
+                    {msg.sender === "ai" && msg.loading && (
+                      <div className="mt-4 flex flex-col gap-2">
+                        <div className="flex gap-1.5 items-center">
+                          <div className="size-1.5 rounded-full bg-[#b6860c]/40 animate-bounce"></div>
+                          <div className="size-1.5 rounded-full bg-[#b6860c]/60 animate-bounce" style={{ animationDelay: "0.15s" }}></div>
+                          <div className="size-1.5 rounded-full bg-[#b6860c]/80 animate-bounce" style={{ animationDelay: "0.3s" }}></div>
+                          {msg.status && <span className="ml-2 text-[12px] font-bold text-[#8c8273] uppercase tracking-wider">{msg.status}</span>}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-
-                {/* Message Content */}
-                <div
-                  className={`max-w-[85%] lg:max-w-[75%] ${
-                    msg.sender === "user"
-                      ? "bg-[#171412] text-white/95 rounded-[24px] rounded-br-sm px-6 py-4 shadow-md"
-                      : "text-[#171412] pt-1"
-                  }`}
-                >
-                  {msg.text && (
-                    msg.sender === "ai" ? (
-                      <div className="rounded-[24px] border border-[#e8dcc4]/55 bg-white/88 px-5 py-4 shadow-[0_14px_36px_-24px_rgba(23,20,18,0.55)] backdrop-blur-xl">
-                        <MarkdownMessage content={msg.text} />
-                      </div>
-                    ) : (
-                      <div className="text-[15px] leading-[1.7] whitespace-pre-wrap font-normal">
-                        {msg.text}
-                      </div>
-                    )
-                  )}
-
-                  {/* User Uploaded Files */}
-                  {msg.files && (
-                    <div className="space-y-2.5 mt-3">
-                      {msg.files.map((file, idx) => (
-                        <div key={idx} className="flex items-center gap-3 rounded-xl bg-white/10 border border-white/10 px-4 py-3 text-sm backdrop-blur-sm shadow-sm">
-                          <div className="flex size-8 items-center justify-center rounded-lg bg-white/20 text-white">
-                            <span className="material-symbols-outlined text-[18px]">draft</span>
-                          </div>
-                          <span className="truncate font-medium">{file}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* AI Report Summary Card */}
-                  {msg.type === "report" && (
-                    <div className="mt-5 rounded-[20px] bg-white/80 backdrop-blur-xl border border-white/50 shadow-[0_8px_30px_-4px_rgba(0,0,0,0.05),inset_0_1px_0_rgba(255,255,255,0.6)] overflow-hidden relative">
-                      {/* Gradient Decorative Top Bar */}
-                      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#b6860c] via-[#d4a373] to-[#e8dcc4]"></div>
-                      
-                      {/* Card Header */}
-                      <div className="bg-gradient-to-b from-white/60 to-transparent border-b border-[#e8dcc4]/30 px-6 py-4 flex items-start sm:items-center justify-between gap-4">
-                        <div className="flex items-center gap-3">
-                          <div className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-[#fffaf2] to-[#f5ebd9] shadow-inner border border-white">
-                            <span className="material-symbols-outlined text-[18px] text-[#b6860c]">auto_awesome</span>
-                          </div>
-                          <div>
-                            <p className="text-[15px] font-extrabold text-[#171412] tracking-tight">
-                              解析洞察 ✨ · <span className="text-[#8c8273] font-medium">{msg.fileName || `${msg.store} ${msg.month}`}</span>
-                            </p>
-                            <p className="text-[12px] text-[#b6860c] font-medium mt-0.5">AI Agent Analysis Complete</p>
-                          </div>
-                        </div>
-                        <span className="shrink-0 flex items-center gap-1.5 text-[11px] font-bold tracking-wider text-emerald-600 bg-emerald-50/80 border border-emerald-100/50 px-2.5 py-1.5 rounded-lg shadow-sm">
-                          <span className="material-symbols-outlined text-[14px]">check_circle</span>
-                          {msg.statusLabel || "COMPLETED"}
-                        </span>
-                      </div>
-                      
-                      {/* Card Body */}
-                      <div className="p-6 space-y-5">
-                        {msg.summaryText ? (
-                          <div className="rounded-xl bg-gradient-to-br from-[#fcfaf7] to-white border border-[#e8dcc4]/40 px-5 py-4 shadow-[inset_0_1px_2px_rgba(255,255,255,0.8)]">
-                            <p className="text-[14px] leading-[1.7] text-[#4a4036] flex items-start gap-3">
-                              <span className="text-[16px] leading-tight pt-0.5">💡</span>
-                              <span>{msg.summaryText}</span>
-                            </p>
-                          </div>
-                        ) : null}
-
-                        <div className="grid grid-cols-1 gap-4">
-                          {msg.successFiles?.length > 0 && (
-                            <div className="space-y-3">
-                              <p className="text-[14px] font-extrabold text-[#171412] flex items-center gap-2">
-                                📊 核心数据提取 <span className="text-[#8c8273] text-[12px] font-medium">({msg.successFiles.length} 份文件)</span>
-                              </p>
-                              <div className="space-y-3">
-                                {msg.successFiles.map((file, i) => (
-                                  <div
-                                    key={`${file.name}-${i}`}
-                                    className="rounded-2xl border border-[#e8dcc4]/50 bg-white p-4 shadow-sm hover:shadow-md transition-shadow duration-300 relative overflow-hidden"
-                                  >
-                                    <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-[#b6860c]/5 to-transparent rounded-bl-full pointer-events-none"></div>
-                                    <div className="flex items-center justify-between gap-3 relative z-10">
-                                      <div className="flex items-center gap-2">
-                                        <span className="material-symbols-outlined text-[#b6860c] text-[18px]">dataset</span>
-                                        <span className="truncate text-[14px] font-bold text-[#171412]">
-                                          {file.name}
-                                        </span>
-                                      </div>
-                                      <span className="shrink-0 rounded-lg bg-[#f5f2eb] border border-[#e8dcc4]/50 px-2 py-1 text-[11px] font-bold tracking-wide text-[#8c8273]">
-                                        {file.mode === '表格直读' ? '🧮 ' : ''}{file.mode}
-                                      </span>
-                                    </div>
-                                    <p className="mt-2 text-[13px] leading-relaxed text-[#5f5345] relative z-10">
-                                      {file.note}
-                                    </p>
-                                    
-                                    <div className="mt-4 flex flex-col sm:flex-row gap-3 relative z-10">
-                                      {file.bodySheetSection ? (
-                                        <div className="flex-1 rounded-xl bg-[#fcfaf7] border border-[#e8dcc4]/30 p-3">
-                                          <p className="text-[11px] font-bold uppercase tracking-wider text-[#b6860c] mb-1.5 flex items-center gap-1"><span className="material-symbols-outlined text-[14px]">account_tree</span> 数据归口</p>
-                                          <div className="flex flex-col gap-1">
-                                            <span className="text-[13px] font-bold text-[#171412]">
-                                              {file.bodySheetSection.label}
-                                            </span>
-                                            <span className="text-[12px] text-[#8c8273]">
-                                              {file.bodySheetSection.target}
-                                            </span>
-                                          </div>
-                                        </div>
-                                      ) : null}
-
-                                      {file.parsedDataSummary?.length > 0 ? (
-                                        <div className="flex-[2] rounded-xl bg-[#fcfaf7] border border-[#e8dcc4]/30 p-3">
-                                          <p className="text-[11px] font-bold uppercase tracking-wider text-[#b6860c] mb-1.5 flex items-center gap-1"><span className="material-symbols-outlined text-[14px]">donut_small</span> 本次纳入指标</p>
-                                          <ul className="grid grid-cols-2 gap-x-2 gap-y-1.5 text-[12px] font-medium text-[#4a4036]">
-                                            {file.parsedDataSummary.map((item) => (
-                                              <li key={`${file.name}-${item}`} className="flex items-center gap-1.5 truncate">
-                                                <div className="size-1 rounded-full bg-[#b6860c]/60 shrink-0"></div>
-                                                <span className="truncate">{item}</span>
-                                              </li>
-                                            ))}
-                                          </ul>
-                                        </div>
-                                      ) : null}
-                                    </div>
-
-                                    {file.metricsSummary?.length > 0 ? (
-                                      <div className="mt-3 flex flex-wrap gap-2 relative z-10">
-                                        {file.metricsSummary.map((item) => (
-                                          <span
-                                            key={`${file.name}-${item}`}
-                                            className="rounded-lg bg-[#b6860c]/5 border border-[#b6860c]/20 px-2.5 py-1 text-[12px] font-semibold text-[#8f6b35] flex items-center gap-1"
-                                          >
-                                            <span className="text-[10px]">💰</span> {item}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    ) : null}
-                                    
-                                    {file.previewLines?.length > 0 ? (
-                                      <div className="mt-3 rounded-lg bg-[#171412]/5 border border-[#171412]/10 px-3.5 py-2.5 relative z-10">
-                                        {file.previewLines.map((line, index) => (
-                                          <p key={`${file.name}-preview-${index}`} className="truncate text-[12px] font-mono leading-relaxed text-[#5f5345]">
-                                            {line}
-                                          </p>
-                                        ))}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {(msg.reviewFiles?.length > 0 || msg.failFiles?.length > 0 || msg.missingFiles?.length > 0) && (
-                            <div className="mt-2 flex flex-col gap-3">
-                              {msg.reviewFiles?.length > 0 && (
-                                <div className="rounded-xl border border-sky-200/60 bg-gradient-to-br from-sky-50/50 to-white p-4 shadow-sm">
-                                  <p className="mb-3 text-[14px] font-bold text-sky-800 flex items-center gap-2">
-                                    <span className="text-[16px]">🧐</span>
-                                    待人工复核 <span className="text-sky-600/70 text-[12px] font-medium">({msg.reviewFiles.length})</span>
-                                  </p>
-                                  <div className="space-y-2.5">
-                                    {msg.reviewFiles.map((file, i) => (
-                                      <div key={`${file.name}-${i}`} className="rounded-xl bg-white px-4 py-3 text-[13px] text-sky-900 border border-sky-100 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
-                                        <div className="flex items-center justify-between gap-3">
-                                          <span className="truncate font-bold">{file.name}</span>
-                                          <span className="shrink-0 rounded-lg bg-sky-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-sky-700 border border-sky-100/50">
-                                            {file.mode}
-                                          </span>
-                                        </div>
-                                        <p className="mt-1.5 text-sky-700/80 leading-relaxed text-[12px]">{file.reason}</p>
-                                        {file.bodySheetSection ? (
-                                          <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                                            <span className="rounded-md bg-sky-50 px-2 py-1.5 text-[11px] font-bold text-sky-700 border border-sky-100">
-                                              建议归入：{file.bodySheetSection.label}
-                                            </span>
-                                            <span className="text-[11px] font-medium text-sky-900/60">
-                                              {file.bodySheetSection.target}
-                                            </span>
-                                          </div>
-                                        ) : null}
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              {msg.failFiles?.length > 0 && (
-                                <div className="rounded-xl border border-rose-200/60 bg-gradient-to-br from-rose-50/50 to-white p-4 shadow-sm">
-                                  <p className="mb-3 text-[14px] font-bold text-rose-800 flex items-center gap-2">
-                                    <span className="text-[16px]">⚠️</span>
-                                    格式暂不支持 <span className="text-rose-600/70 text-[12px] font-medium">({msg.failFiles.length})</span>
-                                  </p>
-                                  <div className="space-y-2">
-                                    {msg.failFiles.map((file, i) => (
-                                      <div key={`${file.name}-${i}`} className="rounded-xl bg-white px-4 py-2.5 text-[13px] text-rose-900 border border-rose-100">
-                                        <p className="truncate font-bold">{file.name}</p>
-                                        <p className="mt-1 text-rose-700/80 leading-relaxed text-[12px]">{file.reason}</p>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              {msg.missingFiles?.length > 0 && (
-                                <div className="rounded-xl border border-amber-200/60 bg-gradient-to-br from-amber-50/50 to-white p-4 shadow-sm">
-                                  <p className="mb-2.5 text-[14px] font-bold text-amber-800 flex items-center gap-2">
-                                    <span className="text-[16px]">📌</span>
-                                    温馨提示：待补齐资料
-                                  </p>
-                                  <ul className="grid grid-cols-2 gap-2 text-amber-800/80 text-[12px] font-medium mt-2">
-                                    {msg.missingFiles.map((f, i) => (
-                                      <li key={i} className="flex items-center gap-1.5 truncate">
-                                         <div className="size-1.5 rounded-full bg-amber-400 shrink-0"></div>
-                                         <span className="truncate">{f}</span>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Card Footer (Download) */}
-                      <div className="bg-gradient-to-t from-[#fcfbf9] to-white border-t border-[#e8dcc4]/40 px-6 py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                        <div className="flex items-start gap-3">
-                          <div className="mt-0.5 size-7 rounded-full bg-[#e8dcc4]/30 flex items-center justify-center shrink-0">
-                            <span className="material-symbols-outlined text-[16px] text-[#8c8273]">task_alt</span>
-                          </div>
-                          <div>
-                            <p className="text-[13px] font-bold text-[#171412]">解析节点已完成</p>
-                            <p className="text-[12px] text-[#8c8273] mt-0.5">
-                              点击上方「查看体质表」或继续上传补充文件
-                            </p>
-                          </div>
-                        </div>
-                        {msg.downloadUrl ? (
-                          <a
-                            href={msg.downloadUrl}
-                            download={msg.downloadFileName || undefined}
-                            className="group relative inline-flex items-center gap-2 rounded-xl bg-gradient-to-b from-[#b6860c] to-[#99700a] px-5 py-2.5 text-sm font-bold text-white shadow-[0_4px_12px_rgba(182,134,12,0.3)] transition-all hover:scale-[1.02] hover:shadow-[0_6px_16px_rgba(182,134,12,0.4)]"
-                          >
-                            <span className="material-symbols-outlined text-[18px]">download</span>
-                            点击下载
-                          </a>
-                        ) : (
-                          <div className="rounded-xl border border-[#e8dcc4] bg-white px-4 py-2 text-[12px] font-semibold text-[#8c8273]">
-                            当前卡片展示的是单文件解析结果；整轮完成后会自动生成标准体质表供下载。
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* General Download button for text responses */}
-                  {msg.downloadFileName && msg.type !== "report" && (
-                    <div className="mt-4">
-                        <a
-                          href={msg.downloadUrl}
-                          download={msg.downloadFileName || undefined}
-                          className="group inline-flex items-center gap-2.5 rounded-xl border border-[#e8dcc4] bg-white px-5 py-3 text-[14px] font-bold text-[#171412] shadow-sm transition-all hover:border-[#b6860c]/50 hover:shadow-md"
-                        >
-                          <div className="flex size-7 items-center justify-center rounded-lg bg-[#b6860c]/10 text-[#b6860c]">
-                            <span className="material-symbols-outlined text-[18px]">table_view</span>
-                          </div>
-                          {msg.downloadFileName}
-                          <span className="material-symbols-outlined text-[18px] text-[#a89b82] group-hover:text-[#b6860c] transition-colors ml-2">download</span>
-                        </a>
-                    </div>
-                  )}
                 </div>
               </div>
             ))}
-
-            {isTyping && (
-              <div className="flex gap-5 w-full justify-start">
-                <div className="relative flex size-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-b from-[#fffaf2] to-[#f5ebd9] border border-[#e8dcc4] shadow-sm mt-1">
-                  <span className="material-symbols-outlined text-[20px] text-[#b6860c] animate-pulse">graphic_eq</span>
-                </div>
-                <div className="pt-3 flex items-center gap-1.5">
-                  <div className="size-2 rounded-full bg-[#b6860c]/40 animate-bounce"></div>
-                  <div className="size-2 rounded-full bg-[#b6860c]/60 animate-bounce" style={{ animationDelay: "0.15s" }}></div>
-                  <div className="size-2 rounded-full bg-[#b6860c]/80 animate-bounce" style={{ animationDelay: "0.3s" }}></div>
-                  {typingText ? (
-                    <span className="ml-3 text-[13px] font-medium text-[#8c8273]">
-                      {typingText}
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-            )}
-            
             <div ref={messagesEndRef} />
           </div>
         </div>
-
-        {/* Input Area (Premium Glassmorphic floating bar) */}
-        <div className="absolute bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-[#fcfbf9] via-[#fcfbf9]/95 to-transparent pt-16 pb-8 px-4">
-          <div className="mx-auto w-full max-w-[800px] relative">
-            
-            <div className="group relative flex items-end rounded-[28px] bg-white/80 backdrop-blur-2xl border border-white/80 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-2 transition-all focus-within:bg-white focus-within:shadow-[0_8px_30px_rgb(182,134,12,0.08)] focus-within:border-[#b6860c]/30">
-              
-              <input
-                type="file"
-                multiple
-                className="hidden"
-                ref={fileInputRef}
-                onChange={handleFileUpload}
-                accept=".xls,.xlsx,.csv,.pdf,.doc,.docx"
-              />
-              
-              <button
-                onClick={triggerFileInput}
-                className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#f5f2eb] text-[#8c8273] hover:bg-[#e8dcc4] hover:text-[#171412] transition-colors mb-1 ml-1"
-                title="上传文件"
-              >
-                <span className="material-symbols-outlined text-[22px]">add</span>
-              </button>
-
-              <textarea
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="发送指令修改数据，或点击左侧上传文件..."
-                className="w-full resize-none bg-transparent px-4 py-3.5 text-[15px] font-medium text-[#171412] placeholder:text-[#a89b82] outline-none max-h-[140px] min-h-[52px]"
-                rows="1"
-              />
-              
-              <div className="flex shrink-0 items-center gap-1 mb-1 mr-1">
-                <button
-                  className="flex size-11 items-center justify-center rounded-full text-[#8c8273] hover:bg-[#f5f2eb] hover:text-[#171412] transition-colors hidden sm:flex"
-                  title="语音输入"
-                >
-                  <span className="material-symbols-outlined text-[22px]">mic</span>
-                </button>
-                <button
-                  onClick={handleSendMessage}
-                  disabled={!inputText.trim()}
-                  className={`flex size-11 items-center justify-center rounded-full transition-all duration-300 ${
-                    inputText.trim() 
-                      ? "bg-[#171412] text-white shadow-md hover:bg-[#b6860c] hover:shadow-lg hover:-translate-y-0.5" 
-                      : "bg-[#f5f2eb] text-[#d1c8b8] cursor-not-allowed"
-                  }`}
-                >
-                  <span className="material-symbols-outlined text-[20px] ml-0.5">arrow_upward</span>
-                </button>
-              </div>
+        <div className="absolute bottom-0 left-0 right-0 z-30 pt-16 pb-10 px-4 bg-gradient-to-t from-[#fcfbf9] to-transparent">
+          <div className="mx-auto w-full max-w-[760px] relative">
+            <div className="relative flex items-end rounded-[26px] bg-white border border-[#e8dcc4]/60 shadow-[0_4px_24px_rgba(0,0,0,0.03)] p-1.5 transition-all focus-within:border-[#b6860c]/40 focus-within:shadow-[0_4px_32px_rgba(182,134,12,0.08)]">
+              <input type="file" multiple className="hidden" ref={fileInputRef} onChange={handleFileUpload} accept=".xls,.xlsx,.csv,.pdf,.doc,.docx" />
+              <button onClick={triggerFileInput} className="flex size-10 shrink-0 items-center justify-center rounded-full text-[#8c8273] hover:bg-[#f5f2eb] hover:text-[#171412] transition-colors mb-0.5 ml-0.5"><span className="material-symbols-outlined text-[22px]">add</span></button>
+              <textarea value={inputText} onChange={(e) => setInputText(e.target.value)} onKeyDown={handleKeyDown} placeholder="发送指令或上传报表..." className="w-full resize-none bg-transparent px-3 py-3 text-[15px] font-medium text-[#171412] placeholder:text-[#a89b82] outline-none max-h-[140px] min-h-[48px]" rows="1" />
+              <button onClick={handleSendMessage} disabled={!inputText.trim() || isTyping} className={`flex size-10 shrink-0 items-center justify-center rounded-full transition-all duration-300 mb-0.5 mr-0.5 ${inputText.trim() && !isTyping ? "bg-[#171412] text-white" : "bg-[#f5f2eb] text-[#d1c8b8] cursor-not-allowed"}`}><span className="material-symbols-outlined text-[18px]">arrow_upward</span></button>
             </div>
-            
-            <p className="text-center text-[12px] font-medium text-[#a89b82] mt-4">
-              基于大语言模型分析，报表下发前请注意人工复核重点数据。
-            </p>
+            <p className="text-center text-[11px] font-medium text-[#a89b82] mt-3">AI 经营洞察基于深度语义解析，建议结合体质表多维核对。</p>
           </div>
         </div>
-
-        {isPanelOpen && (
-          <PhysicalTablePanel
-            storeId={STORE_MAP[selectedStore]}
-            storeName={selectedStore}
-            period={getPeriodId(selectedMonth)}
-            periodLabel={selectedMonth}
-            onClose={() => setIsPanelOpen(false)}
-          />
-        )}
-
+        {isPanelOpen && (<PhysicalTablePanel storeId={STORE_MAP[selectedStore]} storeName={selectedStore} period={getPeriodId(selectedMonth)} periodLabel={selectedMonth} onClose={() => setIsPanelOpen(false)} />)}
       </div>
     </AppShell>
   );

@@ -553,7 +553,7 @@ const SUMMARY_LOOKUPS = [
 
 const CATEGORY_ALIASES = {
   水电: ['水电费', '水电成本'],
-  '门店宿舍 租金': ['租金总成本', '房租总成本', '租金支出', '房租支出', '房租成本', '门店租金', '租金', '店租'],
+  '门店宿舍 租金': ['租金总成本', '房租总成本', '租金支出', '房租支出', '房租成本', '宿舍租金', '店租'],
   手续费: ['平台手续费', '手续费成本'],
   生活费: ['生活费', '餐费成本'],
   消耗品: ['耗材', '消耗品成本'],
@@ -763,6 +763,9 @@ function pickLookupTarget(question, report) {
   const answerAsRatio = wantsRatioAnswer(question);
   const candidates = [];
 
+  // 如果提问非常简短（如只说了店名），默认想看营收
+  const isGenericStoreQuery = normalizedQuestion.length <= 6 && !isFactLookupQuestion(question) && !isAnalysisIntent(question);
+
   buildChannelEntries(report).forEach((channel) => {
     const denominator =
       Number(report.summary?.channelTotal || 0) ||
@@ -820,7 +823,12 @@ function pickLookupTarget(question, report) {
 
   SUMMARY_LOOKUPS.forEach((metric) => {
     const aliases = buildAliasList(metric.label, metric.aliases);
-    const matchScore = getLookupMatchScore(normalizedQuestion, aliases);
+    let matchScore = getLookupMatchScore(normalizedQuestion, aliases);
+
+    // 默认兜底：如果只是问店名，给营收
+    if (isGenericStoreQuery && metric.key === 'recognizedRevenue') {
+      matchScore = 1; 
+    }
 
     if (!matchScore) {
       return;
@@ -1155,48 +1163,54 @@ function buildChannelDerivationFacts(report = {}, target = {}) {
 function buildParsingLookupReply({ report, target, question, usedLatestPeriod }) {
   const periodLabel = report.periodLabel || formatPeriodLabelFromPeriod(report.period);
   const derivationQuestion = isDerivationQuestion(question);
+  
+  // 确保指标标签不为空且逻辑合理
+  const displayLabel = target.label || '核心指标';
+  
   const lines = derivationQuestion
     ? [
-        '## 这个数怎么来的',
-        `**${report.storeName} ${periodLabel} 的 ${target.label} 是 ${target.formattedValue}。**`,
-        '这个回答只基于当前智能解析的单店单月结果，不和其他门店做排名或对比。',
+        '## 数据解析：这个数怎么来的',
+        `**${report.storeName} ${periodLabel} 的「${displayLabel}」解析结果为 ${target.formattedValue}。**`,
+        '该回答基于当前上传文件的实时解析结果，数据已结构化并准备入库。',
       ]
     : [
-        '## 查询结果',
+        '## AI 经营深度洞察：查询结果',
         `**${target.formattedValue}**`,
         '',
-        `- 门店：${report.storeName}`,
-        `- 月份：${periodLabel}`,
-        `- 指标：${target.label}`,
-        '- 范围：仅当前智能解析窗口，不引入其他门店。',
+        `- 门店对象：${report.storeName}`,
+        `- 归口月份：${periodLabel}`,
+        `- 核心指标：${displayLabel}`,
+        '- 数据范围：仅限当前智能解析窗口（单店单月），未引入历史大盘对比。',
       ];
 
   const sourceFact = buildParsingSourceFact(report);
 
   if (sourceFact) {
-    lines.push('', '## 来源');
+    lines.push('', '## 解析来源');
     lines.push(`- ${sourceFact}`);
+    lines.push('- 该数据直接从上述源文件读取，确保了财务口径的真实性。');
   }
 
   const derivationFacts = buildChannelDerivationFacts(report, target);
 
   if (derivationFacts.length) {
-    lines.push('', derivationQuestion ? '## 解析与公式' : '## 计算口径');
+    lines.push('', derivationQuestion ? '## 算法与逻辑' : '## 计算口径说明');
     derivationFacts.forEach((fact) => {
       lines.push(`- ${fact}`);
     });
   } else if (derivationQuestion) {
-    lines.push('', '## 解析方式');
-    lines.push('- 该值来自当前智能解析后的结构化结果，优先按源文件中的真实字段直接读取，不做跨店汇总。');
+    lines.push('', '## 解析逻辑');
+    lines.push('- 该值来自当前文件的结构化扫描结果，优先匹配源文件中的原生字段。');
   }
 
   if (target.kind === 'channel' && !target.wantsRatio) {
-    lines.push('', '## 说明');
-    lines.push('- 这是渠道金额本身，不是渠道占比。只有你明确问“占比”时，系统才会再计算比例。');
+    lines.push('', '## 补充说明');
+    lines.push('- 当前展示的是**渠道实收金额**。如需查看占比，请问“XX占比是多少”。');
   }
 
   if (usedLatestPeriod) {
-    lines.push('- 你没有单独指定月份，所以这里按当前门店最新可用月份解释。');
+    lines.push('', '## 提示');
+    lines.push('- 由于提问未指定月份，系统已自动按当前解析的最匹配月份进行解答。');
   }
 
   return lines.join('\n');
@@ -2236,6 +2250,14 @@ function buildFinancialAgentExecutionContext({
               parserMode: file.parserMode || '',
               sheetName: file.metrics?.sheetName || '',
               previewLines: (file.previewLines || []).slice(0, 4),
+              bodySheetMappings: (file.bodySheetMappings || []).slice(0, 12).map((item) => ({
+                sourceNames: (item.sourceNames || []).slice(0, 4),
+                amount: item.amount,
+                targetCategory: item.targetCategory || '',
+                targetDetail: item.targetDetail || '',
+                targetLabel: item.targetLabel || '',
+                note: item.note || '',
+              })),
               structuredData:
                 file.structuredData?.kind === 'revenue-report'
                   ? {
@@ -2246,6 +2268,41 @@ function buildFinancialAgentExecutionContext({
                       newMembers: file.structuredData.newMembers,
                       channels: file.structuredData.channels || {},
                     }
+                  : file.structuredData?.kind === 'expense-pdf'
+                    ? {
+                        kind: file.structuredData.kind,
+                        totalAmount: file.structuredData.totalAmount,
+                        topItems: (file.structuredData.topItems || file.structuredData.items || [])
+                          .slice(0, 8)
+                          .map((item) => ({
+                            name: item.name,
+                            amount: item.amount,
+                          })),
+                      }
+                    : file.structuredData?.kind === 'inventory-register'
+                      ? {
+                          kind: file.structuredData.kind,
+                          totalAmount: file.structuredData.totalAmount,
+                          mainSheetName: file.structuredData.mainSheetName || '',
+                          fixedAssetSheetName: file.structuredData.fixedAssetSheetName || '',
+                          topOutboundItems: (file.structuredData.topOutboundItems || [])
+                            .slice(0, 8)
+                            .map((item) => ({
+                              name: item.name,
+                              outboundQuantity: item.outboundQuantity,
+                              endingStock: item.endingStock,
+                              spec: item.spec,
+                              amount: item.amount,
+                            })),
+                          highValueAssets: (file.structuredData.highValueAssets || [])
+                            .slice(0, 8)
+                            .map((item) => ({
+                              name: item.name,
+                              endingStock: item.endingStock,
+                              spec: item.spec,
+                              unitPrice: item.unitPrice,
+                            })),
+                        }
                   : null,
             })),
           }
@@ -2387,6 +2444,7 @@ async function buildFinancialAgentReply({
 
     return {
       reply,
+      reasoning: result.reasoningContent,
       agent: buildFinancialAgentMeta({
         mode: 'llm',
         model: result.model,

@@ -603,6 +603,7 @@ function compactParsingChatContext(parsingContext = null) {
       parserMode: file.parserMode || '',
       sheetName: file.sheetName || '',
       previewLines: (file.previewLines || []).slice(0, 4),
+      bodySheetMappings: (file.bodySheetMappings || []).slice(0, 10),
       structuredData: file.structuredData || null,
     })),
   };
@@ -725,6 +726,15 @@ function buildFinancialAnalystChatStylePrompt() {
 }
 
 function buildFinancialAnalystChatUserPrompt({ question, context }) {
+  if (question.includes('严格按照以下 Markdown 格式和排版风格')) {
+    return `
+请只回答“当前用户最新消息”，严格遵守其中的格式要求，不要补充其他多余内容，也不要受其他默认分析框架限制。
+
+当前用户最新消息：
+${question}
+`.trim();
+  }
+
   const detailed = requiresDetailedAnswer(question);
   const greetingOnly = isGreetingOnly(question);
   const priorityStoreQuestion = asksForPriorityStore(question);
