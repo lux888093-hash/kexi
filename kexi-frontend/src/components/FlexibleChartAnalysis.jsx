@@ -18,8 +18,43 @@ const COLORS = ['#5c829e', '#d96e42', '#d4a04c', '#508b79', '#c66f70', '#8b739e'
 const INCOME_CATEGORIES = ['微信银联支付宝', '现金', '美团', '抖音'];
 const EXPENSE_CATEGORIES = ['头疗师工资', '管理工资', '其他工资', '付管理公司', '门店宿舍租金', '水电', '生活费', '增值服务', '消耗品', '手续费', '工程维修', '其他开支'];
 
+const EXPENSE_CATEGORY_ALIAS_GROUPS = [
+  ['\u95e8\u5e97\u5bbf\u820d\u79df\u91d1', '\u95e8\u5e97\u5bbf\u820d \u79df\u91d1'],
+  ['\u5176\u4ed6\u5f00\u652f', '\u5176\u5b83\u5f00\u652f'],
+  ['\u5176\u4ed6\u5de5\u8d44', '\u5176\u4ed6'],
+];
+
 function cn(...classes) {
   return classes.filter(Boolean).join(' ');
+}
+
+function normalizeExpenseCategory(value = '') {
+  return String(value || '').replace(/\s+/g, '').trim();
+}
+
+function getExpenseCategoryAliases(value = '') {
+  const normalized = normalizeExpenseCategory(value);
+  const aliases = new Set([normalized]);
+
+  EXPENSE_CATEGORY_ALIAS_GROUPS.forEach((group) => {
+    const normalizedGroup = group.map(normalizeExpenseCategory);
+
+    if (normalizedGroup.includes(normalized)) {
+      normalizedGroup.forEach((item) => aliases.add(item));
+    }
+  });
+
+  return aliases;
+}
+
+function matchesExpenseCategory(candidate = '', query = '') {
+  if (!query) {
+    return false;
+  }
+
+  return getExpenseCategoryAliases(query).has(
+    normalizeExpenseCategory(candidate),
+  );
 }
 
 const CustomTooltip = ({ active, payload, label }) => {
@@ -121,12 +156,22 @@ export default function FlexibleChartAnalysis({ stores }) {
       }
 
       // First, try exact match in costBreakdown (top-level category)
-      const exactCategory = (store.costBreakdown || []).find(c => c.name === subCategory);
+      const exactCategory = (store.costBreakdown || []).find((category) =>
+        matchesExpenseCategory(category.name, subCategory)
+      );
       if (exactCategory) return exactCategory.value;
 
       // If not an exact category, look for it as an item or fuzzy match
-      const item = (store.allCostItems || []).find(c => c.name === subCategory || c.name.includes(subCategory) || subCategory.includes(c.name)) || 
-                   (store.costBreakdown || []).find(c => c.name.includes(subCategory) || subCategory.includes(c.name));
+      const item =
+        (store.allCostItems || []).find((entry) =>
+          matchesExpenseCategory(entry.categoryName, subCategory) ||
+          entry.name === subCategory ||
+          entry.name.includes(subCategory) ||
+          subCategory.includes(entry.name)
+        ) ||
+        (store.costBreakdown || []).find((category) =>
+          matchesExpenseCategory(category.name, subCategory)
+        );
       return item ? item.value : 0;
     }
   };
@@ -159,7 +204,7 @@ export default function FlexibleChartAnalysis({ stores }) {
             return item.categoryName === '租金' || item.categoryName === '门店宿舍' || 
                    item.name.includes('租金') || item.name.includes('宿舍');
           }
-          return item.categoryName === singleExpenseCategory || item.name.includes(singleExpenseCategory);
+          return matchesExpenseCategory(item.categoryName, singleExpenseCategory) || item.name.includes(singleExpenseCategory);
         });
         
         if (detailedItems.length > 0) {

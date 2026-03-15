@@ -137,6 +137,13 @@ export default function StoreComparisonCharts({ stores, activeStoreId }) {
 
   const activeGroup = metricGroups.find((g) => g.id === activeGroupId) || metricGroups[0];
   const activeMetric = activeGroup.metrics.find((m) => m.key === activeMetricKey) || activeGroup.metrics[0];
+  const barData = useMemo(
+    () =>
+      [...visibleStores].sort(
+        (left, right) => right[activeMetric.key] - left[activeMetric.key],
+      ),
+    [activeMetric.key, visibleStores],
+  );
 
   const handleGroupChange = (groupId) => {
     const group = metricGroups.find((g) => g.id === groupId);
@@ -285,13 +292,13 @@ export default function StoreComparisonCharts({ stores, activeStoreId }) {
             </div>
             <div className="h-[220px] flex-1">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={[...visibleStores].sort((a,b) => b[activeMetric.key] - a[activeMetric.key])} margin={{ top: 0, right: 0, left: -20, bottom: 0 }} barSize={32}>
+                <BarChart data={barData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }} barSize={32}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e0d8" />
                   <XAxis dataKey="storeName" tickFormatter={(v) => v.replace(/店$/, "")} axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#888' }} dy={10} />
                   <YAxis domain={[0, 'dataMax * 1.1']} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#aaa' }} tickFormatter={(v) => activeMetric.type === 'ratio' ? `${(v*100).toFixed(0)}%` : formatShortCurrency(v).replace('¥','')} />
                   <Tooltip cursor={{ fill: 'transparent' }} content={<CustomTooltip />} />
                   <Bar dataKey={activeMetric.key} name={activeMetric.label} radius={[6, 6, 0, 0]}>
-                    {visibleStores.map((entry, index) => (
+                    {barData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.storeId === activeStoreId ? activeMetric.color : `${activeMetric.color}80`} />
                     ))}
                   </Bar>

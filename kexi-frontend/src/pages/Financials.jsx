@@ -563,11 +563,32 @@ function TrendChart({ trend }) {
 }
 
 function DonutChart({ items }) {
-  const positiveItems = items.filter((item) => item.value > 0).slice(0, 5);
+  const positiveItems = items.filter((item) => item.value > 0);
   const total = positiveItems.reduce((sum, item) => sum + item.value, 0);
+  const displayItems = (() => {
+    const baseItems =
+      positiveItems.length > 5
+        ? [
+            ...positiveItems.slice(0, 5),
+            {
+              name: "其他",
+              value: positiveItems
+                .slice(5)
+                .reduce((sum, item) => sum + item.value, 0),
+            },
+          ]
+        : positiveItems;
+
+    return baseItems
+      .filter((item) => item.value > 0)
+      .map((item) => ({
+        ...item,
+        ratio: total > 0 ? item.value / total : 0,
+      }));
+  })();
   const radius = 58;
   const circumference = 2 * Math.PI * radius;
-  const segments = positiveItems.reduce((collection, item, index) => {
+  const segments = displayItems.reduce((collection, item, index) => {
     const ratio = total > 0 ? item.value / total : 0;
     const dash = ratio * circumference;
     const previousOffset = collection.length
@@ -642,7 +663,7 @@ function DonutChart({ items }) {
       </div>
 
       <div className="space-y-3">
-        {positiveItems.map((item, index) => (
+        {displayItems.map((item, index) => (
           <div
             key={item.name}
             className="flex items-center justify-between rounded-2xl bg-[#f8f2eb] px-4 py-3"

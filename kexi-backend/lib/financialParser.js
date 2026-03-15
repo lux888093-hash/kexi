@@ -86,6 +86,7 @@ function inferMetricValueType(label, rawValue) {
 
 function extractMetricPairsFromRow(row, rowIndex, source) {
   const metrics = [];
+  const maxValueOffset = source === 'footer' ? 4 : 2;
 
   for (let columnIndex = 0; columnIndex < row.length; columnIndex += 1) {
     const label = sanitizeMetricLabel(row[columnIndex]);
@@ -98,7 +99,7 @@ function extractMetricPairsFromRow(row, rowIndex, source) {
 
     for (
       let cursor = columnIndex + 1;
-      cursor < row.length && cursor <= columnIndex + 2;
+      cursor < row.length && cursor <= columnIndex + maxValueOffset;
       cursor += 1
     ) {
       const candidate = cleanText(row[cursor]);
