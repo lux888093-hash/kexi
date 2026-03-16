@@ -9,8 +9,16 @@ const {
   inferPeriod,
   resolveStore,
 } = require('./financialConstants');
+const {
+  sanitizeGroundedList,
+  sanitizeGroundedText,
+} = require('./financialFactGrounding');
 const { buildFinancialContextBundle } = require('./financialAi');
-const { runZhipuFinancialChatAgent } = require('./zhipuFinancialAgent');
+const {
+  runZhipuFinancialChatAgent,
+  runZhipuGroundedFinancialChatAgent,
+  shouldUseWebSearch,
+} = require('./zhipuFinancialAgent');
 
 function percent(value) {
   return `${(Number(value || 0) * 100).toFixed(1)}%`;
@@ -620,6 +628,85 @@ function isFactLookupQuestion(question = '') {
 
 function shouldUseDirectLookup(question = '') {
   return isFactLookupQuestion(question) && !isAnalysisIntent(question);
+}
+
+function asksForPriorityStore(question = '') {
+  return /哪家店|哪一家店|最该|优先整改|先整改|先改哪家|先盯哪家|最值得优先|整改优先级/.test(
+    String(question || ''),
+  );
+}
+
+function asksForActionPlan(question = '') {
+  const normalized = String(question || '')
+    .replace(/\s+/g, '')
+    .replace(/[？?！!。，“”"'':：;；,，]/g, '');
+
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized.includes('未来30天') ||
+    normalized.includes('30天动作') ||
+    normalized.includes('行动计划') ||
+    normalized.includes('抓哪三件事') ||
+    normalized.includes('优先抓') ||
+    normalized.includes('先抓') ||
+    normalized.includes('先做') ||
+    normalized.includes('先推进什么') ||
+    normalized.includes('整改') ||
+    normalized.includes('改进计划')
+  );
+}
+
+function detectActionPlanSection(question = '') {
+  const text = String(question || '').trim();
+
+  if (!text) {
+    return '';
+  }
+
+  if (/^(核心结论|结论)$/.test(text) || /核心结论/.test(text)) {
+    return 'coreConclusion';
+  }
+
+  if (/^(先抓问题|问题)$/.test(text) || /先抓问题/.test(text)) {
+    return 'issues';
+  }
+
+  if (/^(关键依据|依据|证据)$/.test(text) || /关键依据/.test(text)) {
+    return 'evidence';
+  }
+
+  if (/^(30\s*天动作|动作|行动计划|行动)$/.test(text) || /30\s*天动作/.test(text)) {
+    return 'actions';
+  }
+
+  if (/^(复盘指标|指标)$/.test(text) || /复盘指标/.test(text)) {
+    return 'metrics';
+  }
+
+  if (/^(数据口径|口径)$/.test(text) || /数据口径/.test(text)) {
+    return 'scope';
+  }
+
+  return '';
+}
+
+function historySuggestsActionPlan(history = []) {
+  const text = (history || [])
+    .slice(-8)
+    .map((item) => String(item?.content || ''))
+    .join('\n');
+
+  if (!text.trim()) {
+    return false;
+  }
+
+  return (
+    asksForActionPlan(text) ||
+    /核心结论|先抓问题|关键依据|30\s*天动作|复盘指标|数据口径/.test(text)
+  );
 }
 
 function asksForAllStores(question = '') {
@@ -1990,11 +2077,586 @@ function buildOverallFinancialFallbackReply({ dashboard }) {
     .join('\n');
 }
 
-function buildFinancialFallbackReply({ question, dashboard, context }) {
+function findSnapshotByStoreId(context = {}, storeId = '') {
+  return (context.reportSnapshots || []).find((item) => item.storeId === storeId) || null;
+}
+
+function buildVerifiedSourceLine(scopeLabel, content) {
+  if (!scopeLabel || !content) {
+    return '';
+  }
+
+  return `[本地月报][${scopeLabel}] ${content}`;
+}
+
+function buildFleetActionPlanSections({ dashboard, context }) {
+  const stores = [...(dashboard.storeComparison || [])];
+
+  if (!stores.length) {
+    return null;
+  }
+
+  const periodLabel =
+    context.analysisScope?.periodLabel ||
+    context.reportSnapshots?.[0]?.periodLabel ||
+    formatPeriodLabelFromPeriod(dashboard.overview.latestPeriod);
+  const scopeLabel = `${periodLabel} ${stores.length}店汇总`;
+  const priorityStore = selectPriorityStore(dashboard);
+  const platformRiskStore = [...stores].sort(
+    (left, right) => right.platformRevenueShare - left.platformRevenueShare,
+  )[0];
+  const bestMarginStore = [...stores].sort(
+    (left, right) => right.profitMargin - left.profitMargin,
+  )[0];
+  const overallTopCategory = dashboard.costBreakdown?.[0] || null;
+  const overallTopItem = dashboard.topCostItems?.[0] || null;
+  const prioritySnapshot = priorityStore
+    ? findSnapshotByStoreId(context, priorityStore.storeId)
+    : null;
+  const platformSnapshot = platformRiskStore
+    ? findSnapshotByStoreId(context, platformRiskStore.storeId)
+    : null;
+  const priorityTopCategory = prioritySnapshot?.topCostCategories?.[0] || null;
+  const priorityTopItem = prioritySnapshot?.topCostItems?.[0] || null;
+
+  return {
+    coreConclusion: [
+      `未来 30 天优先抓 3 件事：1. ${platformRiskStore.storeName} 平台结构优化；2. 整体“${
+        overallTopCategory?.name || '重点成本项'
+      }”效率复盘；3. ${priorityStore.storeName} 利润修复。`,
+    ],
+    issues: [
+      `1. ${buildVerifiedSourceLine(
+        `${platformRiskStore.storeName} ${platformSnapshot?.periodLabel || periodLabel}`,
+        `平台占比 ${percent(platformRiskStore.platformRevenueShare)}，是当前 ${stores.length} 店最高，渠道依赖最重。`,
+      )}`,
+      `2. ${buildVerifiedSourceLine(
+        scopeLabel,
+        `${
+          overallTopCategory?.name || '当前最大成本项'
+        } 合计 ${exactCurrency(overallTopCategory?.value || 0)}，占总成本 ${percent(
+          overallTopCategory?.ratio || 0,
+        )}${overallTopItem ? `；重点成本项“${overallTopItem.name}”合计 ${exactCurrency(overallTopItem.value || overallTopItem.amount || 0)}` : ''}。`,
+      )}`,
+      `3. ${buildVerifiedSourceLine(
+        `${priorityStore.storeName} ${prioritySnapshot?.periodLabel || periodLabel}`,
+        `健康度 ${priorityStore.healthScore} 分，利润率 ${percent(
+          priorityStore.profitMargin,
+        )}，平台占比 ${percent(priorityStore.platformRevenueShare)}，是当前优先修复门店。`,
+      )}`,
+    ],
+    evidence: [
+      `- ${buildVerifiedSourceLine(
+        scopeLabel,
+        `整体利润率 ${percent(dashboard.overview.profitMargin)}，整体平台占比 ${percent(
+          dashboard.overview.platformRevenueShare,
+        )}。`,
+      )}`,
+      `- ${buildVerifiedSourceLine(
+        `${platformRiskStore.storeName} ${platformSnapshot?.periodLabel || periodLabel}`,
+        `利润率 ${percent(platformRiskStore.profitMargin)}，客单价 ${currency(
+          platformRiskStore.avgTicket,
+        )}，单客成本 ${currency(platformRiskStore.avgCustomerCost)}。`,
+      )}`,
+      `- ${buildVerifiedSourceLine(
+        `${priorityStore.storeName} ${prioritySnapshot?.periodLabel || periodLabel}`,
+        `${priorityTopCategory ? `${priorityTopCategory.name} ${exactCurrency(priorityTopCategory.amount)}，占总成本 ${percent(priorityTopCategory.ratio)}` : `利润率 ${percent(priorityStore.profitMargin)}`}${
+          priorityTopItem ? `；重点成本项“${priorityTopItem.name}” ${exactCurrency(priorityTopItem.amount)}` : ''
+        }。`,
+      )}`,
+      bestMarginStore
+        ? `- ${buildVerifiedSourceLine(
+            `${bestMarginStore.storeName} ${findSnapshotByStoreId(context, bestMarginStore.storeId)?.periodLabel || periodLabel}`,
+            `利润率 ${percent(bestMarginStore.profitMargin)}，是当前对标门店。`,
+          )}`
+        : '',
+    ].filter(Boolean),
+    actions: [
+      `1. 7 天内先拆 ${platformRiskStore.storeName} 的平台订单结构，逐单复盘平台客单价、平台单客成本、复购率和高佣金订单占比。`,
+      `2. 14 天内复盘 ${scopeLabel} 的“${overallTopCategory?.name || '重点成本项'}”效率，重点看${
+        overallTopItem ? `“${overallTopItem.name}”金额、` : ''
+      }客单价承接、排班效率和单位服务成本。`,
+      `3. 30 天内把 ${priorityStore.storeName} 作为利润修复专项，逐周跟踪利润率、平台占比、客单价、单客成本和${
+        priorityTopItem ? `“${priorityTopItem.name}”` : '重点成本项'
+      }变化。`,
+    ],
+    metrics: [
+      `- ${platformRiskStore.storeName}：平台占比、平台客单价、平台单客成本、高佣金订单占比。`,
+      `- ${scopeLabel}：${overallTopCategory?.name || '重点成本项'}占总成本比重${
+        overallTopItem ? `、${overallTopItem.name}金额` : ''
+      }、整体单客成本。`,
+      `- ${priorityStore.storeName}：健康度、利润率、平台占比、客单价、单客成本。`,
+    ],
+    scope: [
+      `- 整体成本项和整体占比均按 ${scopeLabel} 汇总计算，不对应单一门店。`,
+      `- 如果引用门店数据，均已单独标明“门店 + 月份”；例如 ${priorityStore.storeName} 的成本口径与 ${platformRiskStore.storeName} 的渠道口径彼此独立。`,
+    ],
+  };
+}
+
+function renderFleetActionPlanReply(sections, section = '') {
+  if (!sections) {
+    return '';
+  }
+
+  const labels = {
+    coreConclusion: '核心结论：',
+    issues: '先抓问题：',
+    evidence: '关键依据：',
+    actions: '30 天动作：',
+    metrics: '复盘指标：',
+    scope: '数据口径：',
+  };
+  const orderedKeys = [
+    'coreConclusion',
+    'issues',
+    'evidence',
+    'actions',
+    'metrics',
+    'scope',
+  ];
+
+  if (section && Array.isArray(sections[section]) && sections[section].length) {
+    return [labels[section], ...sections[section]].join('\n');
+  }
+
+  return orderedKeys
+    .flatMap((key) => (Array.isArray(sections[key]) && sections[key].length ? [labels[key], ...sections[key], ''] : []))
+    .join('\n')
+    .trim();
+}
+
+function buildFleetActionPlanReply({ dashboard, context, section = '' }) {
+  return renderFleetActionPlanReply(
+    buildFleetActionPlanSections({ dashboard, context }),
+    section,
+  );
+}
+
+function buildFinancialFallbackReply({ question, dashboard, context, history = [] }) {
+  const actionPlanSection = detectActionPlanSection(question);
+
+  if (!resolveStore(question) && actionPlanSection && historySuggestsActionPlan(history)) {
+    return buildFleetActionPlanReply({ dashboard, context, section: actionPlanSection });
+  }
+
+  if (!resolveStore(question) && asksForActionPlan(question)) {
+    return buildFleetActionPlanReply({ dashboard, context });
+  }
+
   return (
     buildStoreFocusedFallbackReply({ question, dashboard, context }) ||
     buildOverallFinancialFallbackReply({ dashboard })
   );
+}
+
+function rankBy(stores, storeId, selector, direction = 'desc') {
+  const sorted = [...stores].sort((left, right) => {
+    const leftValue = Number(selector(left) || 0);
+    const rightValue = Number(selector(right) || 0);
+    return direction === 'asc' ? leftValue - rightValue : rightValue - leftValue;
+  });
+
+  const index = sorted.findIndex((store) => store.storeId === storeId);
+  return index === -1 ? null : index + 1;
+}
+
+function buildPriorityStoreReply({ dashboard, context }) {
+  const stores = [...(dashboard.storeComparison || [])];
+
+  if (!stores.length) {
+    return '';
+  }
+
+  const priorityStore = [...stores].sort((left, right) => {
+    if (left.healthScore !== right.healthScore) {
+      return left.healthScore - right.healthScore;
+    }
+
+    if (left.profitMargin !== right.profitMargin) {
+      return left.profitMargin - right.profitMargin;
+    }
+
+    return right.platformRevenueShare - left.platformRevenueShare;
+  })[0];
+  const bestMarginStore = [...stores].sort(
+    (left, right) => right.profitMargin - left.profitMargin,
+  )[0];
+  const platformLeader = [...stores].sort(
+    (left, right) => right.platformRevenueShare - left.platformRevenueShare,
+  )[0];
+  const snapshot =
+    (context.reportSnapshots || []).find(
+      (item) => item.storeId === priorityStore.storeId,
+    ) || null;
+  const topCategory = snapshot?.topCostCategories?.[0] || null;
+  const topItem = snapshot?.topCostItems?.[0] || null;
+  const privateShare = Math.max(0, 1 - Number(priorityStore.platformRevenueShare || 0));
+  const unitMargin = roundNumber(
+    Number(priorityStore.avgTicket || 0) - Number(priorityStore.avgCustomerCost || 0),
+    2,
+  );
+  const platformRank = rankBy(
+    stores,
+    priorityStore.storeId,
+    (store) => store.platformRevenueShare,
+  );
+  const marginRank = rankBy(
+    stores,
+    priorityStore.storeId,
+    (store) => store.profitMargin,
+    'asc',
+  );
+
+  return [
+    `结论：最值得优先整改的门店是 ${priorityStore.storeName}。`,
+    '排序依据：',
+    `1. 健康度 ${priorityStore.healthScore} 分，在 ${stores.length} 家门店中最低。`,
+    `2. 利润率 ${percent(priorityStore.profitMargin)}，低于当前整体 ${percent(
+      dashboard.overview.profitMargin,
+    )}，在 ${stores.length} 家门店中排第 ${marginRank}/${stores.length}。`,
+    `3. 平台占比 ${percent(priorityStore.platformRevenueShare)}，在 ${stores.length} 家门店中排第 ${platformRank}/${stores.length}，显著高于当前整体 ${percent(
+      dashboard.overview.platformRevenueShare,
+    )}。`,
+    `4. 客单价 ${currency(priorityStore.avgTicket)}，单客成本 ${currency(
+      priorityStore.avgCustomerCost,
+    )}，当前单客毛利只有 ${currency(unitMargin)}。`,
+    '关键证据：',
+    bestMarginStore
+      ? `- 与利润率最高的 ${bestMarginStore.storeName} 相比，${priorityStore.storeName} 利润率低 ${(
+          (Number(bestMarginStore.profitMargin || 0) -
+            Number(priorityStore.profitMargin || 0)) *
+          100
+        ).toFixed(1)} 个百分点，平台占比高 ${(
+          (Number(priorityStore.platformRevenueShare || 0) -
+            Number(bestMarginStore.platformRevenueShare || 0)) *
+          100
+        ).toFixed(1)} 个百分点。`
+      : '',
+    topCategory
+      ? `- 成本结构里，${topCategory.name} 是第一大成本项，金额 ${exactCurrency(
+          topCategory.amount,
+        )}，占总成本 ${percent(topCategory.ratio)}。`
+      : '',
+    topItem
+      ? `- 已核验重点成本项：${topItem.name} 金额 ${exactCurrency(topItem.amount)}。`
+      : '',
+    platformLeader && platformLeader.storeId !== priorityStore.storeId
+      ? `- 渠道上，${priorityStore.storeName} 私域与非平台渠道合计占比 ${percent(
+          privateShare,
+        )}，而平台依赖最高的门店是 ${platformLeader.storeName} ${percent(
+          platformLeader.platformRevenueShare,
+        )}。`
+      : `- 渠道上，${priorityStore.storeName} 私域与非平台渠道合计占比 ${percent(privateShare)}。`,
+    '先抓动作：',
+    `1. 7 天内先拆 ${priorityStore.storeName} 的平台订单结构和私域转化，明确哪些订单拉低利润。`,
+    topItem
+      ? `2. 14 天内复盘 ${topItem.name}，当前金额 ${exactCurrency(
+          topItem.amount,
+        )}，核查效率、定价与排班匹配度。`
+      : `2. 14 天内复盘第一大成本项 ${topCategory?.name || '成本结构'}，核查效率与定价匹配度。`,
+    bestMarginStore
+      ? `3. 30 天内对标 ${bestMarginStore.storeName}，逐周跟踪利润率、客单价、单客成本和平台占比差距。`
+      : '3. 30 天内逐周跟踪利润率、客单价、单客成本和平台占比差距。',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function buildMetricAnalysisReplySafe({ report, target, peerComparison }) {
+  if (!report || !target) {
+    return '';
+  }
+
+  const periodLabel = report.periodLabel || formatPeriodLabelFromPeriod(report.period);
+  const categorySnapshot = buildStoreCategorySnapshot(report);
+  const categoryName = target.kind === 'category' ? target.label : target.categoryName;
+  const focusCategory = categoryName
+    ? categorySnapshot.find((item) => item.name === categoryName) || null
+    : null;
+  const categoryRank = focusCategory
+    ? categorySnapshot.findIndex((item) => item.name === categoryName) + 1
+    : 0;
+  const categoryCount = categorySnapshot.length;
+  const peerAverage =
+    peerComparison && Number.isFinite(Number(peerComparison.average))
+      ? Number(peerComparison.average)
+      : null;
+  const targetValue = Number(target.wantsRatio ? target.value : target.amount ?? target.value ?? 0);
+  const gapFromAverage =
+    peerAverage === null ? null : roundNumber(targetValue - peerAverage, target.wantsRatio ? 4 : 2);
+  const breakdown =
+    target.kind === 'category'
+      ? (target.breakdown || []).map((item) => `${item.label} ${exactCurrency(item.amount)}`)
+      : [];
+  const itemShareInCategory =
+    target.kind === 'item' && focusCategory?.amount
+      ? percent(targetValue / Number(focusCategory.amount || 0))
+      : null;
+
+  const lines = [];
+  lines.push('## 结论');
+  lines.push(`- ${report.storeName}${periodLabel}的${target.label}是 **${target.formattedValue}**。`);
+
+  if (peerComparison && peerAverage !== null) {
+    lines.push(
+      `- 同期 ${peerComparison.count} 家门店对比，${report.storeName}${gapFromAverage >= 0 ? '高于' : '低于'}均值 **${target.formatter(Math.abs(gapFromAverage))}**。`,
+    );
+  }
+
+  lines.push('', '## 原因拆解');
+
+  if (focusCategory && categoryRank > 0) {
+    lines.push(
+      `1. ${categoryName}占门店总成本 **${percent(focusCategory.ratio)}**，在 ${categoryCount} 个成本大类里排第 ${categoryRank}。${
+        categoryRank === 1 ? '它就是当前第一大成本项。' : '它不是门店当前第一大成本项。'
+      }`,
+    );
+  }
+
+  if (target.kind === 'category' && breakdown.length) {
+    lines.push(`2. 这个科目的主要构成是：${breakdown.join('；')}。`);
+  } else if (target.kind === 'item' && target.categoryName) {
+    lines.push(
+      `2. 该项目归属 **${target.categoryName}**，在本科目内占比 **${itemShareInCategory || '0.0%'}**。`,
+    );
+  }
+
+  if (peerComparison && peerAverage !== null) {
+    lines.push(
+      `3. 横向看，最高是 ${peerComparison.highest.storeName} ${target.formatter(
+        peerComparison.highest.value,
+      )}，最低是 ${peerComparison.lowest.storeName} ${target.formatter(peerComparison.lowest.value)}。`,
+    );
+  }
+
+  lines.push('', '## 关键依据');
+  lines.push(`- 门店总成本：${exactCurrency(report.summary?.totalCost || 0)}`);
+
+  if (focusCategory) {
+    lines.push(`- ${focusCategory.name}金额：${exactCurrency(focusCategory.amount)}`);
+  }
+
+  if (peerComparison && peerAverage !== null) {
+    lines.push(`- 同期均值：${target.formatter(peerAverage)}`);
+  }
+
+  lines.push('', '## 优先动作');
+
+  if (categoryRank === 1) {
+    lines.push(`1. 先拆 ${target.label} 的构成、效率和排班/定价，优先处理第一大成本项。`);
+  } else {
+    lines.push(`1. 先盯更大的成本项，${target.label} 作为重点监控项持续跟踪。`);
+  }
+
+  if (target.kind === 'category' && target.breakdown?.[0]) {
+    lines.push(`2. 先复盘 **${target.breakdown[0].label}**，它是这个科目里的最大构成。`);
+  } else if (target.kind === 'item') {
+    lines.push(`2. 结合门店客单价、单客成本和该项目金额，复盘是否存在低效支出。`);
+  }
+
+  lines.push('3. 以上结论全部基于已导入月报直接计算，未使用模型估算。');
+
+  return lines.join('\n');
+}
+
+function buildDeterministicFinancialPayload({
+  question,
+  history,
+  dashboard,
+  context,
+  directLookup,
+  allStoresLookup,
+  requestResolution,
+}) {
+  const status = requestResolution?.status || '';
+  const actionPlanSection = detectActionPlanSection(question);
+  let reply = '';
+
+  if (!resolveStore(question) && actionPlanSection && historySuggestsActionPlan(history)) {
+    reply = buildFleetActionPlanReply({ dashboard, context, section: actionPlanSection });
+  } else if (status === 'exact_lookup' && directLookup.report && directLookup.target) {
+    reply = buildDirectLookupReply({
+      report: directLookup.report,
+      target: directLookup.target,
+      peerComparison: directLookup.peerComparison,
+      usedLatestPeriod: directLookup.usedLatestPeriod,
+    });
+  } else if (status === 'all_stores_lookup' && allStoresLookup.target && allStoresLookup.rows.length) {
+    reply = buildAllStoresLookupReply({
+      periodLabel: allStoresLookup.periodLabel,
+      target: allStoresLookup.target,
+      rows: allStoresLookup.rows,
+      peerComparison: allStoresLookup.peerComparison,
+      usedLatestPeriod: allStoresLookup.usedLatestPeriod,
+    });
+  } else if (status === 'store_ambiguous_target' && directLookup.store) {
+    reply = buildLookupClarificationReply({
+      store: directLookup.store,
+      requestedPeriod: directLookup.requestedPeriod,
+    });
+  } else if (status === 'all_stores_ambiguous_target') {
+    reply = buildAllStoresLookupClarificationReply({
+      requestedPeriod: allStoresLookup.requestedPeriod,
+    });
+  } else if (status === 'all_stores_missing_period') {
+    reply = buildAllStoresMissingDataReply({
+      requestedPeriod: allStoresLookup.requestedPeriod,
+    });
+  }
+
+  if (!reply) {
+    return null;
+  }
+
+  return {
+    reply,
+    agent: buildFinancialAgentMeta({
+      mode: 'local',
+      provider: 'local',
+      note: '本条回复已按已核验财务月报直接生成，未使用模型估算。',
+    }),
+  };
+}
+
+function wantsStrictMarkdownFormat(question = '') {
+  return /严格按照以下\s*Markdown\s*格式|排版风格/.test(String(question || ''));
+}
+
+function buildAnalysisFallbackPayload({
+  question,
+  history,
+  dashboard,
+  context,
+  directLookup,
+  requestResolution,
+  note = '',
+}) {
+  let reply = '';
+
+  if (asksForPriorityStore(question)) {
+    reply = buildPriorityStoreReply({ dashboard, context });
+  } else if (
+    requestResolution?.status === 'metric_analysis' &&
+    directLookup?.report &&
+    directLookup?.target
+  ) {
+    reply = buildMetricAnalysisReplySafe({
+      report: directLookup.report,
+      target: directLookup.target,
+      peerComparison: directLookup.peerComparison,
+    });
+  } else {
+    reply = buildFinancialFallbackReply({ question, dashboard, context, history });
+  }
+
+  if (!reply) {
+    return null;
+  }
+
+  return {
+    reply,
+    agent: buildFinancialAgentMeta({
+      mode: 'local',
+      provider: 'local',
+      note:
+        note ||
+        '本条回复已回退到本地核验分析，数字直接来自已核验财务月报。',
+    }),
+  };
+}
+
+function selectPriorityStore(dashboard = {}) {
+  const stores = [...(dashboard.storeComparison || [])];
+
+  if (!stores.length) {
+    return null;
+  }
+
+  return [...stores].sort((left, right) => {
+    if (left.healthScore !== right.healthScore) {
+      return left.healthScore - right.healthScore;
+    }
+
+    if (left.profitMargin !== right.profitMargin) {
+      return left.profitMargin - right.profitMargin;
+    }
+
+    return right.platformRevenueShare - left.platformRevenueShare;
+  })[0];
+}
+
+function renderGroundedChatReply({
+  parsed,
+  factCatalog,
+  fallbackReply = '',
+  forceAppendFallback = false,
+}) {
+  const lead = sanitizeGroundedText(parsed?.lead, factCatalog, '', {
+    maxLength: 320,
+  });
+  const closing = sanitizeGroundedText(parsed?.closing, factCatalog, '', {
+    maxLength: 200,
+  });
+  const lines = [];
+  let totalBulletCount = 0;
+
+  if (lead) {
+    lines.push(lead);
+  }
+
+  (Array.isArray(parsed?.sections) ? parsed.sections : [])
+    .slice(0, 4)
+    .forEach((section) => {
+      const title = normalizeText(section?.title, 24);
+      const bullets = sanitizeGroundedList(section?.bullets, factCatalog, [], {
+        limit: 4,
+        maxLength: 220,
+      });
+
+      if (!title || !bullets.length) {
+        return;
+      }
+
+      totalBulletCount += bullets.length;
+      lines.push('', `## ${title}`);
+      bullets.forEach((bullet) => {
+        lines.push(`- ${bullet}`);
+      });
+    });
+
+  if (closing) {
+    lines.push('', closing);
+  }
+
+  if (forceAppendFallback) {
+    const aiSummary = lines
+      .filter((line) => line && !/^##\s+/.test(line) && !/^- /.test(line))
+      .join('\n')
+      .trim()
+      .replace(/最值得优先整改的门店是\s+最值得优先整改的门店是/g, '最值得优先整改的门店是 ')
+      .replace(/对\s+最值得优先整改的门店是\s+/g, '对 ')
+      .replace(/[ \t]{2,}/g, ' ');
+
+    return fallbackReply || aiSummary;
+  }
+
+  const hasStructuredSections = lines.some((line) => /^##\s+/.test(line));
+  const reply = lines
+    .filter(Boolean)
+    .join('\n')
+    .replace(/最值得优先整改的门店是\s+最值得优先整改的门店是/g, '最值得优先整改的门店是 ')
+    .replace(/对\s+最值得优先整改的门店是\s+/g, '对 ')
+    .replace(/分\s+分/g, '分')
+    .replace(/人\s+人/g, '人')
+    .replace(/元\s+元/g, '元')
+    .replace(/[ \t]{2,}/g, ' ');
+
+  if ((forceAppendFallback || !hasStructuredSections || totalBulletCount < 3) && fallbackReply) {
+    return [reply, fallbackReply].filter(Boolean).join('\n\n');
+  }
+
+  return reply || fallbackReply;
 }
 
 function formatLookupTarget(target) {
@@ -2217,7 +2879,7 @@ function buildFinancialAgentExecutionContext({
     chatScope === 'parsing'
       ? inferQuestionFiltersWithDefaults(message, effectiveReports, parsingDefaults)
       : inferQuestionFilters(message, effectiveReports);
-  const { context } = buildFinancialContextBundle(effectiveReports, filters);
+  const { dashboard, context } = buildFinancialContextBundle(effectiveReports, filters);
   const retrievedFacts = [
     ...(directLookup.retrievedFacts || []),
     ...(allStoresLookup.retrievedFacts || []),
@@ -2228,8 +2890,66 @@ function buildFinancialAgentExecutionContext({
     directLookup,
     allStoresLookup,
   });
+  const normalizedMessageForRouting = String(message || '')
+    .replace(/\s+/g, '')
+    .replace(/[？?！!。，“”"'':：;；,，]/g, '');
+  const isThirtyDayActionPlan =
+    !resolveStore(message) &&
+    (
+      normalizedMessageForRouting.includes('未来30天') ||
+      normalizedMessageForRouting.includes('抓哪三件事') ||
+      normalizedMessageForRouting.includes('30天动作') ||
+      normalizedMessageForRouting.includes('行动计划')
+    );
+
+  if (chatScope !== 'parsing' && isThirtyDayActionPlan) {
+    return {
+      payload: {
+        reply: buildFleetActionPlanReply({ dashboard, context }),
+        agent: buildFinancialAgentMeta({
+          mode: 'local',
+          provider: 'local',
+          note: '本条跨店 30 天行动方案已按本地月报直接生成，避免模型混写跨门店口径。',
+        }),
+      },
+    };
+  }
+
+  if (chatScope !== 'parsing') {
+    const deterministicPayload = buildDeterministicFinancialPayload({
+      question: message,
+      history,
+      dashboard,
+      context,
+      directLookup,
+      allStoresLookup,
+      requestResolution,
+    });
+
+    if (deterministicPayload) {
+      return {
+        payload: deterministicPayload,
+      };
+    }
+  }
+
+  const prioritizedReportSnapshots = Array.isArray(context.reportSnapshots)
+    ? [
+        ...context.reportSnapshots.filter(
+          (snapshot) =>
+            snapshot?.storeId === requestResolution.storeId ||
+            snapshot?.storeName === requestResolution.storeName,
+        ),
+        ...context.reportSnapshots.filter(
+          (snapshot) =>
+            snapshot?.storeId !== requestResolution.storeId &&
+            snapshot?.storeName !== requestResolution.storeName,
+        ),
+      ]
+    : [];
   const llmContext = {
     ...context,
+    reportSnapshots: prioritizedReportSnapshots,
     retrievedFacts,
     requestResolution,
     chatScope,
@@ -2355,11 +3075,17 @@ function buildFinancialAgentExecutionContext({
   }
 
   return {
+    dashboard,
+    context,
+    directLookup,
+    allStoresLookup,
     history,
     llmContext,
     message,
     preferredModel: settings.zhipuModel,
+    requestResolution,
     settings,
+    chatScope,
   };
 }
 
@@ -2428,6 +3154,115 @@ async function buildFinancialAgentReply({
     return executionContext.payload;
   }
 
+  const actionPlanSection = detectActionPlanSection(message);
+
+  if (
+    executionContext.chatScope !== 'parsing' &&
+    !resolveStore(message) &&
+    actionPlanSection &&
+    historySuggestsActionPlan(executionContext.history)
+  ) {
+    return {
+      reply: buildFleetActionPlanReply({
+        dashboard: executionContext.dashboard,
+        context: executionContext.context,
+        section: actionPlanSection,
+      }),
+      agent: buildFinancialAgentMeta({
+        mode: 'local',
+        provider: 'local',
+        note: '本条回复已按上一轮行动方案章节从本地月报直接回填，未使用模型续写。',
+      }),
+    };
+  }
+
+  if (
+    executionContext.chatScope !== 'parsing' &&
+    !resolveStore(message) &&
+    asksForActionPlan(message)
+  ) {
+    return {
+      reply: buildFleetActionPlanReply({
+        dashboard: executionContext.dashboard,
+        context: executionContext.context,
+      }),
+      agent: buildFinancialAgentMeta({
+        mode: 'local',
+        provider: 'local',
+        note: '本条跨店 30 天行动方案已按本地月报直接生成，避免模型混写跨门店口径。',
+      }),
+    };
+  }
+
+  const fallbackPayload = buildAnalysisFallbackPayload({
+    question: message,
+    history: executionContext.history,
+    dashboard: executionContext.dashboard,
+    context: executionContext.context,
+    directLookup: executionContext.directLookup,
+    requestResolution: executionContext.requestResolution,
+  });
+  const forceAppendFallback =
+    asksForActionPlan(message) ||
+    (!!actionPlanSection && historySuggestsActionPlan(executionContext.history));
+  const preferGroundedChat =
+    executionContext.chatScope !== 'parsing' &&
+    !wantsStrictMarkdownFormat(message) &&
+    !shouldUseWebSearch(message, executionContext.llmContext);
+
+  if (preferGroundedChat) {
+    try {
+      const result = await runZhipuGroundedFinancialChatAgent({
+        apiKey: executionContext.settings.zhipuApiKey,
+        question: executionContext.message,
+        history: executionContext.history,
+        context: executionContext.llmContext,
+        preferredModel: executionContext.preferredModel,
+      });
+      const reply = renderGroundedChatReply({
+        parsed: result.parsed,
+        factCatalog: executionContext.llmContext.groundedFacts,
+        fallbackReply: fallbackPayload?.reply || '',
+        forceAppendFallback,
+      });
+      const priorityStore = asksForPriorityStore(message)
+        ? selectPriorityStore(executionContext.dashboard)
+        : null;
+
+      if (!reply) {
+        throw new Error('智谱结构化问答未返回有效内容。');
+      }
+
+      if (priorityStore && !reply.includes(priorityStore.storeName)) {
+        throw new Error('优先整改门店与本地排序不一致。');
+      }
+
+      return {
+        reply,
+        reasoning: result.reasoningContent,
+        agent: buildFinancialAgentMeta({
+          mode: 'llm',
+          model: result.model,
+          note: `已使用智谱 ${result.model} 基于本地核验事实库生成分析，最终数字均来自本地月报。`,
+        }),
+      };
+    } catch (error) {
+      if (fallbackPayload) {
+        return {
+          ...fallbackPayload,
+          agent: buildFinancialAgentMeta({
+            mode: 'local',
+            provider: 'local',
+            note: `AI 结构化分析暂时不可用，已回退到本地核验分析：${normalizeText(
+              error.message,
+              120,
+            )}`,
+          }),
+        };
+      }
+    }
+  }
+
   try {
     const result = await runZhipuFinancialChatAgent({
       apiKey: executionContext.settings.zhipuApiKey,
@@ -2455,6 +3290,17 @@ async function buildFinancialAgentReply({
     };
   } catch (error) {
     const errorText = normalizeText(error.message, 160);
+
+    if (fallbackPayload) {
+      return {
+        ...fallbackPayload,
+        agent: buildFinancialAgentMeta({
+          mode: 'local',
+          provider: 'local',
+          note: `AI 问答失败，已回退到本地核验分析：${errorText || '未知错误'}`,
+        }),
+      };
+    }
 
     return {
       reply: `智谱 AI 暂时未返回有效分析，请稍后重试。${errorText ? `\n\n错误信息：${errorText}` : ''}`,

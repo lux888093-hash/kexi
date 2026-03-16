@@ -1,5 +1,6 @@
 const FINANCIAL_ANALYST_AGENT_NAME = 'Kexi 财务分析师 Agent';
 const FINANCIAL_ANALYST_AGENT_VERSION = 'financial-analyst-v1.0.0';
+const { formatGroundedFactsForPrompt } = require('./financialFactGrounding');
 
 const OUTPUT_SCHEMA_EXAMPLE = {
   overall: {
@@ -25,6 +26,20 @@ const OUTPUT_SCHEMA_EXAMPLE = {
       priority: 'high',
     },
   ],
+};
+
+const GROUNDED_CHAT_SCHEMA_EXAMPLE = {
+  lead: '先直接回答用户问题，可使用 {{FACT:store.example.profit_margin}} 这类占位符',
+  sections: [
+    {
+      title: '为什么会这样',
+      bullets: [
+        '优先用 {{FACT:...}} 引用本地事实，不要直接写数字',
+        '没有合适事实时，只写定性判断',
+      ],
+    },
+  ],
+  closing: '最后给一句收尾或下一步建议，可为空字符串',
 };
 
 function uniqueStrings(values = []) {
@@ -420,6 +435,36 @@ function buildAnalysisPromptModeBlock(profile) {
   ].join('\n');
 }
 
+function focusReportSnapshots(context = {}) {
+  const snapshots = Array.isArray(context.reportSnapshots)
+    ? context.reportSnapshots.filter(Boolean)
+    : [];
+  const requestResolution = context.requestResolution || {};
+
+  if (!snapshots.length) {
+    return [];
+  }
+
+  if (!requestResolution.storeId && !requestResolution.storeName) {
+    return snapshots;
+  }
+
+  const focusSnapshots = snapshots.filter(
+    (snapshot) =>
+      snapshot.storeId === requestResolution.storeId ||
+      snapshot.storeName === requestResolution.storeName,
+  );
+
+  if (!focusSnapshots.length) {
+    return snapshots;
+  }
+
+  return [
+    ...focusSnapshots,
+    ...snapshots.filter((snapshot) => !focusSnapshots.includes(snapshot)),
+  ];
+}
+
 function buildVerifiedFactsBlock(context = {}) {
   const facts = [];
   const retrievedFacts = Array.isArray(context.retrievedFacts)
@@ -427,7 +472,7 @@ function buildVerifiedFactsBlock(context = {}) {
     : typeof context.retrievedFacts === 'string' && context.retrievedFacts.trim()
       ? [context.retrievedFacts.trim()]
       : [];
-  const snapshot = context.reportSnapshots?.[0];
+  const snapshot = focusReportSnapshots(context)[0];
   const summary = snapshot?.summary;
   const topCategory = snapshot?.topCostCategories?.[0];
   const topItem = snapshot?.topCostItems?.[0];
@@ -611,6 +656,7 @@ function compactParsingChatContext(parsingContext = null) {
 
 function buildCompactFinancialChatContext(context = {}) {
   const status = context.requestResolution?.status || 'general_analysis';
+  const focusedSnapshots = focusReportSnapshots(context);
   const baseContext = {
     businessProfile: context.businessProfile || null,
     analysisScope: context.analysisScope || null,
@@ -633,7 +679,7 @@ function buildCompactFinancialChatContext(context = {}) {
       reportSnapshots:
         status === 'all_stores_lookup'
           ? []
-          : compactReportSnapshots(context.reportSnapshots, {
+          : compactReportSnapshots(focusedSnapshots, {
               limit: 1,
               channelLimit: 4,
               categoryLimit: 3,
@@ -650,7 +696,7 @@ function buildCompactFinancialChatContext(context = {}) {
       trend: (context.trend || []).slice(-3),
       storeBenchmarks: (context.storeBenchmarks || []).slice(0, 6),
       peerComparison: compactPeerComparison(context.peerComparison),
-      reportSnapshots: compactReportSnapshots(context.reportSnapshots, {
+      reportSnapshots: compactReportSnapshots(focusedSnapshots, {
         limit: 1,
         channelLimit: 4,
         categoryLimit: 4,
@@ -675,7 +721,7 @@ function buildCompactFinancialChatContext(context = {}) {
     ownerBriefCandidate: context.ownerBriefCandidate || '',
     storeBenchmarks: (context.storeBenchmarks || []).slice(0, 6),
     peerComparison: compactPeerComparison(context.peerComparison),
-    reportSnapshots: compactReportSnapshots(context.reportSnapshots, {
+    reportSnapshots: compactReportSnapshots(focusedSnapshots, {
       limit: 3,
       channelLimit: 4,
       categoryLimit: 4,
@@ -826,9 +872,102 @@ ${analysisModeRequirements}
 `.trim();
 }
 
+function buildGroundedFactsPromptBlock(context = {}, options = {}) {
+  return formatGroundedFactsForPrompt(context.groundedFacts || {}, {
+    requestResolution: options.requestResolution || context.requestResolution || {},
+    limit: options.limit || 120,
+  });
+}
+
+function buildFinancialAnalystUserPrompt(context) {
+  const groundedFactsBlock = buildGroundedFactsPromptBlock(context, {
+    limit: 120,
+  });
+  const promptContext = {
+    ...context,
+    groundedFacts: undefined,
+  };
+
+  return `
+请基于下面的连锁门店财务上下文，生成“整体财务分析 + 门店级财务分析”。
+
+关键约束：
+1. 任何金额、百分比、人数、排名、门店指标，只能通过受控事实库中的 {{FACT:fact_id}} 占位符表达。
+2. 不要直接写阿拉伯数字；如果没有合适事实，就改写为定性判断。
+3. highlights / risks / actions / diagnosis / evidence 优先使用事实占位符。
+4. stores[*].evidence 至少给 2 条，且尽量覆盖利润率、平台占比、客单价、单客成本、重点成本项。
+5. 如果只看到单月样本，必须明确写出趋势判断受限。
+6. 输出必须是 JSON object，不要输出 Markdown。
+
+输出 JSON 结构示例：
+${JSON.stringify(OUTPUT_SCHEMA_EXAMPLE, null, 2)}
+
+受控事实库：
+${groundedFactsBlock || '无'}
+
+压缩后的财务上下文 JSON：
+${JSON.stringify(promptContext, null, 2)}
+`.trim();
+}
+
+function buildFinancialAnalystGroundedChatSystemPrompt() {
+  return `
+你是 ${FINANCIAL_ANALYST_AGENT_NAME} 的事实锁定分析模式。
+
+规则：
+1. 你的任务是做经营分析，但所有数字必须来自受控事实库。
+2. 任何金额、百分比、人数、排名、门店指标，只能使用 {{FACT:fact_id}} 占位符表达。
+3. 不要在 JSON 文本里直接写阿拉伯数字；没有合适事实时只写定性判断。
+4. 先直接回答问题，再按主题拆成 2 到 4 个小节。
+5. 只输出 JSON object，不要输出 Markdown。
+6. 如果问题是在问“最值得优先整改的门店”，lead 必须直接使用 {{FACT:overall.priority_store}}，且后文不能改口。
+7. 如果问题是单店分析，至少引用 3 条该门店事实，并尽量包含 top_cost_category 或 top_cost_item。
+8. 每个 section 至少给 2 条 bullets，避免泛泛而谈。
+9. 如果问题是“未来 30 天 / 先抓 / 动作方案”这类动作问题，凡是引用门店指标，必须保留门店名，不得把门店口径改写成“整体占比”或“整体成本”。
+`.trim();
+}
+
+function buildFinancialAnalystGroundedChatContextPrompt(context = {}, question = '') {
+  const requestResolutionBlock = context.requestResolution
+    ? JSON.stringify(context.requestResolution, null, 2)
+    : '{}';
+  const compactContext = buildCompactFinancialChatContext(context);
+  const analysisProfile = buildAnalysisPromptProfile({ question, context });
+  const groundedFactsBlock = buildGroundedFactsPromptBlock(context, {
+    requestResolution: context.requestResolution || {},
+    limit: 90,
+  });
+
+  return `
+当前问题解析：
+${requestResolutionBlock}
+
+${buildAnalysisPromptModeBlock(analysisProfile)}
+
+受控事实库：
+${groundedFactsBlock || '无'}
+
+压缩上下文 JSON：
+${JSON.stringify(compactContext, null, 2)}
+`.trim();
+}
+
+function buildFinancialAnalystGroundedChatUserPrompt({ question }) {
+  return `
+请回答当前用户问题，并按下面 schema 输出 JSON：
+${JSON.stringify(GROUNDED_CHAT_SCHEMA_EXAMPLE, null, 2)}
+
+用户问题：
+${question}
+`.trim();
+}
+
 module.exports = {
   FINANCIAL_ANALYST_AGENT_NAME,
   FINANCIAL_ANALYST_AGENT_VERSION,
+  buildFinancialAnalystGroundedChatContextPrompt,
+  buildFinancialAnalystGroundedChatSystemPrompt,
+  buildFinancialAnalystGroundedChatUserPrompt,
   buildFinancialAnalystSystemPrompt,
   buildFinancialAnalystChatContextPrompt,
   buildFinancialAnalystChatStylePrompt,

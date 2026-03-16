@@ -1,5 +1,8 @@
 const {
   buildFinancialAnalystChatContextPrompt,
+  buildFinancialAnalystGroundedChatContextPrompt,
+  buildFinancialAnalystGroundedChatSystemPrompt,
+  buildFinancialAnalystGroundedChatUserPrompt,
   buildFinancialAnalystChatStylePrompt,
   buildFinancialAnalystChatSystemPrompt,
   buildFinancialAnalystChatUserPrompt,
@@ -587,6 +590,89 @@ async function runZhipuFinancialAgent({ apiKey, context, preferredModel = '' }) 
   throw lastError || new Error('智谱财务分析调用失败。');
 }
 
+async function requestZhipuStructuredFinancialChatAnalysis({
+  apiKey,
+  model,
+  question,
+  history = [],
+  context,
+  timeoutMs = 30000,
+  maxTokens = 2200,
+}) {
+  const normalizedHistory = normalizeChatHistory(history, question);
+  const result = await requestZhipuChat({
+    apiKey,
+    model,
+    timeoutMs,
+    maxTokens,
+    enableThinking: true,
+    responseFormat: {
+      type: 'json_object',
+    },
+    messages: [
+      {
+        role: 'system',
+        content: buildFinancialAnalystGroundedChatSystemPrompt(),
+      },
+      {
+        role: 'system',
+        content: buildFinancialAnalystGroundedChatContextPrompt(context, question),
+      },
+      ...normalizedHistory,
+      {
+        role: 'user',
+        content: buildFinancialAnalystGroundedChatUserPrompt({
+          question,
+          context,
+        }),
+      },
+    ],
+  });
+
+  return {
+    ...result,
+    parsed: extractJsonObject(result.rawContent),
+  };
+}
+
+async function runZhipuGroundedFinancialChatAgent({
+  apiKey,
+  question,
+  history = [],
+  context,
+  preferredModel = '',
+}) {
+  const { modelCandidates, attemptConfigs } = getChatExecutionPlan(
+    context,
+    preferredModel,
+  );
+  let lastError = null;
+
+  for (const model of modelCandidates) {
+    for (const attempt of attemptConfigs) {
+      try {
+        return await requestZhipuStructuredFinancialChatAnalysis({
+          apiKey,
+          model,
+          question,
+          history,
+          context,
+          timeoutMs: attempt.timeoutMs,
+          maxTokens: Math.max(attempt.maxTokens, 1800),
+        });
+      } catch (error) {
+        lastError = error;
+
+        if (error?.status === 401 || error?.status === 403) {
+          break;
+        }
+      }
+    }
+  }
+
+  throw lastError || new Error('智谱财务结构化问答调用失败。');
+}
+
 async function runZhipuFinancialChatAgent({
   apiKey,
   question,
@@ -752,7 +838,9 @@ async function streamZhipuFinancialChatAgent({
 
 module.exports = {
   getChatExecutionPlan,
+  shouldUseWebSearch,
   runZhipuFinancialAgent,
   runZhipuFinancialChatAgent,
+  runZhipuGroundedFinancialChatAgent,
   streamZhipuFinancialChatAgent,
 };

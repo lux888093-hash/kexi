@@ -33,13 +33,8 @@ const {
   resolveParsingExportPath,
 } = require('./lib/sourceFileWorkbook');
 const {
-  buildFinancialAgentExecutionContext,
   buildWorkspaceAgentReply,
 } = require('./lib/agentChat');
-const {
-  getChatExecutionPlan,
-  streamZhipuFinancialChatAgent,
-} = require('./lib/zhipuFinancialAgent');
 
 const app = express();
 const PORT = process.env.PORT || 3101;
@@ -512,144 +507,43 @@ app.post('/api/agents/chat/stream', async (request, response) => {
     const reports = listReports();
     const settings = readSettings();
 
-    if (normalizedAgentId !== 'financial_analyst') {
-      const payload = await buildWorkspaceAgentReply({
-        agentId: normalizedAgentId,
-        history: Array.isArray(history) ? history : [],
-        message: normalizedMessage,
-        reports,
-        settings,
-        chatScope: String(chatScope || '').trim(),
-        parsingContext: parsingContext && typeof parsingContext === 'object' ? parsingContext : null,
-      });
+    writeSseEvent(response, 'meta', {
+      agent: {
+        id: normalizedAgentId,
+        name: normalizedAgentId === 'financial_analyst' ? 'Kexi 财务分析师 Agent' : 'Kexi Workspace Agent',
+        version: 'financial-analyst-v1.0.0',
+        mode: 'streaming',
+        provider: normalizedAgentId === 'financial_analyst' ? 'zhipu' : 'local',
+        model: '',
+        note:
+          normalizedAgentId === 'financial_analyst'
+            ? '正在整理当前会话上下文，并按本地事实口径生成回复。'
+            : '正在整理当前会话上下文，稍后返回结果。',
+      },
+    });
 
-      writeSseEvent(response, 'done', payload);
-      response.end();
-      return;
-    }
-
-    const executionContext = buildFinancialAgentExecutionContext({
-      message: normalizedMessage,
+    const payload = await buildWorkspaceAgentReply({
+      agentId: normalizedAgentId,
       history: Array.isArray(history) ? history : [],
+      message: normalizedMessage,
       reports,
       settings,
       chatScope: String(chatScope || '').trim(),
       parsingContext: parsingContext && typeof parsingContext === 'object' ? parsingContext : null,
     });
 
-    if (executionContext.payload) {
-      writeSseEvent(response, 'done', executionContext.payload);
-      response.end();
-      return;
-    }
-
-    const executionPlan = getChatExecutionPlan(
-      executionContext.llmContext,
-      executionContext.preferredModel,
-    );
-    const preferredModel = executionContext.preferredModel || '';
-    const plannedModel = executionPlan.modelCandidates[0] || preferredModel || '';
-    let model = '';
-    let reply = '';
-    let metaSent = false;
-
     writeSseEvent(response, 'meta', {
-      agent: {
-        id: 'financial_analyst',
-        name: 'Kexi 财务分析师 Agent',
+      agent: payload.agent || {
+        id: normalizedAgentId,
+        name: normalizedAgentId === 'financial_analyst' ? 'Kexi 财务分析师 Agent' : 'Kexi Workspace Agent',
         version: 'financial-analyst-v1.0.0',
-        mode: 'streaming',
-        provider: 'zhipu',
-        model: plannedModel,
-        note: plannedModel
-          ? `正在整理财务上下文，优先连接智谱 ${plannedModel}，稍后开始生成。`
-          : '正在整理财务上下文并连接智谱，稍后开始生成。',
+        mode: 'fallback',
+        provider: 'local',
+        model: '',
+        note: '已完成当前会话回复。',
       },
     });
-
-    heartbeatTimer = setInterval(() => {
-      if (reply) {
-        return;
-      }
-
-      writeSseEvent(response, 'meta', {
-        agent: {
-          id: 'financial_analyst',
-          name: 'Kexi 财务分析师 Agent',
-          version: 'financial-analyst-v1.0.0',
-          mode: 'streaming',
-          provider: 'zhipu',
-          model: model || plannedModel,
-          note: `已提交智谱 ${model || plannedModel || '模型'}，正在等待首个 token 返回...`,
-        },
-      });
-    }, 8000);
-
-    await streamZhipuFinancialChatAgent({
-      apiKey: executionContext.settings.zhipuApiKey,
-      question: executionContext.message,
-      history: executionContext.history,
-      context: executionContext.llmContext,
-      preferredModel: executionContext.preferredModel,
-      onStart: async ({ model: resolvedModel, webSearchEnabled }) => {
-        model = resolvedModel;
-        metaSent = true;
-        writeSseEvent(response, 'meta', {
-          agent: {
-            id: 'financial_analyst',
-            name: 'Kexi 财务分析师 Agent',
-            version: 'financial-analyst-v1.0.0',
-            mode: 'llm',
-            provider: 'zhipu',
-            model,
-            note:
-              preferredModel && model !== preferredModel
-                ? webSearchEnabled
-                  ? `首选模型 ${preferredModel} 暂不可用，已回退到智谱 ${model}，并启用联网搜索继续生成。`
-                  : `首选模型 ${preferredModel} 暂不可用，已回退到智谱 ${model} 继续生成。`
-                : webSearchEnabled
-                  ? `已切换到智谱 ${model}，正在结合当前财务数据和联网搜索实时生成。`
-                  : `已切换到智谱 ${model}，正在基于当前财务数据实时生成。`,
-          },
-        });
-      },
-      onDelta: async (delta) => {
-        reply += delta;
-        writeSseEvent(response, 'delta', { delta });
-      },
-    });
-
-    if (heartbeatTimer) {
-      clearInterval(heartbeatTimer);
-      heartbeatTimer = null;
-    }
-
-    if (!metaSent) {
-      writeSseEvent(response, 'meta', {
-        agent: {
-          id: 'financial_analyst',
-          name: 'Kexi 财务分析师 Agent',
-          version: 'financial-analyst-v1.0.0',
-          mode: 'llm',
-          provider: 'zhipu',
-          model,
-          note: '已基于当前财务数据完成智谱实时问答。',
-        },
-      });
-    }
-
-    writeSseEvent(response, 'done', {
-      reply: reply.trim(),
-      agent: {
-        id: 'financial_analyst',
-        name: 'Kexi 财务分析师 Agent',
-        version: 'financial-analyst-v1.0.0',
-        mode: 'llm',
-        provider: 'zhipu',
-        model,
-        note: `已基于当前财务数据完成智谱 ${model} 实时问答。`,
-      },
-    });
+    writeSseEvent(response, 'done', payload);
   } catch (error) {
     writeSseEvent(response, 'error', {
       message: error.message || '首页智能体流式问答失败，请检查后端日志。',

@@ -233,6 +233,18 @@ function parseSummary(rows) {
     channels,
   };
 
+  summary.profit =
+    getMetricValue(summaryMetrics, [/^月报表利润$/, /^净利润$/, /^利润$/]) ||
+    summary.profit;
+
+  summary.profitMargin =
+    getMetricValue(summaryMetrics, [
+      /^利润率$/,
+      /^月报表利润率$/,
+      /^净利率$/,
+      /^月报表净利率$/,
+    ]) || summary.profitMargin;
+
   if (!summary.profit) {
     summary.profit = summary.recognizedRevenue - summary.totalCost;
   }
@@ -244,6 +256,10 @@ function parseSummary(rows) {
   if (!summary.grossRevenue) {
     summary.grossRevenue = summary.recognizedRevenue;
   }
+
+  summary.profit = Math.round((summary.profit + Number.EPSILON) * 100) / 100;
+  summary.profitMargin =
+    Math.round((summary.profitMargin + Number.EPSILON) * 10000) / 10000;
 
   return {
     summary,

@@ -1,5 +1,11 @@
 const { buildDashboard, comparePeriod } = require('./financialAnalytics');
 const { readSettings } = require('./appSettings');
+const { formatPeriodLabel } = require('./financialConstants');
+const {
+  buildFinancialFactCatalog,
+  sanitizeGroundedList,
+  sanitizeGroundedText,
+} = require('./financialFactGrounding');
 const {
   FINANCIAL_ANALYST_AGENT_NAME,
   FINANCIAL_ANALYST_AGENT_VERSION,
@@ -62,6 +68,61 @@ function normalizePriority(value) {
   }
 
   return 'medium';
+}
+
+function selectPriorityStore(storeBenchmarks = []) {
+  const stores = [...(storeBenchmarks || [])];
+
+  if (!stores.length) {
+    return null;
+  }
+
+  return [...stores].sort((left, right) => {
+    if (left.healthScore !== right.healthScore) {
+      return left.healthScore - right.healthScore;
+    }
+
+    if (left.profitMargin !== right.profitMargin) {
+      return left.profitMargin - right.profitMargin;
+    }
+
+    return right.platformRevenueShare - left.platformRevenueShare;
+  })[0];
+}
+
+function getKnownStoreNames(financialContext = {}) {
+  return [...new Set((financialContext.storeBenchmarks || []).map((store) => store.storeName).filter(Boolean))];
+}
+
+function includesAnyStoreName(text = '', storeNames = []) {
+  return (storeNames || []).find((storeName) => String(text || '').includes(storeName)) || '';
+}
+
+function hasForeignStoreReference(text = '', targetStoreName = '', financialContext = {}) {
+  const matchedStoreName = includesAnyStoreName(text, getKnownStoreNames(financialContext));
+
+  if (!matchedStoreName) {
+    return false;
+  }
+
+  return Boolean(targetStoreName) && matchedStoreName !== targetStoreName;
+}
+
+function hasPriorityStoreMismatch(text = '', financialContext = {}) {
+  const normalized = String(text || '');
+  const priorityStore = selectPriorityStore(financialContext.storeBenchmarks || []);
+  const knownStoreNames = getKnownStoreNames(financialContext);
+  const matchedStoreName = includesAnyStoreName(normalized, knownStoreNames);
+
+  if (!priorityStore || !matchedStoreName) {
+    return false;
+  }
+
+  if (!/优先|重点关注|先抓|先盯|整改/.test(normalized)) {
+    return false;
+  }
+
+  return matchedStoreName !== priorityStore.storeName;
 }
 
 function selectReportsForFilters(reports, appliedFilters = {}) {
@@ -152,11 +213,67 @@ function createAgentMeta({
   };
 }
 
+function buildStoreCostFocus(storeReports = []) {
+  const totalCost = storeReports.reduce(
+    (sum, report) => sum + Number(report.summary?.totalCost || 0),
+    0,
+  );
+  const categoryMap = new Map();
+  const itemMap = new Map();
+
+  storeReports.forEach((report) => {
+    (report.categories || []).forEach((category) => {
+      const categoryAmount = getCategoryAmount(category);
+      const currentCategory = categoryMap.get(category.name) || {
+        name: category.name,
+        amount: 0,
+      };
+
+      currentCategory.amount += categoryAmount;
+      categoryMap.set(category.name, currentCategory);
+
+      (category.items || []).forEach((item) => {
+        const key = `${category.name}:${item.name}`;
+        const currentItem = itemMap.get(key) || {
+          categoryName: category.name,
+          name: item.name,
+          amount: 0,
+        };
+
+        currentItem.amount += Number(item.amount || 0);
+        itemMap.set(key, currentItem);
+      });
+    });
+  });
+
+  const topCategory =
+    [...categoryMap.values()]
+      .sort((left, right) => right.amount - left.amount)
+      .map((category) => ({
+        ...category,
+        amount: round(category.amount),
+        ratio: totalCost > 0 ? round(category.amount / totalCost, 4) : 0,
+      }))[0] || null;
+  const topItem =
+    [...itemMap.values()]
+      .sort((left, right) => Math.abs(right.amount) - Math.abs(left.amount))
+      .map((item) => ({
+        ...item,
+        amount: round(item.amount),
+      }))[0] || null;
+
+  return {
+    topCategory,
+    topItem,
+  };
+}
+
 function createFallbackStoreAnalysis(storeSummary, storeReports, dashboard) {
   const highlights = [];
   const risks = [];
   const actions = [];
   const evidence = [];
+  const storeCostFocus = buildStoreCostFocus(storeReports);
   const newMemberRate =
     storeSummary.customerCount > 0
       ? storeSummary.newMembers / storeSummary.customerCount
@@ -216,6 +333,27 @@ function createFallbackStoreAnalysis(storeSummary, storeReports, dashboard) {
   if (dashboard.costBreakdown[0]) {
     actions.push(
       `重点跟踪“${dashboard.costBreakdown[0].name}”占比变化，先抓最大成本项。`,
+    );
+  }
+
+  if (storeCostFocus.topCategory) {
+    if (dashboard.costBreakdown[0] && actions.length) {
+      actions.pop();
+    }
+
+    evidence.push(
+      `当前最大成本项是“${storeCostFocus.topCategory.name}”，占总成本 ${percent(
+        storeCostFocus.topCategory.ratio,
+      )}。`,
+    );
+    actions.push(`先盯“${storeCostFocus.topCategory.name}”这类最大成本，按周复盘占比变化。`);
+  }
+
+  if (storeCostFocus.topItem) {
+    evidence.push(
+      `已核验重点成本项：“${storeCostFocus.topItem.name}”金额 ${currency(
+        storeCostFocus.topItem.amount,
+      )}。`,
     );
   }
 
@@ -833,12 +971,36 @@ function buildPeerComparison(dashboard, peerDashboard) {
 function buildFinancialContext(dashboard, selectedReports, options = {}) {
   const referenceDashboard =
     options.peerDashboard?.storeComparison?.length ? options.peerDashboard : dashboard;
+  const appliedPeriodLabel =
+    dashboard.appliedFilters.periodStart && dashboard.appliedFilters.periodEnd
+      ? dashboard.appliedFilters.periodStart === dashboard.appliedFilters.periodEnd
+        ? formatPeriodLabel(dashboard.appliedFilters.periodEnd)
+        : `${formatPeriodLabel(dashboard.appliedFilters.periodStart)}至${formatPeriodLabel(
+            dashboard.appliedFilters.periodEnd,
+          )}`
+      : dashboard.appliedFilters.periodEnd
+        ? formatPeriodLabel(dashboard.appliedFilters.periodEnd)
+        : dashboard.appliedFilters.periodStart
+          ? formatPeriodLabel(dashboard.appliedFilters.periodStart)
+          : '当前范围';
 
-  return {
+  const financialContext = {
     businessProfile: {
+      brandName: '珂溪',
+      businessType: '头疗/美容门店经营',
       industry: '连锁头疗/美业门店',
       analysisObjective: '基于月度财务数据输出经营财务诊断、风险识别和行动建议',
       outputAudience: ['老板', '财务负责人', '区域运营负责人', '店长'],
+    },
+    analysisScope: {
+      storeIds: dashboard.appliedFilters.storeIds,
+      storeName:
+        referenceDashboard.storeComparison?.length === 1
+          ? referenceDashboard.storeComparison[0].storeName
+          : '',
+      periodStart: dashboard.appliedFilters.periodStart,
+      periodEnd: dashboard.appliedFilters.periodEnd,
+      periodLabel: appliedPeriodLabel,
     },
     scope: {
       appliedFilters: dashboard.appliedFilters,
@@ -873,6 +1035,9 @@ function buildFinancialContext(dashboard, selectedReports, options = {}) {
     peerComparison: buildPeerComparison(dashboard, options.peerDashboard),
     reportSnapshots: selectedReports.map(pickReportContext),
   };
+
+  financialContext.groundedFacts = buildFinancialFactCatalog(financialContext);
+  return financialContext;
 }
 
 function buildFinancialContextBundle(reports, filters = {}) {
@@ -1031,15 +1196,20 @@ function sanitizeStoreNarrativeText(
   fallbackValue,
   storeBenchmark,
   averageReference,
+  financialContext,
+  factCatalog,
   maxLength = 72,
 ) {
-  const normalized = normalizeText(value, maxLength);
+  const normalized = sanitizeGroundedText(value, factCatalog, fallbackValue, {
+    maxLength,
+  });
 
   if (!normalized) {
     return fallbackValue;
   }
 
-  return hasDirectionalMismatch(normalized, storeBenchmark, averageReference)
+  return hasDirectionalMismatch(normalized, storeBenchmark, averageReference) ||
+    hasForeignStoreReference(normalized, storeBenchmark?.storeName || '', financialContext)
     ? fallbackValue
     : normalized;
 }
@@ -1049,6 +1219,8 @@ function sanitizeStoreNarrativeList(
   fallbackItems,
   storeBenchmark,
   averageReference,
+  financialContext,
+  factCatalog,
   limit = 3,
 ) {
   const sanitized = dedupeList(
@@ -1059,6 +1231,8 @@ function sanitizeStoreNarrativeList(
           '',
           storeBenchmark,
           averageReference,
+          financialContext,
+          factCatalog,
           72,
         ),
       )
@@ -1113,21 +1287,100 @@ function buildVerifiedStoreComparisonEvidence(storeBenchmark, averageReference) 
     .slice(0, 2);
 }
 
-function mergeStoreEvidence(store, llmStore, storeBenchmark, averageReference) {
+function buildVerifiedStoreSnapshotEvidence(storeSnapshot) {
+  if (!storeSnapshot) {
+    return [];
+  }
+
+  const evidence = [];
+  const topCategory = storeSnapshot.topCostCategories?.[0];
+  const topItem = storeSnapshot.topCostItems?.[0];
+
+  if (topCategory) {
+    evidence.push(
+      `当前最大成本项是“${topCategory.name}”，占总成本 ${percent(topCategory.ratio)}。`,
+    );
+  }
+
+  if (topItem) {
+    evidence.push(`已核验重点成本项：“${topItem.name}”金额 ${currency(topItem.amount)}。`);
+  }
+
+  return evidence;
+}
+
+function sanitizeOverallNarrativeText(
+  value,
+  fallbackValue,
+  financialContext,
+  factCatalog,
+  maxLength = 72,
+) {
+  const normalized = sanitizeGroundedText(value, factCatalog, fallbackValue, {
+    maxLength,
+  });
+
+  if (!normalized) {
+    return fallbackValue;
+  }
+
+  return hasPriorityStoreMismatch(normalized, financialContext)
+    ? fallbackValue
+    : normalized;
+}
+
+function sanitizeOverallNarrativeList(
+  items,
+  fallbackItems,
+  financialContext,
+  factCatalog,
+  limit = 3,
+) {
+  const sanitized = dedupeList(
+    (items || [])
+      .map((item) =>
+        sanitizeOverallNarrativeText(
+          item,
+          '',
+          financialContext,
+          factCatalog,
+          72,
+        ),
+      )
+      .filter(Boolean),
+    limit,
+  );
+
+  return sanitized.length ? sanitized : fallbackItems;
+}
+
+function mergeStoreEvidence(
+  store,
+  llmStore,
+  storeBenchmark,
+  averageReference,
+  storeSnapshot,
+  financialContext,
+  factCatalog,
+) {
   const verifiedEvidence = buildVerifiedStoreComparisonEvidence(
     storeBenchmark,
     averageReference,
   );
+  const verifiedSnapshotEvidence = buildVerifiedStoreSnapshotEvidence(storeSnapshot);
   const llmEvidence = sanitizeStoreNarrativeList(
     llmStore?.evidence,
     [],
     storeBenchmark,
     averageReference,
+    financialContext,
+    factCatalog,
     3,
   );
 
   return dedupeList(
     [
+      ...verifiedSnapshotEvidence,
       ...verifiedEvidence,
       ...llmEvidence,
       ...((store.evidence || []).map((item) => normalizeText(item, 72)).filter(Boolean)),
@@ -1137,6 +1390,7 @@ function mergeStoreEvidence(store, llmStore, storeBenchmark, averageReference) {
 }
 
 function mergeNarrativeAnalysis(fallbackAnalysis, llmAnalysis, agentMeta, financialContext = {}) {
+  const factCatalog = financialContext.groundedFacts || { facts: [] };
   const merged = {
     ...fallbackAnalysis,
     agent: agentMeta,
@@ -1146,43 +1400,76 @@ function mergeNarrativeAnalysis(fallbackAnalysis, llmAnalysis, agentMeta, financ
     merged.overall = {
       ...fallbackAnalysis.overall,
       summary:
-        normalizeText(llmAnalysis.overall.summary, 72) ||
-        fallbackAnalysis.overall.summary,
-      highlights: normalizeNarrativeList(
+        sanitizeOverallNarrativeText(
+          llmAnalysis.overall.summary,
+          fallbackAnalysis.overall.summary,
+          financialContext,
+          factCatalog,
+          72,
+        ) || fallbackAnalysis.overall.summary,
+      highlights: sanitizeOverallNarrativeList(
         llmAnalysis.overall.highlights,
         fallbackAnalysis.overall.highlights,
+        financialContext,
+        factCatalog,
+        3,
       ),
-      risks: normalizeNarrativeList(
+      risks: sanitizeOverallNarrativeList(
         llmAnalysis.overall.risks,
         fallbackAnalysis.overall.risks,
+        financialContext,
+        factCatalog,
+        3,
       ),
-      actions: normalizeNarrativeList(
+      actions: sanitizeOverallNarrativeList(
         llmAnalysis.overall.actions,
         fallbackAnalysis.overall.actions,
+        financialContext,
+        factCatalog,
+        3,
       ),
-      diagnosis: normalizeNarrativeList(
+      diagnosis: sanitizeOverallNarrativeList(
         llmAnalysis.overall.diagnosis,
         fallbackAnalysis.overall.diagnosis || [],
+        financialContext,
+        factCatalog,
+        3,
       ),
-      dataGaps: normalizeNarrativeList(
+      dataGaps: sanitizeOverallNarrativeList(
         llmAnalysis.overall.dataGaps,
         fallbackAnalysis.overall.dataGaps || [],
+        financialContext,
+        factCatalog,
+        3,
       ),
       ownerBrief:
-        normalizeText(llmAnalysis.overall.ownerBrief, 120) ||
-        fallbackAnalysis.overall.ownerBrief ||
-        '',
-      rankingSnapshot: normalizeNarrativeList(
+        sanitizeOverallNarrativeText(
+          llmAnalysis.overall.ownerBrief,
+          fallbackAnalysis.overall.ownerBrief || '',
+          financialContext,
+          factCatalog,
+          120,
+        ) || fallbackAnalysis.overall.ownerBrief || '',
+      rankingSnapshot: sanitizeOverallNarrativeList(
         llmAnalysis.overall.rankingSnapshot,
         fallbackAnalysis.overall.rankingSnapshot || [],
+        financialContext,
+        factCatalog,
+        3,
       ),
-      anomalies: normalizeNarrativeList(
+      anomalies: sanitizeOverallNarrativeList(
         llmAnalysis.overall.anomalies,
         fallbackAnalysis.overall.anomalies || [],
+        financialContext,
+        factCatalog,
+        3,
       ),
-      plan30d: normalizeNarrativeList(
+      plan30d: sanitizeOverallNarrativeList(
         llmAnalysis.overall.plan30d,
         fallbackAnalysis.overall.plan30d || [],
+        financialContext,
+        factCatalog,
+        3,
       ),
     };
   }
@@ -1197,10 +1484,16 @@ function mergeNarrativeAnalysis(fallbackAnalysis, llmAnalysis, agentMeta, financ
       .filter((store) => store?.storeId)
       .map((store) => [store.storeId, store]),
   );
+  const storeSnapshotMap = new Map(
+    (financialContext.reportSnapshots || [])
+      .filter((snapshot) => snapshot?.storeId)
+      .map((snapshot) => [snapshot.storeId, snapshot]),
+  );
 
   merged.stores = fallbackAnalysis.stores.map((store) => {
     const llmStore = llmStoreMap.get(store.storeId);
     const storeBenchmark = storeBenchmarkMap.get(store.storeId) || null;
+    const storeSnapshot = storeSnapshotMap.get(store.storeId) || null;
     const averageReference = getAverageReferenceForStore(
       store.storeId,
       financialContext,
@@ -1214,6 +1507,9 @@ function mergeNarrativeAnalysis(fallbackAnalysis, llmAnalysis, agentMeta, financ
           null,
           storeBenchmark,
           averageReference,
+          storeSnapshot,
+          financialContext,
+          factCatalog,
         ),
       };
     }
@@ -1225,6 +1521,8 @@ function mergeNarrativeAnalysis(fallbackAnalysis, llmAnalysis, agentMeta, financ
         store.summary,
         storeBenchmark,
         averageReference,
+        financialContext,
+        factCatalog,
         72,
       ),
       highlights: sanitizeStoreNarrativeList(
@@ -1232,26 +1530,40 @@ function mergeNarrativeAnalysis(fallbackAnalysis, llmAnalysis, agentMeta, financ
         store.highlights,
         storeBenchmark,
         averageReference,
+        financialContext,
+        factCatalog,
+        3,
       ),
       risks: sanitizeStoreNarrativeList(
         llmStore.risks,
         store.risks,
         storeBenchmark,
         averageReference,
+        financialContext,
+        factCatalog,
+        3,
       ),
       actions: sanitizeStoreNarrativeList(
         llmStore.actions,
         store.actions,
         storeBenchmark,
         averageReference,
+        financialContext,
+        factCatalog,
+        3,
       ),
       evidence: mergeStoreEvidence(
         store,
         llmStore,
         storeBenchmark,
         averageReference,
+        storeSnapshot,
+        financialContext,
+        factCatalog,
       ),
-      priority: normalizePriority(llmStore.priority || store.priority),
+      priority: llmStore?.priority
+        ? normalizePriority(llmStore.priority)
+        : store.priority,
     };
   });
 
