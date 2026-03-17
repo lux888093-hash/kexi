@@ -1096,16 +1096,24 @@ export default function Workspace() {
             </button>
           </div>
           
-          <div className="px-3 pb-4 pt-2">
+          <div className="px-3 pb-4 pt-2 flex items-center">
             <button
               className={cn(
-                "flex items-center gap-2 bg-[#d96e42] hover:bg-[#c25c34] shadow-sm rounded-full text-xs font-medium transition-all text-white",
-                isSidebarOpen ? "px-3.5 py-2 w-[fit-content]" : "w-8 h-8 justify-center p-0"
+                "group relative flex items-center bg-[#d96e42] hover:bg-[#c25c34] shadow-sm rounded-full transition-all duration-300 ease-in-out text-white overflow-hidden",
+                isSidebarOpen ? "w-32 px-3.5" : "w-8 px-0 justify-center"
               )}
+              style={{ height: '32px' }}
               onClick={() => startFreshConversation(activeAgent.id)}
             >
-              <span className="material-symbols-outlined text-[18px]">add</span>
-              {isSidebarOpen && <span>发起新对话</span>}
+              <span className="material-symbols-outlined text-[18px] shrink-0">add</span>
+              <span 
+                className={cn(
+                  "whitespace-nowrap text-xs font-medium ml-2 transition-all duration-300 ease-in-out",
+                  isSidebarOpen ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4 absolute left-8 pointer-events-none"
+                )}
+              >
+                发起新对话
+              </span>
             </button>
           </div>
 
