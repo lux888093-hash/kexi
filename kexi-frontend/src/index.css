@@ -26,7 +26,6 @@
       radial-gradient(circle at top right, rgba(42, 55, 67, 0.06), transparent 32%),
       linear-gradient(180deg, #ddd4cb 0%, #eee6de 16%, #f7f2ec 100%);
     color: #0f172a;
-    font-family: "Manrope", "Noto Sans SC", sans-serif;
     text-rendering: optimizeLegibility;
   }
 }
@@ -64,7 +63,6 @@
   }
 
   .tabular-nums {
-    font-family: "IBM Plex Sans", "Manrope", "Noto Sans SC", sans-serif;
     font-variant-numeric: tabular-nums;
   }
 }
