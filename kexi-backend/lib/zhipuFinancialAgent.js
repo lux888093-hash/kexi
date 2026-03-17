@@ -1,4 +1,6 @@
 const {
+  buildFinancialAnalysisRewriteSystemPrompt,
+  buildFinancialAnalysisRewriteUserPrompt,
   buildFinancialAnalystChatContextPrompt,
   buildFinancialAnalystGroundedChatContextPrompt,
   buildFinancialAnalystGroundedChatSystemPrompt,
@@ -738,6 +740,81 @@ async function runZhipuFinancialChatAgent({
   throw lastError || new Error('智谱财务问答调用失败。');
 }
 
+async function runZhipuFinancialRewriteAgent({
+  apiKey,
+  question,
+  sourceReply,
+  preferredModel = '',
+}) {
+  const modelCandidates = uniqueStrings([
+    preferredModel,
+    'glm-4.7-flash',
+    'glm-4-flash-250414',
+    ...getZhipuModelCandidates(),
+  ]);
+  const attemptConfigs = [
+    {
+      maxTokens: 1800,
+      timeoutMs: 15000,
+    },
+    {
+      maxTokens: 2600,
+      timeoutMs: 25000,
+    },
+  ];
+  let lastError = null;
+
+  for (const model of modelCandidates) {
+    for (const attempt of attemptConfigs) {
+      try {
+        const result = await requestZhipuChat({
+          apiKey,
+          model,
+          maxTokens: attempt.maxTokens,
+          timeoutMs: attempt.timeoutMs,
+          enableThinking: false,
+          messages: [
+            {
+              role: 'system',
+              content: buildFinancialAnalysisRewriteSystemPrompt(),
+            },
+            {
+              role: 'user',
+              content: buildFinancialAnalysisRewriteUserPrompt({
+                question,
+                sourceReply,
+              }),
+            },
+          ],
+        });
+        const reply = stripCodeFence(result.rawContent);
+
+        if (reply) {
+          return {
+            model,
+            reply,
+            rawContent: result.rawContent,
+            reasoningContent: result.reasoningContent,
+            finishReason: result.finishReason,
+          };
+        }
+
+        lastError = new Error(
+          `智谱润色返回空内容（model=${model}, finish_reason=${result.finishReason || 'unknown'}）。`,
+        );
+      } catch (error) {
+        lastError = error;
+
+        if (error?.status === 401 || error?.status === 403) {
+          break;
+        }
+      }
+    }
+  }
+
+  throw lastError || new Error('智谱财务文风润色调用失败。');
+}
+
 async function streamZhipuFinancialChatAgent({
   apiKey,
   question,
@@ -841,6 +918,7 @@ module.exports = {
   shouldUseWebSearch,
   runZhipuFinancialAgent,
   runZhipuFinancialChatAgent,
+  runZhipuFinancialRewriteAgent,
   runZhipuGroundedFinancialChatAgent,
   streamZhipuFinancialChatAgent,
 };

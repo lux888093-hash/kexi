@@ -17,8 +17,13 @@ const { buildFinancialContextBundle } = require('./financialAi');
 const {
   runZhipuFinancialChatAgent,
   runZhipuGroundedFinancialChatAgent,
+  runZhipuFinancialRewriteAgent,
   shouldUseWebSearch,
 } = require('./zhipuFinancialAgent');
+
+function uniqueValues(values = []) {
+  return [...new Set((values || []).filter(Boolean))];
+}
 
 function percent(value) {
   return `${(Number(value || 0) * 100).toFixed(1)}%`;
@@ -177,6 +182,130 @@ function buildFinancialAgentMeta({
     model,
     note,
   };
+}
+
+function sanitizeDeterministicPayload(payload = {}) {
+  return Object.fromEntries(
+    Object.entries(payload || {}).filter(([key]) => !key.startsWith('__')),
+  );
+}
+
+function stripReplyListMarkers(text = '') {
+  return String(text || '')
+    .replace(/^\s*\d+\.\s*/gm, '')
+    .replace(/^\s*[-*]\s*/gm, '')
+    .trim();
+}
+
+function extractRewriteNumericAnchors(text = '') {
+  return uniqueValues(
+    stripReplyListMarkers(text)
+      .match(/\d+\/\d+|¥?\d[\d,]*(?:\.\d+)?%?|¥?\d[\d,]*(?:\.\d+)?/g)
+      ?.map((token) => token.replace(/^¥/, '').trim())
+      .filter(Boolean) || [],
+  );
+}
+
+function extractRewriteStoreAnchors(text = '') {
+  const normalized = String(text || '');
+  const candidates = STORE_REGISTRY.flatMap((store) => {
+    const names = [store.name];
+    const shortName = String(store.name || '').replace(/店$/, '').trim();
+
+    if (shortName && shortName !== store.name) {
+      names.push(shortName);
+    }
+
+    return names;
+  });
+
+  return uniqueValues(
+    candidates.filter((name) => name && normalized.includes(name)),
+  );
+}
+
+function rewritePreservesAnchors({
+  sourceReply = '',
+  rewrittenReply = '',
+  rewriteKeywords = [],
+}) {
+  const normalizedReply = String(rewrittenReply || '').trim();
+
+  if (!normalizedReply) {
+    return false;
+  }
+
+  const numericAnchors = extractRewriteNumericAnchors(sourceReply);
+  const storeAnchors = extractRewriteStoreAnchors(sourceReply);
+  const requiredKeywords = uniqueValues(rewriteKeywords).filter((keyword) =>
+    String(sourceReply || '').includes(keyword),
+  );
+
+  return (
+    numericAnchors.every((anchor) => normalizedReply.includes(anchor)) &&
+    storeAnchors.every((anchor) => normalizedReply.includes(anchor)) &&
+    requiredKeywords.every((keyword) => normalizedReply.includes(keyword))
+  );
+}
+
+async function maybeStylizeDeterministicPayload({
+  payload,
+  question,
+  settings,
+  preferredModel = '',
+}) {
+  const sanitizedPayload = sanitizeDeterministicPayload(payload);
+
+  if (
+    !payload?.__rewriteEligible ||
+    settings?.llmProvider !== 'zhipu' ||
+    !settings?.zhipuApiKey
+  ) {
+    return sanitizedPayload;
+  }
+
+  try {
+    const result = await runZhipuFinancialRewriteAgent({
+      apiKey: settings.zhipuApiKey,
+      question,
+      sourceReply: sanitizedPayload.reply,
+      preferredModel,
+    });
+    const rewrittenReply = polishFinancialReply(normalizeText(result.reply, 6000));
+
+    if (
+      !rewritePreservesAnchors({
+        sourceReply: sanitizedPayload.reply,
+        rewrittenReply,
+        rewriteKeywords: payload.__rewriteKeywords,
+      })
+    ) {
+      throw new Error('AI 润色结果未通过事实锚点校验。');
+    }
+
+    return {
+      ...sanitizedPayload,
+      reply: rewrittenReply,
+      reasoning: result.reasoningContent,
+      agent: buildFinancialAgentMeta({
+        mode: 'llm',
+        model: result.model,
+        note: `已先按本地月报核验生成专项分析，再用智谱 ${result.model} 做文风润色，事实未改写。`,
+      }),
+    };
+  } catch (error) {
+    return {
+      ...sanitizedPayload,
+      agent: buildFinancialAgentMeta({
+        mode: 'local',
+        provider: 'local',
+        note: `AI 文风润色未通过校验，已返回本地核验版本：${normalizeText(
+          error.message,
+          120,
+        )}`,
+      }),
+    };
+  }
 }
 
 function normalizeMonthToken(token) {
@@ -3020,6 +3149,8 @@ function buildDeterministicFinancialPayload({
   const actionPlanSection = detectActionPlanSection(question);
   const resolvedStore = resolveQuestionStore(question, context?.reportSnapshots || []);
   let reply = '';
+  let rewriteEligible = false;
+  let rewriteKeywords = [];
 
   if (!resolvedStore && actionPlanSection && historySuggestsActionPlan(history)) {
     reply = buildFleetActionPlanReply({ dashboard, context, section: actionPlanSection });
@@ -3029,18 +3160,28 @@ function buildDeterministicFinancialPayload({
       context,
       storeId: resolvedStore.id,
     });
+    rewriteEligible = true;
+    rewriteKeywords = ['平台占比', '平台客单价', '平台单客成本', '高佣金订单占比'];
   } else if (resolvedStore && asksForProfitRepair(question)) {
     reply = buildStoreProfitRepairReply({
       dashboard,
       context,
       storeId: resolvedStore.id,
     });
+    rewriteEligible = true;
+    rewriteKeywords = ['利润率', '平台占比', '客单价', '单客成本'];
   } else if (!resolvedStore && asksForHeadTherapistWageEfficiency(question)) {
     reply = buildHeadTherapistWageEfficiencyReply({ dashboard });
+    rewriteEligible = true;
+    rewriteKeywords = ['头疗师工资', '纯手工', '客单价', '单客成本'];
   } else if (!resolvedStore && asksForPlatformStructureOptimization(question)) {
     reply = buildFleetPlatformOptimizationReply({ dashboard, context });
+    rewriteEligible = true;
+    rewriteKeywords = ['平台占比', '平台客单价', '平台单客成本', '高佣金订单占比'];
   } else if (!resolvedStore && asksForProfitRepair(question)) {
     reply = buildFleetProfitRepairReply({ dashboard, context });
+    rewriteEligible = true;
+    rewriteKeywords = ['利润率', '平台占比', '客单价', '单客成本'];
   } else if (status === 'exact_lookup' && directLookup.report && directLookup.target) {
     reply = buildDirectLookupReply({
       report: directLookup.report,
@@ -3082,6 +3223,8 @@ function buildDeterministicFinancialPayload({
       provider: 'local',
       note: '本条回复已按已核验财务月报直接生成，未使用模型估算。',
     }),
+    __rewriteEligible: rewriteEligible,
+    __rewriteKeywords: rewriteKeywords,
   };
 }
 
@@ -3699,7 +3842,12 @@ async function buildFinancialAgentReply({
   });
 
   if (executionContext.payload) {
-    return executionContext.payload;
+    return maybeStylizeDeterministicPayload({
+      payload: executionContext.payload,
+      question: effectiveMessage,
+      settings,
+      preferredModel: settings?.zhipuModel || '',
+    });
   }
 
   const actionPlanSection = detectActionPlanSection(effectiveMessage);

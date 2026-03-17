@@ -977,9 +977,39 @@ ${question}
 `.trim();
 }
 
+function buildFinancialAnalysisRewriteSystemPrompt() {
+  return `
+你现在只负责“已核验财务分析的文风润色”。
+你只能做表达优化，不能改动任何事实。
+
+硬性约束：
+1. 不允许增加、删除、改写任何数字、金额、百分比、排名、月份、门店名、指标名、结论方向。
+2. 不允许补充原文之外的新事实、推测、行业阈值或目标值。
+3. 可以优化标题、过渡句、句式、语气和排版，可少量使用 1 到 3 个 emoji，但不要堆砌。
+4. 如果原文已经很顺，就做最小改写。
+5. 直接输出最终 Markdown 正文，不要解释，不要前置说明。
+`.trim();
+}
+
+function buildFinancialAnalysisRewriteUserPrompt({
+  question,
+  sourceReply,
+}) {
+  return `
+用户问题：
+${question}
+
+下面是已经被本地数据核验通过的原始回复。请只做文风润色，不要改动任何事实。
+
+${sourceReply}
+`.trim();
+}
+
 module.exports = {
   FINANCIAL_ANALYST_AGENT_NAME,
   FINANCIAL_ANALYST_AGENT_VERSION,
+  buildFinancialAnalysisRewriteSystemPrompt,
+  buildFinancialAnalysisRewriteUserPrompt,
   buildFinancialAnalystGroundedChatContextPrompt,
   buildFinancialAnalystGroundedChatSystemPrompt,
   buildFinancialAnalystGroundedChatUserPrompt,
