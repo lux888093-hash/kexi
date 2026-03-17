@@ -250,7 +250,7 @@ function inferPeriodFromQuestion(question, reports) {
 }
 
 function inferQuestionFilters(question, reports) {
-  const store = resolveStore(question);
+  const store = resolveQuestionStore(question, reports);
   const period = inferPeriodFromQuestion(question, reports);
 
   return {
@@ -261,7 +261,7 @@ function inferQuestionFilters(question, reports) {
 }
 
 function inferQuestionFiltersWithDefaults(question, reports, defaults = {}) {
-  const store = resolveStore(question) || defaults.store || null;
+  const store = resolveQuestionStore(question, reports, defaults.store || null);
   const period = inferPeriodFromQuestion(question, reports) || defaults.period || null;
 
   return {
@@ -404,11 +404,17 @@ function resolveStoreFromReports(storeName = '', reports = []) {
 
   const matchedReport = (reports || []).find((report) => {
     const normalizedReportStore = normalizeLookupText(report.storeName);
+    const reportAlias = normalizedReportStore.replace(/\u5e97$/, '');
+    const inputAlias = normalizedStoreName.replace(/\u5e97$/, '');
     return (
       report.storeId === storeName ||
       normalizedReportStore === normalizedStoreName ||
       normalizedReportStore.includes(normalizedStoreName) ||
-      normalizedStoreName.includes(normalizedReportStore)
+      normalizedStoreName.includes(normalizedReportStore) ||
+      (reportAlias &&
+        (reportAlias === inputAlias ||
+          normalizedStoreName.includes(reportAlias) ||
+          reportAlias.includes(inputAlias)))
     );
   });
 
@@ -418,6 +424,15 @@ function resolveStoreFromReports(storeName = '', reports = []) {
         name: matchedReport.storeName,
       }
     : null;
+}
+
+function resolveQuestionStore(question = '', reports = [], fallbackStore = null) {
+  return (
+    resolveStore(question) ||
+    resolveStoreFromReports(question, reports) ||
+    fallbackStore ||
+    null
+  );
 }
 
 function findChannelEntry(report = {}, channelName = '') {
@@ -773,6 +788,54 @@ function asksForActionPlan(question = '') {
   );
 }
 
+function asksForHeadTherapistWageEfficiency(question = '') {
+  const normalized = String(question || '')
+    .trim()
+    .replace(/\s+/g, '');
+
+  if (!normalized) {
+    return false;
+  }
+
+  return /(?:\u5934\u7597\u5e08.*(?:\u5de5\u8d44|\u6548\u7387)|\u5de5\u8d44\u6548\u7387|\u7eaf\u624b\u5de5|\u6392\u73ed\u6548\u7387|\u5355\u4f4d\u670d\u52a1\u6210\u672c)/.test(
+    normalized,
+  );
+}
+
+function asksForPlatformStructureOptimization(question = '') {
+  const normalized = String(question || '')
+    .trim()
+    .replace(/\s+/g, '');
+
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    /(?:\u5e73\u53f0\u7ed3\u6784|\u6e20\u9053\u7ed3\u6784|\u5e73\u53f0\u8ba2\u5355)/.test(
+      normalized,
+    ) ||
+    (/\u5e73\u53f0/.test(normalized) &&
+      /(?:\u4f18\u5316|\u600e\u4e48\u4f18\u5316|\u600e\u4e48\u8c03|\u600e\u4e48\u6539|\u600e\u4e48\u505a|\u5148\u6293|\u62c6|\u590d\u76d8|\u8c03\u6574)/.test(
+        normalized,
+      ))
+  );
+}
+
+function asksForProfitRepair(question = '') {
+  const normalized = String(question || '')
+    .trim()
+    .replace(/\s+/g, '');
+
+  if (!normalized) {
+    return false;
+  }
+
+  return /(?:\u5229\u6da6\u4fee\u590d|\u4fee\u5229\u6da6|\u5229\u6da6\u600e\u4e48\u4fee|\u5229\u6da6\u600e\u4e48\u63d0|\u5229\u6da6\u6539\u5584|\u5229\u6da6\u4f18\u5316)/.test(
+    normalized,
+  );
+}
+
 function detectActionPlanSection(question = '') {
   const text = String(question || '').trim();
 
@@ -821,6 +884,141 @@ function historySuggestsActionPlan(history = []) {
     asksForActionPlan(text) ||
     /核心结论|先抓问题|关键依据|30\s*天动作|复盘指标|数据口径/.test(text)
   );
+}
+
+function hasExplicitAnalysisScope(question = '') {
+  const normalized = String(question || '')
+    .trim()
+    .replace(/\s+/g, '');
+
+  if (!normalized) {
+    return false;
+  }
+
+  const hasScope = /(?:\u6574\u4f53|\u603b\u4f53|\u5168\u76d8|\u516d\u5e97|6\u5e97|\u6240\u6709\u95e8\u5e97|\u5404\u5e97|\u5f53\u524d|\u672c\u6708|\u4eca\u6708|\u672a\u676530\u5929)/.test(
+    normalized,
+  );
+  const hasMetric = /(?:\u5229\u6da6(?:\u7387)?|\u5e73\u53f0(?:\u5360\u6bd4|\u7ed3\u6784|\u4f9d\u8d56)?|\u5ba2\u5355\u4ef7|\u5355\u5ba2\u6210\u672c|\u5934\u7597\u5e08(?:\u5de5\u8d44)?|\u5de5\u8d44(?:\u6548\u7387)?|\u7eaf\u624b\u5de5|\u6210\u672c|\u5065\u5eb7\u5ea6|\u4eba\u6548|\u6392\u73ed|\u8ba2\u5355|\u590d\u8d2d|\u6e20\u9053)/.test(
+    normalized,
+  );
+
+  return hasScope && hasMetric;
+}
+
+function hasStandaloneAnalysisTopic(question = '') {
+  const normalized = String(question || '')
+    .trim()
+    .replace(/\s+/g, '');
+
+  if (!normalized || normalized.length < 6) {
+    return false;
+  }
+
+  return /(?:\u5934\u7597\u5e08\u5de5\u8d44|\u5de5\u8d44\u6548\u7387|\u7eaf\u624b\u5de5|\u5e73\u53f0\u7ed3\u6784|\u5e73\u53f0\u8ba2\u5355|\u5e73\u53f0\u5ba2\u5355\u4ef7|\u5e73\u53f0\u5355\u5ba2\u6210\u672c|\u9ad8\u4f63\u91d1\u8ba2\u5355|\u6392\u73ed\u6548\u7387|\u5355\u4f4d\u670d\u52a1\u6210\u672c|\u5229\u6da6\u4fee\u590d|\u6e20\u9053\u7ed3\u6784|\u5ba2\u6e90\u7ed3\u6784|\u79c1\u57df\u590d\u8d2d|\u4f1a\u5458\u50a8\u503c|\u8ba2\u5355\u7ed3\u6784|\u5de5\u8d44\u6295\u5165)/.test(
+    normalized,
+  );
+}
+
+function isContextDependentFollowUp(question = '', reports = []) {
+  const normalized = String(question || '')
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/[\u3002\uff0c\uff01\uff1f,.!?:;\u3001\uff1a\uff1b'"`]/g, '');
+
+  if (!normalized) {
+    return false;
+  }
+
+  const resolvedStore =
+    resolveStore(normalized) || resolveStoreFromReports(normalized, reports);
+
+  if (resolvedStore || asksForAllStores(normalized)) {
+    return false;
+  }
+
+  return /^(?:\u90a3|\u8fd9|\u90a3\u5bb6|\u8fd9\u5bb6|\u90a3\u4e2a|\u8fd9\u4e2a|\u90a3\u95e8\u5e97|\u8fd9\u95e8\u5e97|\u90a3\u5bb6\u5e97|\u8fd9\u5bb6\u5e97|\u5b83|\u8fd9\u5757|\u90a3\u5757|\u7ee7\u7eed|\u5c55\u5f00|\u8be6\u7ec6|\u8be6\u7ec6\u8bf4\u8bf4|\u518d\u8bf4|\u7136\u540e|\u63a5\u7740|\u8fd8\u6709|\u4e3a\u4ec0\u4e48|\u4e3a\u4f55|\u600e\u4e48|\u600e\u4e48\u770b|\u600e\u4e48\u505a|\u90a3\u4e3a\u4ec0\u4e48|\u8fd9\u4e2a\u4e3a\u4ec0\u4e48|\u90a3\u600e\u4e48|\u5229\u6da6\u5462|\u8fd9\u4e2a\u5462)$/.test(
+    normalized,
+  );
+
+  return /^(那|那就|那这|那家|那店|那它|它|她|他|这家|这个|这一家|继续|展开|细说|详细|再说|然后|接着|还有|那为什么|那怎么|那利润呢|这个呢|那呢)/.test(
+    normalized,
+  );
+}
+
+function isSelfContainedQuestion(question = '', reports = []) {
+  if (!String(question || '').trim()) {
+    return false;
+  }
+
+  if (isContextDependentFollowUp(question, reports)) {
+    return false;
+  }
+
+  return Boolean(
+    resolveStore(question) ||
+      resolveStoreFromReports(question, reports) ||
+      asksForAllStores(question) ||
+      inferPeriod(question) ||
+      shouldUseDirectLookup(question) ||
+      asksForActionPlan(question) ||
+      asksForPriorityStore(question) ||
+      hasExplicitAnalysisScope(question) ||
+      hasStandaloneAnalysisTopic(question),
+  );
+}
+
+function buildRelevantChatHistory(history = [], question = '', reports = []) {
+  const entries = Array.isArray(history) ? history : [];
+
+  if (!entries.length) {
+    return [];
+  }
+
+  if (isSelfContainedQuestion(question, reports)) {
+    return [];
+  }
+
+  return entries;
+}
+
+function findFollowUpAnchorQuestion(history = [], reports = []) {
+  const entries = Array.isArray(history) ? history : [];
+
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const item = entries[index];
+
+    if (item?.role !== 'user') {
+      continue;
+    }
+
+    const content = String(item.content || '').trim();
+
+    if (!content) {
+      continue;
+    }
+
+    if (!isContextDependentFollowUp(content, reports)) {
+      return content;
+    }
+  }
+
+  return '';
+}
+
+function contextualizeFollowUpQuestion(question = '', history = [], reports = []) {
+  const normalizedQuestion = String(question || '').trim();
+
+  if (!normalizedQuestion || !isContextDependentFollowUp(normalizedQuestion, reports)) {
+    return normalizedQuestion;
+  }
+
+  const anchorQuestion = findFollowUpAnchorQuestion(history, reports);
+
+  if (!anchorQuestion) {
+    return normalizedQuestion;
+  }
+
+  return `${anchorQuestion}。继续追问：${normalizedQuestion}`;
 }
 
 function asksForAllStores(question = '') {
@@ -922,7 +1120,7 @@ function formatSummaryMetricValue(metric, value = metric?.numericValue) {
 }
 
 function findLookupReport(question, reports, defaults = {}) {
-  const store = resolveStore(question) || defaults.store || null;
+  const store = resolveQuestionStore(question, reports, defaults.store || null);
 
   if (!store) {
     return {
@@ -1929,7 +2127,7 @@ function resolveAllStoresLookup(question, reports, options = {}) {
     };
   }
 
-  const store = resolveStore(question);
+  const store = resolveQuestionStore(question, reports);
   const shouldHandle = !store && asksForAllStores(question) && !isAnalysisIntent(question);
   const sanitizedQuestion = sanitizeAllStoresLookupQuestion(question);
   const requestedPeriod = inferPeriodFromQuestion(question, reports);
@@ -2088,7 +2286,7 @@ function buildStorePeerComparisonLines(store, context) {
 }
 
 function buildStoreFocusedFallbackReply({ question, dashboard, context }) {
-  const resolvedStore = resolveStore(question);
+  const resolvedStore = resolveQuestionStore(question, context?.reportSnapshots || []);
 
   if (!resolvedStore) {
     return '';
@@ -2187,6 +2385,199 @@ function buildStoreFocusedFallbackReply({ question, dashboard, context }) {
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+function buildHeadTherapistWageEfficiencyReply({ dashboard }) {
+  const overview = dashboard?.overview || {};
+  const periodLabel = formatPeriodLabelFromPeriod(overview.latestPeriod || '');
+  const selectedStoreCount = Number(overview.selectedStoreCount || 0);
+  const wageCategory = (dashboard?.costBreakdown || []).find((item) =>
+    /\u5934\u7597\u5e08\u5de5\u8d44/.test(String(item?.name || '')),
+  );
+  const pureManualItem = (dashboard?.topCostItems || []).find((item) =>
+    /\u7eaf\u624b\u5de5/.test(String(item?.name || '')),
+  );
+
+  if (!wageCategory) {
+    return '';
+  }
+
+  const pureManualShare =
+    pureManualItem && Number(wageCategory.value || 0) > 0
+      ? Number(pureManualItem.value || 0) / Number(wageCategory.value || 1)
+      : null;
+
+  return [
+    '## 🎯 先说结论',
+    `从 ${periodLabel || '当前'} ${selectedStoreCount || ''}${selectedStoreCount ? '店' : ''}汇总看，头疗师工资已经是当前最值得优先复盘的人效成本项，重点不是单纯压工资，而是判断这笔人工投入有没有换来足够的客单价和利润承接。`,
+    '',
+    '## 🔍 为什么要先盯这项',
+    `1. 头疗师工资合计 ${exactCurrency(wageCategory.value)}，占总成本 ${percent(wageCategory.ratio)}，已经是当前整体第一大成本项。`,
+    pureManualItem
+      ? `2. 其中“${pureManualItem.name}” ${exactCurrency(pureManualItem.value)}，约占头疗师工资 ${percent(
+          pureManualShare,
+        )}，说明主要压力集中在一线手工投入。`
+      : '',
+    `3. 当前整体客单价 ${currency(overview.avgTicket)}，单客成本 ${currency(overview.avgCustomerCost)}，如果排班效率和服务承接跟不上，人工投入会直接压缩利润空间。`,
+    '',
+    '## 📌 复盘重点',
+    '- 先拆“纯手工”金额，看门店、人次和班次之间是否匹配。',
+    '- 再看客单价承接，判断人工投入有没有换来更高客单或更高复购。',
+    '- 同步看排班效率和单位服务成本，识别低产出时段、冗余工时和低效门店。',
+    '',
+    '## ✅ 下一步怎么做',
+    '- 优先按门店拉出头疗师工资、纯手工金额、客单价、单客成本四张对照表。',
+    '- 对纯手工占比高但利润率没有同步兑现的门店，优先复盘排班和服务结构。',
+    '- 后续周复盘固定盯“工资占比、纯手工金额、单位服务成本”三组指标。',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function buildStorePlatformOptimizationReply({ dashboard, context, storeId }) {
+  const store = (dashboard?.storeComparison || []).find((item) => item.storeId === storeId);
+  const snapshot = findSnapshotByStoreId(context, storeId);
+  const focusVsAverage = context?.peerComparison?.focusVsAverage || null;
+  const meituanChannel = findChannelEntry(snapshot, '美团');
+  const douyinChannel = findChannelEntry(snapshot, '抖音');
+  const privateShare = Math.max(0, 1 - Number(store?.platformRevenueShare || 0));
+  const feeCategory = (snapshot?.topCostCategories || []).find((item) =>
+    /\u624b\u7eed\u8d39/.test(String(item?.name || '')),
+  );
+  const feeItem = feeCategory?.topItems?.[0] || null;
+
+  if (!store || !snapshot) {
+    return '';
+  }
+
+  return [
+    '## 🎯 先说结论',
+    `从 ${snapshot.periodLabel || formatPeriodLabelFromPeriod(store.period)} 数据看，${store.storeName} 的平台结构优化重点不是继续放大平台单量，而是先把平台订单质量、佣金结构和复购承接拆清楚。`,
+    '',
+    '## 🔍 为什么要先抓平台结构',
+    `1. 当前平台占比 ${percent(store.platformRevenueShare)}，${Math.abs(
+      Number(focusVsAverage?.platformRevenueShareGap || 0),
+    ) >= 0.03 ? `比门店均值高 ${percentPoint(Math.abs(focusVsAverage.platformRevenueShareGap || 0))}` : '已经明显偏高'}，渠道依赖偏重。`,
+    meituanChannel && douyinChannel
+      ? `2. 平台结构里，美团占 ${percent(meituanChannel.share)}，抖音占 ${percent(douyinChannel.share)}，私域和到店合计只占 ${percent(privateShare)}，说明外部平台仍是主要流量入口。`
+      : `2. 当前私域和到店合计仅占 ${percent(privateShare)}，平台外承接能力偏弱。`,
+    `3. 当前客单价 ${currency(store.avgTicket)}，单客成本 ${currency(store.avgCustomerCost)}，单客毛利只有 ${currency(
+      Number(store.avgTicket || 0) - Number(store.avgCustomerCost || 0),
+    )}，如果高佣金订单占比继续偏高，利润会被持续侵蚀。`,
+    feeItem
+      ? `4. 手续费相关支出里，当前最高的是“${feeItem.name}” ${exactCurrency(feeItem.amount)}，说明平台费用已经开始形成真实利润压力。`
+      : '',
+    '',
+    '## 📌 优化时先拆什么',
+    '- 先按平台拆订单结构，分别看美团、抖音的客单价、单客成本、复购率和佣金水平。',
+    '- 再拆高佣金订单，看哪些订单只带来流水，没有带来真正利润。',
+    '- 同步看平台引流后的会员、储值和私域转化，判断平台流量有没有沉淀成长期资产。',
+    '',
+    '## ✅ 下一步怎么做',
+    '- 先把高频复购客从平台回流到会员、储值和私域，降低纯平台复购占比。',
+    '- 对低客单、高佣金订单单独做筛查，必要时调整平台商品结构和投放节奏。',
+    '- 周复盘固定盯“平台占比、平台客单价、平台单客成本、高佣金订单占比”四个指标。',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function buildFleetPlatformOptimizationReply({ dashboard, context }) {
+  const stores = [...(dashboard?.storeComparison || [])];
+  const platformRiskStore = [...stores].sort(
+    (left, right) => right.platformRevenueShare - left.platformRevenueShare,
+  )[0];
+
+  if (!platformRiskStore) {
+    return '';
+  }
+
+  return [
+    '## 🎯 先说结论',
+    `从 ${formatPeriodLabelFromPeriod(dashboard?.overview?.latestPeriod)} ${dashboard?.overview?.selectedStoreCount || stores.length}店汇总看，平台结构优化应优先从 ${platformRiskStore.storeName} 开始，因为它当前的平台依赖最重。`,
+    '',
+    '## 🔍 为什么先抓这家',
+    `1. 整体平台占比 ${percent(dashboard?.overview?.platformRevenueShare)}，但 ${platformRiskStore.storeName} 已经到 ${percent(platformRiskStore.platformRevenueShare)}。`,
+    `2. ${platformRiskStore.storeName} 当前客单价 ${currency(platformRiskStore.avgTicket)}，单客成本 ${currency(platformRiskStore.avgCustomerCost)}，平台结构如果不优化，利润弹性会继续被压缩。`,
+    '3. 平台结构问题本质不是有没有流量，而是平台订单质量、佣金水平和私域承接能力是否匹配。',
+    '',
+    '## ✅ 接下来怎么做',
+    `- 先把 ${platformRiskStore.storeName} 的平台订单按美团、抖音、高佣金订单分层复盘。`,
+    '- 再横向对比 6 店的平台客单价、平台单客成本和平台复购率，找出异常门店和异常订单结构。',
+    '- 周复盘固定盯“平台占比、平台客单价、平台单客成本、高佣金订单占比、平台转私域率”。',
+  ].join('\n');
+}
+
+function buildStoreProfitRepairReply({ dashboard, context, storeId }) {
+  const store = (dashboard?.storeComparison || []).find((item) => item.storeId === storeId);
+  const snapshot = findSnapshotByStoreId(context, storeId);
+  const leader = context?.peerComparison?.leaders?.profitMarginLeader || null;
+  const focusVsAverage = context?.peerComparison?.focusVsAverage || null;
+  const topCategory = snapshot?.topCostCategories?.[0] || null;
+  const topItem = snapshot?.topCostItems?.[0] || null;
+  const unitMargin = Number(store?.avgTicket || 0) - Number(store?.avgCustomerCost || 0);
+
+  if (!store || !snapshot) {
+    return '';
+  }
+
+  return [
+    '## 🎯 先说结论',
+    `从 ${snapshot.periodLabel || formatPeriodLabelFromPeriod(store.period)} 数据看，${store.storeName} 的利润修复要优先从“平台占比偏高 + 单客利润垫偏窄 + 重点成本项承压”这三件事一起下手。`,
+    '',
+    '## 🔍 为什么利润会被压住',
+    `1. 当前利润率 ${percent(store.profitMargin)}，健康度 ${store.healthScore} 分。`,
+    Math.abs(Number(focusVsAverage?.platformRevenueShareGap || 0)) >= 0.03
+      ? `2. 平台占比 ${percent(store.platformRevenueShare)}，比门店均值高 ${percentPoint(
+          Math.abs(focusVsAverage.platformRevenueShareGap || 0),
+        )}，平台费用对利润形成持续挤压。`
+      : `2. 平台占比 ${percent(store.platformRevenueShare)}，渠道结构仍需继续优化。`,
+    `3. 客单价 ${currency(store.avgTicket)}，单客成本 ${currency(store.avgCustomerCost)}，单客毛利只有 ${currency(unitMargin)}，利润垫偏窄。`,
+    topCategory
+      ? `4. 当前最大成本项是“${topCategory.name}” ${exactCurrency(topCategory.amount)}，占总成本 ${percent(topCategory.ratio)}。`
+      : '',
+    topItem
+      ? `5. 重点成本项里，当前最需要盯的是“${topItem.name}” ${exactCurrency(topItem.amount)}。`
+      : '',
+    leader && leader.storeId !== store.storeId
+      ? `6. 对标看，当前利润率领先门店是 ${leader.storeName}，利润率 ${percent(leader.profitMargin)}，说明还有修复空间。`
+      : '',
+    '',
+    '## 📌 修复时先盯什么',
+    '- 周复盘先盯利润率、平台占比、客单价、单客成本，判断利润修复到底卡在哪一段。',
+    '- 再拆最大成本项和重点成本项，看有没有低效投放、冗余工时或无效支出。',
+    '- 同步对标利润率领先门店，拆客单模型、渠道结构和重点成本差距。',
+    '',
+    '## ✅ 下一步怎么做',
+    '- 先压平台依赖，把高频复购客转向会员、储值和私域复购。',
+    '- 对单客毛利偏窄的项目和时段做专项复盘，优先修客单和服务结构。',
+    '- 对重点成本项按周跟踪金额变化，确认利润修复有没有真正落到成本端。',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function buildFleetProfitRepairReply({ dashboard, context }) {
+  const priorityStore = selectPriorityStore(dashboard);
+
+  if (!priorityStore) {
+    return '';
+  }
+
+  return [
+    '## 🎯 先说结论',
+    `从 ${formatPeriodLabelFromPeriod(dashboard?.overview?.latestPeriod)} ${dashboard?.overview?.selectedStoreCount || (dashboard?.storeComparison || []).length}店汇总看，利润修复应优先从 ${priorityStore.storeName} 开始。`,
+    '',
+    '## 🔍 为什么先抓这家',
+    `1. ${priorityStore.storeName} 当前健康度 ${priorityStore.healthScore} 分，利润率 ${percent(priorityStore.profitMargin)}。`,
+    `2. 平台占比 ${percent(priorityStore.platformRevenueShare)}，客单价 ${currency(priorityStore.avgTicket)}，单客成本 ${currency(priorityStore.avgCustomerCost)}。`,
+    '3. 这类利润修复不是单看利润率，而是要把渠道结构、单客模型和重点成本一起修。',
+    '',
+    '## ✅ 接下来怎么做',
+    `- 先把 ${priorityStore.storeName} 拉成利润修复专项，按周跟踪利润率、平台占比、客单价、单客成本。`,
+    '- 再拆最大成本项和重点成本项，确认有没有可以立刻止损的支出。',
+    '- 同步对标利润率领先门店，逐项拆出利润差距来自哪里。',
+  ].join('\n');
 }
 
 function buildOverallFinancialFallbackReply({ dashboard }) {
@@ -2386,12 +2777,13 @@ function buildFleetActionPlanReply({ dashboard, context, section = '' }) {
 
 function buildFinancialFallbackReply({ question, dashboard, context, history = [] }) {
   const actionPlanSection = detectActionPlanSection(question);
+  const resolvedStore = resolveQuestionStore(question, context?.reportSnapshots || []);
 
-  if (!resolveStore(question) && actionPlanSection && historySuggestsActionPlan(history)) {
+  if (!resolvedStore && actionPlanSection && historySuggestsActionPlan(history)) {
     return buildFleetActionPlanReply({ dashboard, context, section: actionPlanSection });
   }
 
-  if (!resolveStore(question) && asksForActionPlan(question)) {
+  if (!resolvedStore && asksForActionPlan(question)) {
     return buildFleetActionPlanReply({ dashboard, context });
   }
 
@@ -2626,10 +3018,29 @@ function buildDeterministicFinancialPayload({
 }) {
   const status = requestResolution?.status || '';
   const actionPlanSection = detectActionPlanSection(question);
+  const resolvedStore = resolveQuestionStore(question, context?.reportSnapshots || []);
   let reply = '';
 
-  if (!resolveStore(question) && actionPlanSection && historySuggestsActionPlan(history)) {
+  if (!resolvedStore && actionPlanSection && historySuggestsActionPlan(history)) {
     reply = buildFleetActionPlanReply({ dashboard, context, section: actionPlanSection });
+  } else if (resolvedStore && asksForPlatformStructureOptimization(question)) {
+    reply = buildStorePlatformOptimizationReply({
+      dashboard,
+      context,
+      storeId: resolvedStore.id,
+    });
+  } else if (resolvedStore && asksForProfitRepair(question)) {
+    reply = buildStoreProfitRepairReply({
+      dashboard,
+      context,
+      storeId: resolvedStore.id,
+    });
+  } else if (!resolvedStore && asksForHeadTherapistWageEfficiency(question)) {
+    reply = buildHeadTherapistWageEfficiencyReply({ dashboard });
+  } else if (!resolvedStore && asksForPlatformStructureOptimization(question)) {
+    reply = buildFleetPlatformOptimizationReply({ dashboard, context });
+  } else if (!resolvedStore && asksForProfitRepair(question)) {
+    reply = buildFleetProfitRepairReply({ dashboard, context });
   } else if (status === 'exact_lookup' && directLookup.report && directLookup.target) {
     reply = buildDirectLookupReply({
       report: directLookup.report,
@@ -2746,6 +3157,8 @@ function renderGroundedChatReply({
   factCatalog,
   fallbackReply = '',
   forceAppendFallback = false,
+  question = '',
+  requestedStore = null,
 }) {
   const lead = sanitizeGroundedText(parsed?.lead, factCatalog, '', {
     maxLength: 320,
@@ -2755,8 +3168,23 @@ function renderGroundedChatReply({
   });
   const lines = [];
   let totalBulletCount = 0;
+  const resolvedStore = requestedStore;
+  const mentionedStore =
+    STORE_REGISTRY.find((store) => lead && lead.includes(store.name)) || null;
+  const stalePriorityLead =
+    lead &&
+    !asksForPriorityStore(question) &&
+    /(?:\u4f18\u5148\u4fee\u590d|\u4f18\u5148\u6574\u6539|\u6700\u8be5\u5148\u6293|\u6700\u503c\u5f97\u4f18\u5148)/.test(
+      lead,
+    ) &&
+    /\u95e8\u5e97/.test(lead);
+  const mismatchedStoreLead =
+    lead &&
+    resolvedStore &&
+    mentionedStore &&
+    mentionedStore.id !== resolvedStore.id;
 
-  if (lead && !isMetaGuidanceLine(lead)) {
+  if (lead && !isMetaGuidanceLine(lead) && !stalePriorityLead && !mismatchedStoreLead) {
     lines.push(lead);
   }
 
@@ -3260,8 +3688,9 @@ async function buildFinancialAgentReply({
   chatScope = '',
   parsingContext = null,
 }) {
+  const effectiveMessage = contextualizeFollowUpQuestion(message, history, reports);
   const executionContext = buildFinancialAgentExecutionContext({
-    message,
+    message: effectiveMessage,
     history,
     reports,
     settings,
@@ -3273,11 +3702,11 @@ async function buildFinancialAgentReply({
     return executionContext.payload;
   }
 
-  const actionPlanSection = detectActionPlanSection(message);
+  const actionPlanSection = detectActionPlanSection(effectiveMessage);
 
   if (
     executionContext.chatScope !== 'parsing' &&
-    !resolveStore(message) &&
+    !resolveQuestionStore(executionContext.message, executionContext.reports) &&
     actionPlanSection &&
     historySuggestsActionPlan(executionContext.history)
   ) {
@@ -3296,7 +3725,7 @@ async function buildFinancialAgentReply({
   }
 
   const fallbackPayload = buildAnalysisFallbackPayload({
-    question: message,
+    question: executionContext.message,
     history: executionContext.history,
     dashboard: executionContext.dashboard,
     context: executionContext.context,
@@ -3329,17 +3758,26 @@ async function buildFinancialAgentReply({
   const forceAppendFallback = !!(
     actionPlanSection && historySuggestsActionPlan(executionContext.history)
   );
+  const modelHistory = buildRelevantChatHistory(
+    executionContext.history,
+    executionContext.message,
+    executionContext.reports,
+  );
   const preferGroundedChat =
     executionContext.chatScope !== 'parsing' &&
-    !wantsStrictMarkdownFormat(message) &&
-    !shouldUseWebSearch(message, executionContext.llmContext);
+    !wantsStrictMarkdownFormat(effectiveMessage) &&
+    !shouldUseWebSearch(effectiveMessage, executionContext.llmContext);
 
   if (preferGroundedChat) {
     try {
+      const requestedStore = resolveQuestionStore(
+        executionContext.message,
+        executionContext.reports,
+      );
       const result = await runZhipuGroundedFinancialChatAgent({
         apiKey: executionContext.settings.zhipuApiKey,
         question: executionContext.message,
-        history: executionContext.history,
+        history: modelHistory,
         context: executionContext.llmContext,
         preferredModel: executionContext.preferredModel,
       });
@@ -3348,8 +3786,10 @@ async function buildFinancialAgentReply({
         factCatalog: executionContext.llmContext.groundedFacts,
         fallbackReply: fallbackPayload?.reply || '',
         forceAppendFallback,
+        question: executionContext.message,
+        requestedStore,
       });
-      const priorityStore = asksForPriorityStore(message)
+      const priorityStore = asksForPriorityStore(executionContext.message)
         ? selectPriorityStore(executionContext.dashboard)
         : null;
 
@@ -3359,6 +3799,10 @@ async function buildFinancialAgentReply({
 
       if (priorityStore && !reply.includes(priorityStore.storeName)) {
         throw new Error('优先整改门店与本地排序不一致。');
+      }
+
+      if (requestedStore && !reply.includes(requestedStore.name)) {
+        throw new Error('Model reply missed the requested store.');
       }
 
       return {
@@ -3391,7 +3835,7 @@ async function buildFinancialAgentReply({
     const result = await runZhipuFinancialChatAgent({
       apiKey: executionContext.settings.zhipuApiKey,
       question: executionContext.message,
-      history: executionContext.history,
+      history: modelHistory,
       context: executionContext.llmContext,
       preferredModel: executionContext.preferredModel,
     });
