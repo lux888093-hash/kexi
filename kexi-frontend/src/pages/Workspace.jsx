@@ -1,4 +1,5 @@
 import { startTransition, useEffect, useRef, useState } from "react";
+import { NavLink } from "react-router-dom";
 import Sidebar1 from "../components/Sidebar1";
 import { buildApiUrl, getApiBaseUrl } from "../lib/runtimeConfig";
 
@@ -767,6 +768,7 @@ function AgentMessage({ message, agent, currentModel = "", currentProvider = "" 
 const generateMessageId = () => new Date().getTime() + Math.random().toString(36).substring(2, 6);
 
 export default function Workspace() {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [conversations, setConversations] = useState(() => loadStoredConversations());
   const [draftConversation, setDraftConversation] = useState(() =>
     buildConversation("financial_analyst"),
@@ -1078,220 +1080,232 @@ export default function Workspace() {
   }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-background-light dark:bg-background-dark">
+    <div className="flex h-screen w-full overflow-hidden bg-[#fbf7f2] font-sans text-slate-900">
+      {/* 恢复主侧边栏 */}
       <Sidebar1 />
-      <main className="relative flex flex-1 flex-col overflow-hidden bg-background-light dark:bg-background-dark">
-        <header className="flex items-center justify-between border-b border-primary/5 bg-background-light/80 px-8 py-4 backdrop-blur-md dark:bg-background-dark/80">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-slate-400">首页</span>
-            <span className="material-symbols-outlined text-xs text-slate-300">
-              chevron_right
-            </span>
-            <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
-              智能体工作台
-            </span>
-          </div>
-          <div className="flex items-center gap-4">
+      
+      <main className="flex-1 flex overflow-hidden relative bg-transparent">
+        {/* Gemini风格的隐藏历史栏 */}
+        <aside className={cn("flex flex-col bg-[#f8f1ea]/88 backdrop-blur-md transition-all duration-300 h-full shrink-0 border-r border-[#eadfd5]", isSidebarOpen ? "w-[280px]" : "w-[68px]")}>
+          <div className="p-3 pt-4">
             <button
-              className="inline-flex items-center gap-2 rounded-full border border-[#d96e42]/15 bg-white px-3 py-1.5 text-xs font-semibold text-[#b4542e] shadow-sm transition hover:border-[#d96e42]/30 hover:bg-[#fff7f0] lg:hidden"
-              onClick={() => startFreshConversation(activeAgent.id)}
-              type="button"
+              className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/60 text-slate-600 transition"
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
             >
-              <span className="material-symbols-outlined text-base">edit_square</span>
-              新对话
+              <span className="material-symbols-outlined text-[24px]">menu</span>
             </button>
-            <div className="rounded-full border border-primary/10 bg-white/70 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
-              {activeAgent.badge}
-            </div>
-            {activeAgent.id === "financial_analyst" && runtimeModel ? (
-              <div className="rounded-full border border-[#d96e42]/15 bg-[#fff7f0] px-3 py-1 text-xs font-semibold text-[#b4542e]">
-                {`当前配置：${runtimeProvider === "zhipu" ? "智谱" : runtimeProvider || "Model"} / ${runtimeModel}`}
-              </div>
-            ) : null}
           </div>
-        </header>
-
-        <div className="flex min-h-0 flex-1 overflow-hidden">
-        <aside className="hidden w-72 shrink-0 border-r border-[#eadfd5] bg-[#f8f1ea]/88 lg:flex lg:flex-col">
-          <div className="border-b border-[#eadfd5] px-4 py-5">
+          
+          <div className="px-3 pb-4 pt-2">
             <button
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#171412] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#2a2522]"
+              className={cn(
+                "flex items-center gap-2 bg-[#d96e42] hover:bg-[#c25c34] shadow-sm rounded-full text-xs font-medium transition-all text-white",
+                isSidebarOpen ? "px-3.5 py-2 w-[fit-content]" : "w-8 h-8 justify-center p-0"
+              )}
               onClick={() => startFreshConversation(activeAgent.id)}
-              type="button"
             >
               <span className="material-symbols-outlined text-[18px]">add</span>
-              开启新对话
+              {isSidebarOpen && <span>发起新对话</span>}
             </button>
-            <p className="mt-3 text-xs leading-5 text-slate-500">
-              刷新页面或点击新对话，都会进入空白上下文；只有点开左侧历史会话时，系统才会继续使用旧上下文。
-            </p>
           </div>
-          <div className="px-4 py-4">
-            <ConversationHistoryItem
-              active={activeConversationId === DRAFT_CONVERSATION_ID}
-              conversation={draftConversation}
-              draft
-              onClick={() => startFreshConversation(activeAgent.id)}
-            />
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-            <div className="mb-3 flex items-center justify-between px-1">
-              <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">
-                历史会话
-              </p>
-              <span className="text-[11px] font-semibold text-slate-400">
-                {conversations.length} 条
-              </span>
-            </div>
-            <div className="space-y-3">
-              {conversations.length ? (
-                conversations.map((conversation) => (
-                  <ConversationHistoryItem
-                    active={conversation.id === activeConversationId}
-                    conversation={conversation}
-                    key={conversation.id}
-                    onClick={() => openConversation(conversation.id)}
-                  />
-                ))
-              ) : (
-                <div className="rounded-2xl border border-dashed border-[#eadfd5] bg-white/80 px-4 py-5 text-sm leading-6 text-slate-500">
-                  还没有历史会话。发出第一条消息后，它会显示在这里。
-                </div>
-              )}
-            </div>
+
+          <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col px-3">
+            {isSidebarOpen && (
+               <div className="mt-2">
+                 <div className="px-3 pb-2 text-[11px] font-bold uppercase tracking-[0.22em] text-slate-400">历史会话</div>
+                 <div className="flex flex-col gap-0.5">
+                   {conversations.slice(0, 20).map(conv => (
+                     <button key={conv.id} onClick={() => openConversation(conv.id)} className={cn("flex items-center gap-3 px-3 py-2 rounded-2xl hover:bg-white text-sm text-left truncate transition-colors", conv.id === activeConversationId ? "bg-[#fff5ee] text-[#b4542e] shadow-sm" : "text-slate-600")}>
+                        <span className="material-symbols-outlined text-[16px] shrink-0">chat_bubble</span>
+                        <span className="truncate">{conv.title || buildConversationTitle(buildConversationPreview(conv))}</span>
+                     </button>
+                   ))}
+                   {conversations.length === 0 && (
+                     <div className="px-3 py-4 text-xs text-slate-500 leading-5">
+                        还没有历史会话。发出第一条消息后，它会显示在这里。
+                     </div>
+                   )}
+                 </div>
+               </div>
+            )}
           </div>
         </aside>
 
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="px-8 pt-6 w-full flex justify-center">
-          <div className="flex items-center justify-start sm:justify-center gap-3 overflow-x-auto pb-2 scrollbar-hide w-full max-w-4xl px-2">
-            {AGENTS.map((agent) => {
-              const active = agent.id === activeAgent.id;
+        {/* 聊天主内容区 */}
+        <section className="flex-1 flex flex-col relative min-w-0">
 
-              return (
-                <button
-                  key={agent.id}
-                  className={cn(
-                    "flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-5 py-2.5 transition-all",
-                    active
-                      ? "border-primary bg-white shadow-sm"
-                      : "border-slate-200 bg-white hover:border-primary/40",
-                  )}
-                  onClick={() => handleAgentChange(agent.id)}
-                  type="button"
-                >
-                  <div
-                    className={cn(
-                      "flex size-6 items-center justify-center rounded-full",
-                      active
-                        ? "bg-primary/20 text-primary"
-                        : "bg-slate-100 text-slate-500",
-                    )}
-                  >
-                    <span className="material-symbols-outlined text-[18px]">
-                      {agent.icon}
-                    </span>
-                  </div>
-                  <span
-                    className={cn(
-                      "text-sm font-medium",
-                      active ? "text-slate-900" : "text-slate-600",
-                    )}
-                  >
-                    {agent.label}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+          {/* 智能体选择 */}
+          <div className="w-full flex justify-center pt-6 pb-2 px-8 z-10 pointer-events-auto">
+            <div className="flex items-center justify-start sm:justify-center gap-3 overflow-x-auto scrollbar-hide w-full max-w-4xl px-2">
+              {AGENTS.map((agent) => {
+                const active = agent.id === activeAgent.id;
 
-        {showWelcomeCard ? (
-          <div className="px-4 pt-4 lg:px-40">
-            <div className="mx-auto max-w-4xl rounded-[28px] border border-primary/10 bg-white/80 px-5 py-4 shadow-sm">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[#d96e42]">
-                    {activeAgent.badge}
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    {activeAgent.intro}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-[#f0e2d6] bg-[#fff8f3] px-4 py-3 text-xs leading-6 text-slate-500">
-                  当前是新会话，不会继承之前的聊天上下文。
-                </div>
-              </div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                {activeAgent.suggestions.map((suggestion) => (
+                return (
                   <button
-                    key={suggestion}
-                    className="rounded-full border border-primary/10 bg-[#fff7f0] px-3 py-2 text-xs font-semibold text-[#b4542e] transition hover:border-primary/30 hover:bg-[#fff2e8]"
-                    onClick={() => sendMessage(suggestion)}
+                    key={agent.id}
+                    className={cn(
+                      "flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-5 py-2.5 transition-all shadow-sm",
+                      active
+                        ? "border-[#b6860c]/40 bg-white"
+                        : "border-[#eadfd5] bg-white/85 hover:border-[#b6860c]/20"
+                    )}
+                    onClick={() => handleAgentChange(agent.id)}
                     type="button"
                   >
-                    {suggestion}
+                    <div
+                      className={cn(
+                        "flex size-6 items-center justify-center rounded-full",
+                        active
+                          ? "bg-[#b6860c]/12 text-[#b6860c]"
+                          : "bg-[#f2ece4] text-slate-500"
+                      )}
+                    >
+                      <span className="material-symbols-outlined text-[18px]">
+                        {agent.icon}
+                      </span>
+                    </div>
+                    <span
+                      className={cn(
+                        "text-sm font-medium",
+                        active ? "text-[#171412]" : "text-slate-600"
+                      )}
+                    >
+                      {agent.label}
+                    </span>
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </div>
           </div>
-        ) : null}
 
-        <div
-          ref={scrollRef}
-          className="custom-scrollbar flex-1 overflow-y-auto px-4 py-8 lg:px-40"
-        >
-          <div className="flex flex-col gap-8">
-            {activeConversation.messages.map((message) => (
-              <AgentMessage
-                key={message.id}
-                agent={activeAgent}
-                currentModel={runtimeModel}
-                currentProvider={runtimeProvider}
-                message={message}
-              />
-            ))}
-          </div>
-        </div>
-
-        <div className="bg-gradient-to-t from-background-light via-background-light/95 to-transparent px-4 pb-8 pt-4 lg:px-40 dark:from-background-dark dark:via-background-dark/95">
-          <div className="group relative mx-auto max-w-4xl">
-            <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-primary/30 to-primary/10 opacity-25 blur transition duration-1000 group-focus-within:opacity-50 group-focus-within:duration-200" />
-            <div className="relative flex items-end rounded-2xl border border-primary/10 bg-white px-4 py-3 shadow-xl">
-              <button
-                className="inline-flex items-center gap-2 rounded-xl border border-[#d96e42]/15 bg-[#fff7f0] px-3 py-2 text-xs font-semibold text-[#b4542e] transition hover:border-[#d96e42]/30 hover:bg-[#fff2e8]"
-                onClick={() => startFreshConversation(activeAgent.id)}
-                type="button"
-              >
-                <span className="material-symbols-outlined text-base">edit_square</span>
-                新对话
-              </button>
-              <textarea
-                className="max-h-36 min-h-[48px] flex-1 resize-none bg-transparent px-4 py-2 text-slate-900 outline-none placeholder:text-slate-400"
-                onChange={(event) => setInputValue(event.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder={activeAgent.placeholder}
-                value={inputValue}
-              />
-              <div className="flex items-center gap-2">
-                <button
-                  className="flex items-center justify-center rounded-xl bg-primary p-3 text-white shadow-lg shadow-primary/30 transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={activeConversation.pending || !inputValue.trim()}
-                  onClick={() => sendMessage()}
-                  type="button"
-                >
-                  <span className="material-symbols-outlined">send</span>
-                </button>
+          {/* Header (Top right) */}
+          <header className="absolute top-0 w-full p-4 flex justify-between items-center pointer-events-none z-10">
+            <div className="flex items-center pointer-events-auto">
+              <span className="text-xl font-bold text-[#171412] pl-2">珂溪智能</span>
+            </div>
+            <div className="flex items-center gap-4 pointer-events-auto pr-2">
+              <div className="bg-white/80 border border-[#b6860c]/20 text-[#b6860c] text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-full flex items-center gap-1 cursor-pointer hover:bg-white transition shadow-sm">
+                PRO
+              </div>
+              <div className="w-9 h-9 rounded-full bg-[#b6860c] text-white flex items-center justify-center font-bold text-lg cursor-pointer shadow-sm">
+                X
               </div>
             </div>
-            <p className="mt-3 text-center text-[10px] font-bold uppercase tracking-widest text-slate-400">
-              财务分析师已接通财务数据；当前消息只会携带本会话历史，刷新或新对话不会继承旧上下文。
-            </p>
-          </div>
-        </div>
-        </div>
-        </div>
+          </header>
+
+          {showWelcomeCard ? (
+            <div className="flex-1 flex flex-col min-h-0 items-center justify-center px-4 overflow-y-auto">
+               <div className="w-full max-w-[830px] pt-[8vh] pb-[4vh]">
+                  <div className="mb-10 pl-2 text-center">
+                     <h1 className="text-[42px] sm:text-[52px] font-extrabold leading-tight tracking-tight mb-2" style={{ background: 'linear-gradient(74deg, #b6860c 0, #d96e42 40%, #171412 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                       ✨ Xingz，你好
+                     </h1>
+                     <h2 className="text-[42px] sm:text-[52px] font-bold leading-tight tracking-tight text-slate-300">
+                       今天需要分析些什么？
+                     </h2>
+                     <p className="mt-4 text-sm text-slate-500 max-w-2xl mx-auto">{activeAgent.intro}</p>
+                  </div>
+
+                  <div className="relative w-full border border-[#d96e42]/15 shadow-sm bg-white/90 hover:bg-white transition-colors rounded-[24px] p-2 flex flex-col group focus-within:bg-white focus-within:border-[#d96e42]/30 focus-within:shadow-md">
+                     <div className="flex items-start px-2 pt-2 pb-1">
+                        <button className="p-3 text-slate-500 hover:bg-[#fff7f0] rounded-full mt-1 shrink-0 transition" onClick={() => startFreshConversation(activeAgent.id)}>
+                           <span className="material-symbols-outlined text-[24px]">add</span>
+                        </button>
+                        <textarea
+                          className="flex-1 min-h-[56px] max-h-[200px] bg-transparent resize-none outline-none text-slate-900 text-[15px] p-3 placeholder:text-slate-400 pt-4"
+                          placeholder="给珂溪智能发送消息..."
+                          value={inputValue}
+                          onChange={(e) => setInputValue(e.target.value)}
+                          onKeyDown={handleKeyDown}
+                        />
+                     </div>
+                     <div className="flex items-center justify-between px-4 pb-2">
+                        <button className="flex items-center gap-2 text-sm text-slate-500 hover:bg-[#fff7f0] px-3 py-2 rounded-full font-medium transition">
+                           <span className="material-symbols-outlined text-[20px]">build</span>
+                           工具
+                        </button>
+                        <div className="flex items-center gap-2">
+                           <button className="flex items-center gap-1 text-sm text-slate-500 hover:bg-[#fff7f0] px-3 py-2 rounded-full font-medium transition">
+                              Pro
+                              <span className="material-symbols-outlined text-[18px]">expand_more</span>
+                           </button>
+                           <button className="p-2 text-slate-500 hover:bg-[#fff7f0] rounded-full transition">
+                              <span className="material-symbols-outlined text-[24px]">mic</span>
+                           </button>
+                           {inputValue.trim() && (
+                              <button
+                                className="p-2 text-white bg-[#b6860c] hover:bg-[#a3780a] shadow-md shadow-[#b6860c]/20 rounded-full transition ml-1"
+                                onClick={() => sendMessage()}
+                              >
+                                 <span className="material-symbols-outlined text-[24px]">send</span>
+                              </button>
+                           )}
+                        </div>
+                     </div>
+                  </div>
+
+                  
+                  <div className="flex flex-wrap justify-center gap-3 mt-8 max-w-2xl mx-auto">
+                     {activeAgent.suggestions.map((suggestion) => (
+                       <button key={suggestion} onClick={() => sendMessage(suggestion)} className="bg-[#fff7f0] border border-[#d96e42]/15 hover:border-[#d96e42]/30 hover:bg-[#fff2e8] text-[#b4542e] text-[13px] font-semibold px-4 py-2.5 rounded-full shadow-sm transition flex items-center gap-2">
+                          <span className="material-symbols-outlined text-[16px]">chat_bubble</span> {suggestion}
+                       </button>
+                     ))}
+                  </div>
+               </div>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col min-h-0 pt-16">
+               <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-6 custom-scrollbar">
+                  <div className="flex flex-col gap-6 max-w-[830px] mx-auto w-full">
+                    {activeConversation.messages.map((message) => (
+                      <AgentMessage
+                        key={message.id}
+                        agent={activeAgent}
+                        currentModel={runtimeModel}
+                        currentProvider={runtimeProvider}
+                        message={message}
+                      />
+                    ))}
+                  </div>
+               </div>
+               
+               <div className="w-full pb-6 px-4 bg-gradient-to-t from-[#fbf7f2] via-[#fbf7f2]/95 to-transparent pt-4">
+                  <div className="max-w-[830px] mx-auto">
+                    <div className="relative w-full border border-[#d96e42]/15 shadow-sm bg-white/90 hover:bg-white transition-colors rounded-[24px] p-2 flex flex-col group focus-within:bg-white focus-within:border-[#d96e42]/30 focus-within:shadow-md">
+                       <div className="flex items-start px-2 pt-2 pb-1">
+                          <button className="p-3 text-slate-500 hover:bg-[#fff7f0] rounded-full mt-1 shrink-0 transition" onClick={() => startFreshConversation(activeAgent.id)}>
+                             <span className="material-symbols-outlined text-[24px]">add</span>
+                          </button>
+                          <textarea
+                            className="flex-1 min-h-[56px] max-h-[200px] bg-transparent resize-none outline-none text-slate-900 text-[15px] p-3 placeholder:text-slate-400 pt-4"
+                            placeholder="给珂溪智能发送消息..."
+                            value={inputValue}
+                            onChange={(e) => setInputValue(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                          />
+                          <div className="flex items-center gap-1 self-end mb-2 mr-2">
+                             {!inputValue.trim() ? (
+                               <button className="p-2 text-slate-500 hover:bg-[#fff7f0] rounded-full transition">
+                                  <span className="material-symbols-outlined text-[24px]">mic</span>
+                               </button>
+                             ) : (
+                               <button
+                                 className="p-2 text-slate-500 hover:bg-[#fff7f0] rounded-full transition"
+                                 onClick={() => sendMessage()}
+                               >
+                                 <span className="material-symbols-outlined text-[24px] text-[#b6860c]">send</span>
+                               </button>
+                             )}
+                          </div>
+                       </div>
+                    </div>
+                    <p className="text-center text-[11px] font-medium text-slate-400 mt-3 tracking-wide">珂溪智能助理已接通财务数据；当前消息只会携带本会话历史。</p>
+                  </div>
+               </div>
+            </div>
+          )}
+        </section>
       </main>
     </div>
   );
