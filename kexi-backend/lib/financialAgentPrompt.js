@@ -1,5 +1,5 @@
 const FINANCIAL_ANALYST_AGENT_NAME = 'Kexi 财务分析师 Agent';
-const FINANCIAL_ANALYST_AGENT_VERSION = 'financial-analyst-v1.0.0';
+const FINANCIAL_ANALYST_AGENT_VERSION = 'financial-analyst-v1.1.0';
 const { formatGroundedFactsForPrompt } = require('./financialFactGrounding');
 
 const OUTPUT_SCHEMA_EXAMPLE = {
@@ -29,17 +29,17 @@ const OUTPUT_SCHEMA_EXAMPLE = {
 };
 
 const GROUNDED_CHAT_SCHEMA_EXAMPLE = {
-  lead: '先直接回答用户问题，可使用 {{FACT:store.example.profit_margin}} 这类占位符',
+  lead: '先给结论，例如：当前最该优先修复的门店是 {{FACT:overall.priority_store}}。',
   sections: [
     {
-      title: '为什么会这样',
+      title: '为什么先抓这个',
       bullets: [
-        '优先用 {{FACT:...}} 引用本地事实，不要直接写数字',
-        '没有合适事实时，只写定性判断',
+        '这里写第 1 条结合事实的经营判断',
+        '这里写第 2 条结合事实的经营判断',
       ],
     },
   ],
-  closing: '最后给一句收尾或下一步建议，可为空字符串',
+  closing: '最后补一句复盘节奏或下一步建议，例如：先按周跟踪，2 周后复盘。',
 };
 
 function uniqueStrings(values = []) {
@@ -224,7 +224,7 @@ function buildAnalysisPromptProfile({ question = '', context = {} }) {
       name: '问题澄清',
       subject: `${periodLabel} ${storeName}`,
       objective: '先说明当前缺少哪个精确指标、门店范围或月份，再给继续追问示例。',
-      sections: ['## 当前缺口', '## 已知条件', '## 可继续追问'],
+      sections: ['## 先说卡点', '## 目前已知', '## 你可以这样问'],
       focus: [
         '先说明缺口是什么，再列出 2 到 4 个继续追问示例。',
         '不要猜测用户真正想问的指标或月份。',
@@ -246,7 +246,7 @@ function buildAnalysisPromptProfile({ question = '', context = {} }) {
       name: '缺数据说明',
       subject: `${periodLabel} ${storeName}`,
       objective: '直接说明当前缺失什么月报或门店数据，以及已知范围。',
-      sections: ['## 当前缺失', '## 已知条件', '## 下一步建议'],
+      sections: ['## 当前缺口', '## 目前已知', '## 下一步建议'],
       focus: [
         '缺什么就说什么，不要尝试替代性分析。',
         '下一步建议只围绕补齐数据，不要延伸成经营结论。',
@@ -267,7 +267,7 @@ function buildAnalysisPromptProfile({ question = '', context = {} }) {
           ? `${periodLabel} 多店范围 / ${targetLabel}`
           : `${storeName} ${periodLabel} / ${targetLabel}`,
       objective: '直接返回真实数值、范围和必要的同期摘要，不展开泛分析。',
-      sections: ['## 查询结果', '## 关键明细', '## 同期摘要'],
+      sections: ['## 先给结果', '## 关键明细', '## 补充说明'],
       focus: [
         '先说清月份、门店范围和指标名称。',
         '如果是多店查询，不要漏门店；如果是单店查询，不要把整店分析铺开。',
@@ -285,7 +285,7 @@ function buildAnalysisPromptProfile({ question = '', context = {} }) {
       name: '优先整改单店排序',
       subject: `${periodLabel} 多店范围`,
       objective: '明确点名最该优先整改单店，并说明为什么不是其他门店。',
-      sections: ['## 结论', '## 排序依据', '## 关键证据', '## 先抓动作'],
+      sections: ['## 先说结论', '## 为什么是它', '## 关键依据', '## 先抓动作'],
       focus: [
         '必须明确给出 1 家最优先门店；如有必要，可补充 1 家次优先门店。',
         '排序依据优先使用健康度、利润率、平台占比、客单价、单客成本和同周期门店对比。',
@@ -304,7 +304,7 @@ function buildAnalysisPromptProfile({ question = '', context = {} }) {
       name: '单指标根因诊断',
       subject: `${storeName} ${periodLabel} / ${targetLabel}`,
       objective: `围绕 ${targetLabel} 解释当前表现、差异来源和先抓动作。`,
-      sections: ['## 结论', '## 指标拆解', '## 关键证据', '## 对标差异', '## 优先动作'],
+      sections: ['## 先说结论', '## 指标拆开看', '## 关键依据', '## 对标差异', '## 下一步'],
       focus: [
         `分析必须围绕 ${targetLabel} 展开，不要发散成整店泛泛复盘。`,
         '优先解释这个指标由哪些成本项、渠道结构或单客模型驱动。',
@@ -326,7 +326,7 @@ function buildAnalysisPromptProfile({ question = '', context = {} }) {
           ? `${storeName} ${periodLabel}`
           : `${periodLabel} 多店范围`,
       objective: '输出未来 30 天最值得先抓的动作，强调先后顺序、涉及门店和复盘指标。',
-      sections: ['## 核心结论', '## 先抓问题', '## 30 天动作', '## 复盘指标'],
+      sections: ['## 核心判断', '## 先看问题', '## 接下来 30 天', '## 复盘指标'],
       focus: [
         '动作必须有优先级，优先写先做什么，再写盯什么指标。',
         '如果涉及具体门店，必须点名门店，不要只给总部视角口号。',
@@ -348,7 +348,7 @@ function buildAnalysisPromptProfile({ question = '', context = {} }) {
           ? `${storeName} ${periodLabel}`
           : `${periodLabel} 多店范围`,
       objective: '突出门店之间的差异、领先者、承压门店以及差异来源。',
-      sections: ['## 结论', '## 横向差异', '## 差异来源', '## 管理动作'],
+      sections: ['## 先说结论', '## 谁领先谁承压', '## 差异从哪来', '## 管理动作'],
       focus: [
         '必须点出谁领先、谁承压，以及差异主要来自哪里。',
         '横向比较优先使用同周期平均值、排名、leaders 和 comparisonHighlights。',
@@ -370,7 +370,7 @@ function buildAnalysisPromptProfile({ question = '', context = {} }) {
           ? `${storeName} ${periodLabel}`
           : `${periodLabel} 多店范围`,
       objective: '先回答“为什么”，再拆成几个最重要的驱动因素，并给出先抓动作。',
-      sections: ['## 结论', '## 原因拆解', '## 关键证据', '## 横向对比', '## 优先动作'],
+      sections: ['## 先说结论', '## 为什么会这样', '## 关键依据', '## 横向对比', '## 下一步'],
       focus: [
         '原因拆解优先覆盖渠道结构、单客经济模型、重点成本项三个角度。',
         '至少给出 3 条原因，不要只用一句“平台占比高导致利润低”。',
@@ -389,7 +389,7 @@ function buildAnalysisPromptProfile({ question = '', context = {} }) {
       name: '单店月度诊断',
       subject: `${storeName} ${periodLabel}`,
       objective: '给出单店本月经营财务快照，兼顾亮点、风险和优先动作。',
-      sections: ['## 结论', '## 亮点', '## 风险', '## 关键证据', '## 优先动作'],
+      sections: ['## 先说结论', '## 亮点', '## 风险', '## 关键依据', '## 下一步'],
       focus: [
         '结论先回答这家店本月到底表现怎样，再展开亮点和风险。',
         '关键证据尽量覆盖利润率、平台占比、客单价、单客成本和重点成本项。',
@@ -407,7 +407,7 @@ function buildAnalysisPromptProfile({ question = '', context = {} }) {
     name: '整体经营诊断',
     subject: `${periodLabel} 多店范围`,
     objective: '从整体经营结果、关键门店和管理动作三个层面输出结论。',
-    sections: ['## 结论', '## 整体表现', '## 重点门店', '## 关键证据', '## 优先动作'],
+    sections: ['## 先说结论', '## 整体表现', '## 重点门店', '## 关键依据', '## 下一步'],
     focus: [
       '先给老板视角的一句话判断，再展开整体表现。',
       '必须指出至少 1 家重点关注门店，说明原因。',
@@ -768,6 +768,10 @@ function buildFinancialAnalystChatStylePrompt() {
 8. 不要把每条 bullet 都写成相同句式，适度变化表达。
 9. 如果本轮启用了联网搜索，外部公开资料请单独点明，不要和门店自身经营数据混写。
 10. 不要说“我无法浏览实时网络”或“我不能上网”；该说的是“本轮已联网搜索”或“这条先基于现有数据回答”。
+11. 不要把 “[本地月报][梅溪湖店 2026年1月]” 这类原始来源标签直接写进正文；如需体现来源，用“从梅溪湖店 2026年1月数据看”这类自然表达。
+12. 30 天动作、优先整改、老板简报类问题，优先写成“开头一句结论 + 3 到 4 个自然小节”的管理层汇报口吻。
+13. 小节标题尽量自然，必要时可少量加 1 个 emoji，例如“🎯 先说结论”“📌 关键依据”，但不要每个句子都加表情。
+14. 优先让文字读起来像微信里的高质量经营复盘，而不是月报字段拼接或审计底稿。
 `.trim();
 }
 
@@ -852,17 +856,18 @@ ${question}
 4. 不允许补充“行业通常应该是多少”“健康阈值是多少”这类上下文之外的判断；除非本轮已启用联网搜索，且你明确标注为公开资料。
 5. 如果你自己的推导和“已核验事实”冲突，以已核验事实为准，不要改写方向。
 6. 使用 Markdown 排版，至少合理使用二级标题、项目符号或编号列表、加粗强调。
+6a. 小节标题优先自然表达，不要每轮都重复完全相同的模板标题；必要时可少量使用 1 到 3 个 emoji。
 7. 不要只给笼统结论，尤其不要只回答一句“平台占比高所以利润低”。
 8. 不要自行给出上下文之外的整改目标值；如果引用外部行业标准或阈值，要明确说明出处属于联网搜索结果，且不要把它直接写成门店整改目标。
 9. 如果 \`requestResolution.needsClarification === true\`，先明确说明当前缺少哪个精确指标、门店范围或月份，再给 2 到 4 个可继续追问的示例，不要猜测。
 10. 如果 \`requestResolution.status\` 表示缺数据或缺月报，直接说明缺失范围和已知条件，不要补造分析。
 11. 如果 \`requestResolution.status\` 表示精确取数或逐店查询，优先基于 \`retrievedFacts\` 直接回答；如果 \`chatScope === "parsing"\`，不要再自动补同期对比。
-9. ${
+12. ${
     priorityStoreQuestion
       ? '这是一个“优先整改哪家店”的排序问题。你必须明确点名 1 家最优先门店，判断依据优先使用健康度、利润率、平台占比、客单价、单客成本和 rankingSnapshotCandidates；不要自行编造整改目标值。'
       : responseRequirements
   }
-10. ${
+13. ${
     priorityStoreQuestion
       ? '如果存在第二优先级门店，可以作为补充单独说明，但不要模糊主结论。'
       : '如果证据不足，要明确说明依据有限，不要把推测写成确定事实。'
@@ -924,6 +929,9 @@ function buildFinancialAnalystGroundedChatSystemPrompt() {
 7. 如果问题是单店分析，至少引用 3 条该门店事实，并尽量包含 top_cost_category 或 top_cost_item。
 8. 每个 section 至少给 2 条 bullets，避免泛泛而谈。
 9. 如果问题是“未来 30 天 / 先抓 / 动作方案”这类动作问题，凡是引用门店指标，必须保留门店名，不得把门店口径改写成“整体占比”或“整体成本”。
+10. 不要在 lead、bullets 或 closing 里直接输出 “[本地月报][...]” 这类原始来源标签；如需体现出处，用自然中文融入句子。
+11. section.title 优先写得自然一点，例如“先说结论”“为什么会这样”“你现在最该盯的”“下一步怎么做”，必要时可少量加 1 个 emoji。
+12. lead 要像在微信里给老板回消息，先把结论说透，再展开，不要像字段清单。
 `.trim();
 }
 
@@ -956,6 +964,13 @@ function buildFinancialAnalystGroundedChatUserPrompt({ question }) {
   return `
 请回答当前用户问题，并按下面 schema 输出 JSON：
 ${JSON.stringify(GROUNDED_CHAT_SCHEMA_EXAMPLE, null, 2)}
+
+额外风格要求：
+- lead 先直接回答，不要先复述用户问题。
+- section.title 用自然中文，不要机械重复“结论 / 关键证据 / 优先动作”。
+- 正文不要出现原始来源标签或方括号引用。
+- 可少量使用 1 个 emoji 提升可读性，但不要堆表情。
+- 不要照抄上面 schema 示例里的说明性文字，比如“这里写第 1 条结合事实的经营判断”这类占位句不能出现在最终结果里。
 
 用户问题：
 ${question}

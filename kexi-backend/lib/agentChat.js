@@ -48,6 +48,120 @@ function normalizeText(value, maxLength = 1600) {
   return text.slice(0, maxLength);
 }
 
+function decorateSectionTitle(title = '') {
+  const normalized = String(title || '')
+    .replace(/^#+\s*/, '')
+    .replace(/[：:]\s*$/, '')
+    .trim();
+
+  const map = {
+    结论: '🎯 先说结论',
+    先说结论: '🎯 先说结论',
+    核心结论: '🎯 核心结论',
+    核心判断: '🎯 核心判断',
+    原因拆解: '🔍 为什么会这样',
+    为什么会这样: '🔍 为什么会这样',
+    先抓问题: '🔍 先看问题',
+    先看问题: '🔍 先看问题',
+    为什么是它: '🔍 为什么是它',
+    排序依据: '🔍 排序依据',
+    指标拆解: '🔍 指标拆解',
+    指标拆开看: '🔍 指标拆开看',
+    整体表现: '📊 整体表现',
+    重点门店: '🏪 重点门店',
+    关键信息: '📎 关键信息',
+    查询口径: '🧾 查询口径',
+    这个数怎么来的: '🧮 这个数怎么来的',
+    明细: '📎 明细',
+    关键证据: '📌 关键依据',
+    关键依据: '📌 关键依据',
+    横向对比: '↔️ 横向对比',
+    横向差异: '↔️ 横向差异',
+    对标差异: '↔️ 对标差异',
+    差异来源: '📎 差异来源',
+    '30 天动作': '✅ 接下来 30 天',
+    '接下来 30 天': '✅ 接下来 30 天',
+    优先动作: '✅ 下一步怎么做',
+    先抓动作: '✅ 先抓动作',
+    下一步: '✅ 下一步',
+    下一步怎么做: '✅ 下一步怎么做',
+    管理动作: '✅ 管理动作',
+    亮点: '✨ 亮点',
+    风险: '⚠️ 风险',
+    复盘指标: '📈 复盘指标',
+    数据口径: '🧾 数据口径',
+    查询结果: '📌 查询结果',
+    已核验结果: '📌 已核验结果',
+    关键明细: '📎 关键明细',
+    各门店明细: '🏪 各门店明细',
+    同期摘要: '📊 同期摘要',
+    同期对比: '↔️ 同期对比',
+    补充说明: '🧾 补充说明',
+    说明: '🧾 补充说明',
+    解析来源: '📂 解析来源',
+    算法与逻辑: '🧮 计算逻辑',
+    计算口径说明: '🧮 计算口径',
+    解析逻辑: '🧮 解析逻辑',
+    提示: '💡 提示',
+    未找到精确字段: '❓ 还差一个精确字段',
+    当前缺口: '❓ 当前缺口',
+    当前缺失: '❓ 当前缺失',
+    先说卡点: '❓ 先说卡点',
+    已知条件: '📎 已知条件',
+    目前已知: '📎 目前已知',
+    可继续追问: '💬 你可以这样问',
+    你可以这样问: '💬 你可以这样问',
+    下一步建议: '✅ 下一步建议',
+    数据解读: '📊 数据解读',
+  };
+
+  return map[normalized] || normalized;
+}
+
+function polishFinancialReply(value = '') {
+  const withNaturalSources = String(value || '').replace(
+    /\[本地月报\]\[([^\]]+)\]\s*/g,
+    (_match, scopeLabel) => `从${scopeLabel}数据看，`,
+  );
+
+  const withDecoratedHeadings = withNaturalSources
+    .replace(/^([^\n：:]{2,16})[：:]\s*$/gm, (match, title) => {
+      const decorated = decorateSectionTitle(title);
+      return decorated === title ? match : `## ${decorated}`;
+    })
+    .split('\n')
+    .map((line) => {
+      const headingMatch = line.match(/^(#{2,3})\s+(.+)$/);
+
+      if (!headingMatch) {
+        return line;
+      }
+
+      return `${headingMatch[1]} ${decorateSectionTitle(headingMatch[2])}`;
+    })
+    .join('\n');
+
+  return normalizeText(
+    withDecoratedHeadings
+      .replace(/从([^\n，。；]+)数据看，\s*，/g, '从$1数据看，')
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/\n{3,}/g, '\n\n'),
+    6000,
+  );
+}
+
+function isMetaGuidanceLine(text = '') {
+  const normalized = String(text || '').trim();
+
+  if (!normalized) {
+    return true;
+  }
+
+  return /^(这里写|请回答当前用户问题|先给结论，例如|最后补一句|优先用\s*\{\{FACT|没有合适事实时|不要直接写数字|只写定性判断)/.test(
+    normalized,
+  );
+}
+
 function buildFinancialAgentMeta({
   mode,
   provider = mode === 'llm' ? 'zhipu' : 'local',
@@ -1250,24 +1364,23 @@ function buildChannelDerivationFacts(report = {}, target = {}) {
 function buildParsingLookupReply({ report, target, question, usedLatestPeriod }) {
   const periodLabel = report.periodLabel || formatPeriodLabelFromPeriod(report.period);
   const derivationQuestion = isDerivationQuestion(question);
-  
-  // 确保指标标签不为空且逻辑合理
   const displayLabel = target.label || '核心指标';
-  
+
   const lines = derivationQuestion
     ? [
-        '## 数据解析：这个数怎么来的',
-        `**${report.storeName} ${periodLabel} 的「${displayLabel}」解析结果为 ${target.formattedValue}。**`,
-        '该回答基于当前上传文件的实时解析结果，数据已结构化并准备入库。',
+        '## 这个数怎么来的',
+        `先给结果：${report.storeName} ${periodLabel} 的 **${displayLabel}** 是 **${target.formattedValue}**。`,
+        '这条回答只基于当前解析窗口里的单店单月文件，不会混入其他门店对比。',
       ]
     : [
-        '## AI 经营深度洞察：查询结果',
-        `**${target.formattedValue}**`,
+        '## 查询结果',
+        `先给你结果：${report.storeName} ${periodLabel} 的 **${displayLabel}** 是 **${target.formattedValue}**。`,
         '',
+        '## 关键信息',
         `- 门店对象：${report.storeName}`,
         `- 归口月份：${periodLabel}`,
         `- 核心指标：${displayLabel}`,
-        '- 数据范围：仅限当前智能解析窗口（单店单月），未引入历史大盘对比。',
+        '- 数据范围：仅限当前智能解析窗口，口径是单店单月。',
       ];
 
   const sourceFact = buildParsingSourceFact(report);
@@ -1304,12 +1417,16 @@ function buildParsingLookupReply({ report, target, question, usedLatestPeriod })
 }
 
 function buildDirectLookupReply({ report, target, peerComparison, usedLatestPeriod }) {
+  const periodLabel = report.periodLabel || formatPeriodLabelFromPeriod(report.period);
+  const metricLabel = target.wantsRatio ? `${target.label}占总成本比例` : target.label;
   const lines = [
     '## 查询结果',
+    `先给你结果：${report.storeName} ${periodLabel} 的 **${metricLabel}** 是 **${target.formattedValue}**。`,
+    '',
+    '## 关键明细',
     `- 门店：${report.storeName}`,
-    `- 月份：${report.periodLabel || formatPeriodLabelFromPeriod(report.period)}`,
-    `- 指标：${target.wantsRatio ? `${target.label}占总成本比例` : target.label}`,
-    `- 结果：**${target.formattedValue}**`,
+    `- 月份：${periodLabel}`,
+    `- 指标：${metricLabel}`,
   ];
 
   if (target.kind === 'item' && target.categoryName) {
@@ -1326,7 +1443,7 @@ function buildDirectLookupReply({ report, target, peerComparison, usedLatestPeri
   if (peerComparison) {
     lines.push('', '## 同期对比');
     lines.push(
-      `- 同月 ${peerComparison.count} 家门店中，${report.storeName} 排第 ${peerComparison.higherRank} 高 / 第 ${peerComparison.lowerRank} 低。`,
+      `- 同月 ${peerComparison.count} 家门店里，${report.storeName} 处在第 ${peerComparison.higherRank} 高 / 第 ${peerComparison.lowerRank} 低的位置。`,
     );
     lines.push(
       `- 最高：${peerComparison.highest.storeName} ${target.formatter(peerComparison.highest.value)}`,
@@ -1340,11 +1457,11 @@ function buildDirectLookupReply({ report, target, peerComparison, usedLatestPeri
 
   if (usedLatestPeriod) {
     lines.push(
-      `- 你没有指定月份，这里按该店最新月报 **${report.periodLabel || formatPeriodLabelFromPeriod(report.period)}** 查询。`,
+      `- 你没有指定月份，这里按该店最新月报 **${periodLabel}** 直接查询。`,
     );
   }
 
-  lines.push('- 这是直接查询原始财务月报得到的结果，本条回答没有使用模型估算。');
+  lines.push('- 这条结果是直接查原始财务月报得出的，没有使用模型估算。');
 
   return lines.join('\n');
 }
@@ -1413,56 +1530,60 @@ function buildAllStoresLookupReply({
     return Number(right.value || 0) - Number(left.value || 0);
   });
   const lines = [
-    '## \u5df2\u6838\u9a8c\u7ed3\u679c',
-    `- \u6708\u4efd\uff1a${periodLabel}`,
-    `- \u6307\u6807\uff1a${target.wantsRatio ? `${target.label}\u5360\u603b\u6210\u672c\u6bd4\u4f8b` : target.label}`,
-    `- \u95e8\u5e97\u6570\uff1a${rows.length}`,
-    `- \u6392\u5e8f\uff1a${target.wantsRatio ? '\u6309\u6bd4\u4f8b\u4ece\u9ad8\u5230\u4f4e' : '\u6309\u91d1\u989d\u4ece\u9ad8\u5230\u4f4e'}`,
+    '## 已核验结果',
+    `先把结果摊开看：**${periodLabel}** 共查询 **${rows.length} 家门店**，指标是 **${
+      target.wantsRatio ? `${target.label}占总成本比例` : target.label
+    }**。`,
+    '',
+    '## 查询口径',
+    `- 月份：${periodLabel}`,
+    `- 指标：${target.wantsRatio ? `${target.label}占总成本比例` : target.label}`,
+    `- 排序：${target.wantsRatio ? '按比例从高到低' : '按金额从高到低'}`,
   ];
 
   if (target.kind === 'item' && target.categoryName) {
-    lines.push(`- \u5f52\u5c5e\u79d1\u76ee\uff1a${target.categoryName}`);
+    lines.push(`- 归属科目：${target.categoryName}`);
   }
 
-  lines.push('', '## \u5404\u95e8\u5e97\u660e\u7ec6');
+  lines.push('', '## 各门店明细');
   rankedRows.forEach((row, index) => {
     const valueText =
       row.value === null || row.value === undefined
-        ? '\u672a\u8bb0\u5f55'
+        ? '未记录'
         : `**${target.formatter(row.value)}**`;
 
     if (row.value === null || row.value === undefined) {
-      lines.push(`- ${row.storeName}\uff1a${valueText}`);
+      lines.push(`- ${row.storeName}：${valueText}`);
       return;
     }
 
-    lines.push(`${index + 1}. ${row.storeName}\uff1a${valueText}`);
+    lines.push(`${index + 1}. ${row.storeName}：${valueText}`);
   });
 
   if (peerComparison && peerComparison.numericCount >= 2) {
-    lines.push('', '## \u540c\u671f\u6458\u8981');
+    lines.push('', '## 同期摘要');
     lines.push(
-      `- \u6700\u9ad8\uff1a${peerComparison.highest.storeName} ${target.formatter(peerComparison.highest.value)}`,
+      `- 最高：${peerComparison.highest.storeName} ${target.formatter(peerComparison.highest.value)}`,
     );
     lines.push(
-      `- \u6700\u4f4e\uff1a${peerComparison.lowest.storeName} ${target.formatter(peerComparison.lowest.value)}`,
+      `- 最低：${peerComparison.lowest.storeName} ${target.formatter(peerComparison.lowest.value)}`,
     );
-    lines.push(`- \u5747\u503c\uff1a${target.formatter(peerComparison.average)}`);
+    lines.push(`- 均值：${target.formatter(peerComparison.average)}`);
   }
 
-  lines.push('', '## \u8bf4\u660e');
+  lines.push('', '## 说明');
 
   if (usedLatestPeriod) {
     lines.push(
-      `- \u4f60\u6ca1\u6709\u6307\u5b9a\u6708\u4efd\uff0c\u8fd9\u91cc\u6309\u5df2\u5bfc\u5165\u7684\u6700\u65b0\u6708\u62a5 **${periodLabel}** \u67e5\u8be2\u3002`,
+      `- 你没有指定月份，这里按已导入的最新月报 **${periodLabel}** 直接查询。`,
     );
   }
 
   lines.push(
-    '- \u4ee5\u4e0a\u7ed3\u679c\u4e3a\u76f4\u63a5\u67e5\u8be2\u539f\u59cb\u8d22\u52a1\u6708\u62a5\u660e\u7ec6\u5f97\u51fa\uff0c\u672c\u6761\u56de\u7b54\u672a\u4f7f\u7528\u6a21\u578b\u4f30\u7b97\u3002',
+    '- 以上结果都是直接查询原始财务月报明细得出，本条回答没有使用模型估算。',
   );
   lines.push(
-    '- \u5982\u679c\u4f60\u60f3\u77e5\u9053\u201c\u54ea\u5bb6\u504f\u9ad8\u3001\u4e3a\u4ec0\u4e48\u9ad8\u3001\u5148\u6574\u6539\u54ea\u5bb6\u201d\uff0c\u53ef\u4ee5\u5728\u8fd9\u7ec4\u771f\u5b9e\u6570\u636e\u57fa\u7840\u4e0a\u7ee7\u7eed\u8ffd\u95ee\u3002',
+    '- 如果你想继续看“哪家偏高、为什么高、先整改哪家”，可以直接基于这组真实数据往下追问。',
   );
 
   return lines.join('\n');
@@ -1663,31 +1784,49 @@ function buildLookupClarificationReply({ store, requestedPeriod }) {
 
   return [
     '## 未找到精确字段',
-    `- 已查询 ${store.name} ${periodLabel} 的原始月报，但当前问法还不能唯一映射到某个真实指标或科目。`,
-    '- 请把问题说得更具体一些，例如：`万象城店水电费是多少？`、`万象城店物业费是多少？`、`万象城店利润率是多少？`',
-    '- 为了保证数据真实，这类问题在未命中精确字段时不会再交给模型猜。 ',
+    `我已经去查 ${store.name} ${periodLabel} 的原始月报了，但你现在这句问法还不能唯一对应到某个真实指标或科目。`,
+    '',
+    '## 你可以这样问',
+    '- `万象城店水电费是多少？`',
+    '- `万象城店物业费是多少？`',
+    '- `万象城店利润率是多少？`',
+    '',
+    '## 说明',
+    '- 为了保证数据真实，没命中精确字段时，系统不会把这类问题再交给模型去猜。',
   ].join('\n');
 }
 
 function buildAllStoresLookupClarificationReply({ requestedPeriod }) {
   const periodLabel = requestedPeriod
     ? formatPeriodLabelFromPeriod(requestedPeriod)
-    : '\u6700\u65b0\u6708\u62a5';
+    : '最新月报';
 
   return [
-    '## \u672a\u627e\u5230\u7cbe\u786e\u5b57\u6bb5',
-    `- \u5df2\u51c6\u5907\u6309\u5168\u90e8\u95e8\u5e97\u67e5\u8be2 ${periodLabel} \u7684\u539f\u59cb\u6708\u62a5\uff0c\u4f46\u5f53\u524d\u95ee\u6cd5\u8fd8\u4e0d\u80fd\u552f\u4e00\u6620\u5c04\u5230\u67d0\u4e2a\u771f\u5b9e\u6307\u6807\u6216\u660e\u7ec6\u9879\u3002`,
-    '- \u4f60\u53ef\u4ee5\u76f4\u63a5\u95ee\uff1a\u201c\u5206\u522b\u5217\u51fa\u6240\u6709\u95e8\u5e97\u7684\u9644\u52a0\u503c\u4ea7\u54c1\u82b1\u8d39\u201d\u3001\u201c\u5404\u95e8\u5e97\u6c34\u7535\u8d39\u591a\u5c11\u201d\u3001\u201c\u6bcf\u4e2a\u95e8\u5e97\u5229\u6da6\u7387\u662f\u591a\u5c11\u201d\u3002',
-    '- \u4e3a\u4e86\u4fdd\u8bc1\u6570\u636e\u771f\u5b9e\uff0c\u8fd9\u7c7b\u95ee\u9898\u5728\u672a\u547d\u4e2d\u7cbe\u786e\u5b57\u6bb5\u65f6\u4e0d\u4f1a\u4ea4\u7ed9\u6a21\u578b\u731c\u6d4b\u3002',
+    '## 未找到精确字段',
+    `我已经准备按全部门店去查 ${periodLabel} 的原始月报了，但你现在这句问法还不能唯一映射到某个真实指标或明细项。`,
+    '',
+    '## 你可以这样问',
+    '- `分别列出所有门店的附加值产品花费`',
+    '- `各门店水电费多少？`',
+    '- `每个门店利润率是多少？`',
+    '',
+    '## 说明',
+    '- 为了保证数据真实，这类问题在未命中精确字段时不会交给模型猜测。',
   ].join('\n');
 }
 
 function buildAllStoresMissingDataReply({ requestedPeriod }) {
   const periodLabel = requestedPeriod
     ? formatPeriodLabelFromPeriod(requestedPeriod)
-    : '\u6307\u5b9a\u6708\u4efd';
+    : '指定月份';
 
-  return `\u5f53\u524d\u6ca1\u6709 ${periodLabel} \u7684\u5168\u90e8\u95e8\u5e97\u6708\u62a5\u6570\u636e\u53ef\u4f9b\u67e5\u8be2\u3002`;
+  return [
+    '## 当前缺失',
+    `当前还没有 ${periodLabel} 的全部门店月报数据，所以这次没法按全门店口径直接查数。`,
+    '',
+    '## 下一步建议',
+    '- 先补齐这个月份的全部门店月报，再做逐店查询或横向比较。',
+  ].join('\n');
 }
 
 function resolveDirectLookup(question, reports, defaults = {}, options = {}) {
@@ -2025,20 +2164,26 @@ function buildStoreFocusedFallbackReply({ question, dashboard, context }) {
   }
 
   return [
-    `结论：从 ${snapshot?.periodLabel || dashboard.overview.latestPeriod || '最新'} 数据看，${store.storeName} 利润率 ${percent(
+    '## 先说结论',
+    `从 ${snapshot?.periodLabel || dashboard.overview.latestPeriod || '最新'} 数据看，${store.storeName} 利润率 ${percent(
       store.profitMargin,
     )}，${
       /为什么|为何|原因/.test(question)
         ? '利润承压核心集中在渠道结构偏重和成本效率承压。'
         : '当前经营财务状态需要重点盯利润率和渠道结构。'
     }`,
-    '原因拆解：',
+    '',
+    '## 为什么会这样',
     ...reasons.slice(0, 3).map((line, index) => `${index + 1}. ${line}`),
-    '关键证据：',
+    '',
+    '## 关键依据',
     ...evidence.slice(0, 4).map((line) => `- ${line}`),
-    '优先动作：',
+    '',
+    '## 下一步怎么做',
     ...actions.slice(0, 3).map((line, index) => `${index + 1}. ${line}`),
-    dashboard.trend.length < 2 ? '补充多月数据后，才能进一步判断趋势变化。' : '',
+    dashboard.trend.length < 2
+      ? '## 补充说明\n- 当前仅有单月样本，趋势判断还受限；但不影响先做本月结构诊断。'
+      : '',
   ]
     .filter(Boolean)
     .join('\n');
@@ -2053,25 +2198,31 @@ function buildOverallFinancialFallbackReply({ dashboard }) {
   )[0];
 
   return [
-    `结论：当前整体营收 ${currency(dashboard.overview.revenue)}，净利润 ${currency(
+    '## 先说结论',
+    `当前整体营收 ${currency(dashboard.overview.revenue)}，净利润 ${currency(
       dashboard.overview.profit,
     )}，利润率 ${percent(dashboard.overview.profitMargin)}。`,
-    '核心问题：',
+    '',
+    '## 整体表现',
     `1. 平台收入占比 ${percent(dashboard.overview.platformRevenueShare)}，渠道结构仍然偏重平台。`,
     dashboard.costBreakdown[0]
       ? `2. 当前最大成本压力来自“${dashboard.costBreakdown[0].name}”，占总成本 ${percent(
           dashboard.costBreakdown[0].ratio,
         )}。`
       : '',
+    '',
+    '## 重点门店',
     bestMarginStore
-      ? `3. 当前利润率表现较好的门店是 ${bestMarginStore.storeName}，利润率 ${percent(
+      ? `- 当前利润率表现较好的门店是 ${bestMarginStore.storeName}，利润率 ${percent(
           bestMarginStore.profitMargin,
         )}。`
       : '',
     watchStore
-      ? `4. 当前最该优先盯的门店是 ${watchStore.storeName}，健康度 ${watchStore.healthScore} 分。`
+      ? `- 当前最该优先盯的门店是 ${watchStore.storeName}，健康度 ${watchStore.healthScore} 分。`
       : '',
-    '如果你要，我可以继续按门店拆解原因、证据和 30 天整改动作。',
+    '',
+    '## 下一步',
+    '- 如果你要，我可以继续按门店拆解原因、证据和 30 天整改动作。',
   ]
     .filter(Boolean)
     .join('\n');
@@ -2086,7 +2237,7 @@ function buildVerifiedSourceLine(scopeLabel, content) {
     return '';
   }
 
-  return `[本地月报][${scopeLabel}] ${content}`;
+  return `从${scopeLabel}数据看，${content}`;
 }
 
 function buildFleetActionPlanSections({ dashboard, context }) {
@@ -2121,7 +2272,7 @@ function buildFleetActionPlanSections({ dashboard, context }) {
 
   return {
     coreConclusion: [
-      `未来 30 天优先抓 3 件事：1. ${platformRiskStore.storeName} 平台结构优化；2. 整体“${
+      `未来 30 天如果只抓 3 件最重要的事，建议优先盯住：1. ${platformRiskStore.storeName} 平台结构优化；2. 整体“${
         overallTopCategory?.name || '重点成本项'
       }”效率复盘；3. ${priorityStore.storeName} 利润修复。`,
     ],
@@ -2142,7 +2293,7 @@ function buildFleetActionPlanSections({ dashboard, context }) {
         `${priorityStore.storeName} ${prioritySnapshot?.periodLabel || periodLabel}`,
         `健康度 ${priorityStore.healthScore} 分，利润率 ${percent(
           priorityStore.profitMargin,
-        )}，平台占比 ${percent(priorityStore.platformRevenueShare)}，是当前优先修复门店。`,
+        )}，平台占比 ${percent(priorityStore.platformRevenueShare)}，所以它是当前最该优先修复的门店。`,
       )}`,
     ],
     evidence: [
@@ -2200,12 +2351,12 @@ function renderFleetActionPlanReply(sections, section = '') {
   }
 
   const labels = {
-    coreConclusion: '核心结论：',
-    issues: '先抓问题：',
-    evidence: '关键依据：',
-    actions: '30 天动作：',
-    metrics: '复盘指标：',
-    scope: '数据口径：',
+    coreConclusion: '## 🎯 核心结论',
+    issues: '## 🔍 先看问题',
+    evidence: '## 📌 关键依据',
+    actions: '## ✅ 接下来 30 天',
+    metrics: '## 📈 复盘指标',
+    scope: '## 🧾 数据口径',
   };
   const orderedKeys = [
     'coreConclusion',
@@ -2309,8 +2460,10 @@ function buildPriorityStoreReply({ dashboard, context }) {
   );
 
   return [
-    `结论：最值得优先整改的门店是 ${priorityStore.storeName}。`,
-    '排序依据：',
+    '## 先说结论',
+    `当前最值得优先整改的门店是 **${priorityStore.storeName}**。不是因为某一个指标单独失真，而是健康度、利润率和渠道结构一起承压。`,
+    '',
+    '## 为什么是它',
     `1. 健康度 ${priorityStore.healthScore} 分，在 ${stores.length} 家门店中最低。`,
     `2. 利润率 ${percent(priorityStore.profitMargin)}，低于当前整体 ${percent(
       dashboard.overview.profitMargin,
@@ -2321,7 +2474,8 @@ function buildPriorityStoreReply({ dashboard, context }) {
     `4. 客单价 ${currency(priorityStore.avgTicket)}，单客成本 ${currency(
       priorityStore.avgCustomerCost,
     )}，当前单客毛利只有 ${currency(unitMargin)}。`,
-    '关键证据：',
+    '',
+    '## 关键依据',
     bestMarginStore
       ? `- 与利润率最高的 ${bestMarginStore.storeName} 相比，${priorityStore.storeName} 利润率低 ${(
           (Number(bestMarginStore.profitMargin || 0) -
@@ -2348,7 +2502,8 @@ function buildPriorityStoreReply({ dashboard, context }) {
           platformLeader.platformRevenueShare,
         )}。`
       : `- 渠道上，${priorityStore.storeName} 私域与非平台渠道合计占比 ${percent(privateShare)}。`,
-    '先抓动作：',
+    '',
+    '## 先抓动作',
     `1. 7 天内先拆 ${priorityStore.storeName} 的平台订单结构和私域转化，明确哪些订单拉低利润。`,
     topItem
       ? `2. 14 天内复盘 ${topItem.name}，当前金额 ${exactCurrency(
@@ -2395,8 +2550,8 @@ function buildMetricAnalysisReplySafe({ report, target, peerComparison }) {
       : null;
 
   const lines = [];
-  lines.push('## 结论');
-  lines.push(`- ${report.storeName}${periodLabel}的${target.label}是 **${target.formattedValue}**。`);
+  lines.push('## 先说结论');
+  lines.push(`先给你结果：${report.storeName}${periodLabel}的 **${target.label}** 是 **${target.formattedValue}**。`);
 
   if (peerComparison && peerAverage !== null) {
     lines.push(
@@ -2404,7 +2559,7 @@ function buildMetricAnalysisReplySafe({ report, target, peerComparison }) {
     );
   }
 
-  lines.push('', '## 原因拆解');
+  lines.push('', '## 指标拆开看');
 
   if (focusCategory && categoryRank > 0) {
     lines.push(
@@ -2441,7 +2596,7 @@ function buildMetricAnalysisReplySafe({ report, target, peerComparison }) {
     lines.push(`- 同期均值：${target.formatter(peerAverage)}`);
   }
 
-  lines.push('', '## 优先动作');
+  lines.push('', '## 下一步怎么做');
 
   if (categoryRank === 1) {
     lines.push(`1. 先拆 ${target.label} 的构成、效率和排班/定价，优先处理第一大成本项。`);
@@ -2455,7 +2610,7 @@ function buildMetricAnalysisReplySafe({ report, target, peerComparison }) {
     lines.push(`2. 结合门店客单价、单客成本和该项目金额，复盘是否存在低效支出。`);
   }
 
-  lines.push('3. 以上结论全部基于已导入月报直接计算，未使用模型估算。');
+  lines.push('3. 以上结论全部基于已导入月报直接计算，没有使用模型估算。');
 
   return lines.join('\n');
 }
@@ -2510,7 +2665,7 @@ function buildDeterministicFinancialPayload({
   }
 
   return {
-    reply,
+    reply: polishFinancialReply(reply),
     agent: buildFinancialAgentMeta({
       mode: 'local',
       provider: 'local',
@@ -2555,7 +2710,7 @@ function buildAnalysisFallbackPayload({
   }
 
   return {
-    reply,
+    reply: polishFinancialReply(reply),
     agent: buildFinancialAgentMeta({
       mode: 'local',
       provider: 'local',
@@ -2601,7 +2756,7 @@ function renderGroundedChatReply({
   const lines = [];
   let totalBulletCount = 0;
 
-  if (lead) {
+  if (lead && !isMetaGuidanceLine(lead)) {
     lines.push(lead);
   }
 
@@ -2612,7 +2767,7 @@ function renderGroundedChatReply({
       const bullets = sanitizeGroundedList(section?.bullets, factCatalog, [], {
         limit: 4,
         maxLength: 220,
-      });
+      }).filter((bullet) => !isMetaGuidanceLine(bullet));
 
       if (!title || !bullets.length) {
         return;
@@ -2625,7 +2780,7 @@ function renderGroundedChatReply({
       });
     });
 
-  if (closing) {
+  if (closing && !isMetaGuidanceLine(closing)) {
     lines.push('', closing);
   }
 
@@ -2638,7 +2793,7 @@ function renderGroundedChatReply({
       .replace(/对\s+最值得优先整改的门店是\s+/g, '对 ')
       .replace(/[ \t]{2,}/g, ' ');
 
-    return fallbackReply || aiSummary;
+    return polishFinancialReply(fallbackReply || aiSummary);
   }
 
   const hasStructuredSections = lines.some((line) => /^##\s+/.test(line));
@@ -2653,10 +2808,10 @@ function renderGroundedChatReply({
     .replace(/[ \t]{2,}/g, ' ');
 
   if ((forceAppendFallback || !hasStructuredSections || totalBulletCount < 3) && fallbackReply) {
-    return [reply, fallbackReply].filter(Boolean).join('\n\n');
+    return polishFinancialReply([reply, fallbackReply].filter(Boolean).join('\n\n'));
   }
 
-  return reply || fallbackReply;
+  return polishFinancialReply(reply || fallbackReply);
 }
 
 function formatLookupTarget(target) {
@@ -2890,31 +3045,6 @@ function buildFinancialAgentExecutionContext({
     directLookup,
     allStoresLookup,
   });
-  const normalizedMessageForRouting = String(message || '')
-    .replace(/\s+/g, '')
-    .replace(/[？?！!。，“”"'':：;；,，]/g, '');
-  const isThirtyDayActionPlan =
-    !resolveStore(message) &&
-    (
-      normalizedMessageForRouting.includes('未来30天') ||
-      normalizedMessageForRouting.includes('抓哪三件事') ||
-      normalizedMessageForRouting.includes('30天动作') ||
-      normalizedMessageForRouting.includes('行动计划')
-    );
-
-  if (chatScope !== 'parsing' && isThirtyDayActionPlan) {
-    return {
-      payload: {
-        reply: buildFleetActionPlanReply({ dashboard, context }),
-        agent: buildFinancialAgentMeta({
-          mode: 'local',
-          provider: 'local',
-          note: '本条跨店 30 天行动方案已按本地月报直接生成，避免模型混写跨门店口径。',
-        }),
-      },
-    };
-  }
-
   if (chatScope !== 'parsing') {
     const deterministicPayload = buildDeterministicFinancialPayload({
       question: message,
@@ -3046,29 +3176,18 @@ function buildFinancialAgentExecutionContext({
   ) {
     return {
       payload: {
-        reply: buildParsingLookupReply({
-          report: directLookup.report,
-          target: directLookup.target,
-          question: message,
-          usedLatestPeriod: directLookup.usedLatestPeriod,
-        }),
+        reply: polishFinancialReply(
+          buildParsingLookupReply({
+            report: directLookup.report,
+            target: directLookup.target,
+            question: message,
+            usedLatestPeriod: directLookup.usedLatestPeriod,
+          }),
+        ),
         agent: buildFinancialAgentMeta({
           mode: 'local',
           provider: 'local',
           note: '智能解析窗口已按当前门店当前月份的解析结果直接取数，不再引入跨门店对比。',
-        }),
-      },
-    };
-  }
-
-  if (settings.llmProvider !== 'zhipu' || !settings.zhipuApiKey) {
-    return {
-      payload: {
-        reply: '当前未配置智谱 Key，财务问答无法提供 AI 分析。',
-        agent: buildFinancialAgentMeta({
-          mode: 'error',
-          provider: 'zhipu',
-          note: '当前未配置智谱 Key，财务问答不会再退回本地规则分析。',
         }),
       },
     };
@@ -3176,24 +3295,6 @@ async function buildFinancialAgentReply({
     };
   }
 
-  if (
-    executionContext.chatScope !== 'parsing' &&
-    !resolveStore(message) &&
-    asksForActionPlan(message)
-  ) {
-    return {
-      reply: buildFleetActionPlanReply({
-        dashboard: executionContext.dashboard,
-        context: executionContext.context,
-      }),
-      agent: buildFinancialAgentMeta({
-        mode: 'local',
-        provider: 'local',
-        note: '本条跨店 30 天行动方案已按本地月报直接生成，避免模型混写跨门店口径。',
-      }),
-    };
-  }
-
   const fallbackPayload = buildAnalysisFallbackPayload({
     question: message,
     history: executionContext.history,
@@ -3202,9 +3303,32 @@ async function buildFinancialAgentReply({
     directLookup: executionContext.directLookup,
     requestResolution: executionContext.requestResolution,
   });
-  const forceAppendFallback =
-    asksForActionPlan(message) ||
-    (!!actionPlanSection && historySuggestsActionPlan(executionContext.history));
+
+  if (executionContext.settings.llmProvider !== 'zhipu' || !executionContext.settings.zhipuApiKey) {
+    if (fallbackPayload) {
+      return {
+        ...fallbackPayload,
+        agent: buildFinancialAgentMeta({
+          mode: 'local',
+          provider: 'local',
+          note: '当前未配置智谱 Key，已按本地核验规则生成回复。',
+        }),
+      };
+    }
+
+    return {
+      reply: '当前未配置智谱 Key，且本地规则暂时无法覆盖这类问题。',
+      agent: buildFinancialAgentMeta({
+        mode: 'error',
+        provider: 'local',
+        note: '当前未配置智谱 Key，也没有命中可用的本地规则。',
+      }),
+    };
+  }
+
+  const forceAppendFallback = !!(
+    actionPlanSection && historySuggestsActionPlan(executionContext.history)
+  );
   const preferGroundedChat =
     executionContext.chatScope !== 'parsing' &&
     !wantsStrictMarkdownFormat(message) &&
@@ -3271,7 +3395,7 @@ async function buildFinancialAgentReply({
       context: executionContext.llmContext,
       preferredModel: executionContext.preferredModel,
     });
-    const reply = normalizeText(result.reply, 6000);
+    const reply = polishFinancialReply(normalizeText(result.reply, 6000));
 
     if (!reply) {
       throw new Error('智谱返回空内容。');
