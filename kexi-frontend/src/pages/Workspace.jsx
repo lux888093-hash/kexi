@@ -777,7 +777,9 @@ export default function Workspace() {
   const [inputValue, setInputValue] = useState("");
   const [runtimeModel, setRuntimeModel] = useState("");
   const [runtimeProvider, setRuntimeProvider] = useState("");
+  const [isAgentSelectorOpen, setIsAgentSelectorOpen] = useState(false);
   const scrollRef = useRef(null);
+  const agentSelectorRef = useRef(null);
 
   const activeConversation =
     activeConversationId === DRAFT_CONVERSATION_ID
@@ -785,6 +787,16 @@ export default function Workspace() {
       : conversations.find((item) => item.id === activeConversationId) || draftConversation;
   const activeAgent = getAgentById(activeConversation.agentId);
   const showWelcomeCard = !hasUserMessages(activeConversation);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (agentSelectorRef.current && !agentSelectorRef.current.contains(event.target)) {
+        setIsAgentSelectorOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1142,52 +1154,8 @@ export default function Workspace() {
         {/* 聊天主内容区 */}
         <section className="flex-1 flex flex-col relative min-w-0">
 
-          {/* 智能体选择 */}
-          <div className="w-full flex justify-center pt-6 pb-2 px-8 z-10 pointer-events-auto">
-            <div className="flex items-center justify-start sm:justify-center gap-3 overflow-x-auto scrollbar-hide w-full max-w-4xl px-2">
-              {AGENTS.map((agent) => {
-                const active = agent.id === activeAgent.id;
-
-                return (
-                  <button
-                    key={agent.id}
-                    className={cn(
-                      "flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-5 py-2.5 transition-all shadow-sm",
-                      active
-                        ? "border-[#b6860c]/40 bg-white"
-                        : "border-[#eadfd5] bg-white/85 hover:border-[#b6860c]/20"
-                    )}
-                    onClick={() => handleAgentChange(agent.id)}
-                    type="button"
-                  >
-                    <div
-                      className={cn(
-                        "flex size-6 items-center justify-center rounded-full",
-                        active
-                          ? "bg-[#b6860c]/12 text-[#b6860c]"
-                          : "bg-[#f2ece4] text-slate-500"
-                      )}
-                    >
-                      <span className="material-symbols-outlined text-[18px]">
-                        {agent.icon}
-                      </span>
-                    </div>
-                    <span
-                      className={cn(
-                        "text-sm font-medium",
-                        active ? "text-[#171412]" : "text-slate-600"
-                      )}
-                    >
-                      {agent.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
           {/* Header (Top right) */}
-          <header className="absolute top-0 w-full p-4 flex justify-between items-center pointer-events-none z-10">
+          <header className="absolute top-0 w-full p-4 flex justify-between items-center pointer-events-none z-20">
             <div className="flex items-center pointer-events-auto">
               <span className="text-xl font-bold text-[#171412] pl-2">珂溪智能</span>
             </div>
@@ -1228,10 +1196,36 @@ export default function Workspace() {
                         />
                      </div>
                      <div className="flex items-center justify-between px-4 pb-2">
-                        <button className="flex items-center gap-2 text-sm text-slate-500 hover:bg-[#fff7f0] px-3 py-2 rounded-full font-medium transition">
-                           <span className="material-symbols-outlined text-[20px]">build</span>
-                           工具
-                        </button>
+                        <div className="relative" ref={agentSelectorRef}>
+                           <button 
+                             className="flex items-center gap-2 text-sm text-[#b6860c] bg-[#b6860c]/5 hover:bg-[#b6860c]/10 px-3 py-2 rounded-full font-bold transition"
+                             onClick={() => setIsAgentSelectorOpen(!isAgentSelectorOpen)}
+                           >
+                              <span className="material-symbols-outlined text-[20px]">{activeAgent.icon}</span>
+                              {activeAgent.label}
+                              <span className="material-symbols-outlined text-[18px]">expand_more</span>
+                           </button>
+                           {isAgentSelectorOpen && (
+                             <div className="absolute bottom-full left-0 mb-2 w-48 bg-white border border-[#eadfd5] rounded-2xl shadow-xl z-50 py-2 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200">
+                               {AGENTS.map((agent) => (
+                                 <button
+                                   key={agent.id}
+                                   className={cn(
+                                     "w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left transition-colors hover:bg-[#fff7f0]",
+                                     agent.id === activeAgent.id ? "text-[#b6860c] font-bold bg-[#fff7f0]" : "text-slate-600"
+                                   )}
+                                   onClick={() => {
+                                     handleAgentChange(agent.id);
+                                     setIsAgentSelectorOpen(false);
+                                   }}
+                                 >
+                                   <span className="material-symbols-outlined text-[18px]">{agent.icon}</span>
+                                   {agent.label}
+                                 </button>
+                               ))}
+                             </div>
+                           )}
+                        </div>
                         <div className="flex items-center gap-2">
                            <button className="flex items-center gap-1 text-sm text-slate-500 hover:bg-[#fff7f0] px-3 py-2 rounded-full font-medium transition">
                               Pro
@@ -1307,8 +1301,42 @@ export default function Workspace() {
                              )}
                           </div>
                        </div>
+                       <div className="flex items-center justify-between px-4 pb-2 border-t border-[#d96e42]/5 pt-2">
+                          <div className="relative" ref={agentSelectorRef}>
+                             <button 
+                               className="flex items-center gap-2 text-sm text-[#b6860c] bg-[#b6860c]/5 hover:bg-[#b6860c]/10 px-3 py-1.5 rounded-full font-bold transition"
+                               onClick={() => setIsAgentSelectorOpen(!isAgentSelectorOpen)}
+                             >
+                                <span className="material-symbols-outlined text-[18px]">{activeAgent.icon}</span>
+                                {activeAgent.label}
+                                <span className="material-symbols-outlined text-[16px]">expand_more</span>
+                             </button>
+                             {isAgentSelectorOpen && (
+                               <div className="absolute bottom-full left-0 mb-2 w-48 bg-white border border-[#eadfd5] rounded-2xl shadow-xl z-50 py-2 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200">
+                                 {AGENTS.map((agent) => (
+                                   <button
+                                     key={agent.id}
+                                     className={cn(
+                                       "w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left transition-colors hover:bg-[#fff7f0]",
+                                       agent.id === activeAgent.id ? "text-[#b6860c] font-bold bg-[#fff7f0]" : "text-slate-600"
+                                     )}
+                                     onClick={() => {
+                                       handleAgentChange(agent.id);
+                                       setIsAgentSelectorOpen(false);
+                                     }}
+                                   >
+                                     <span className="material-symbols-outlined text-[18px]">{agent.icon}</span>
+                                     {agent.label}
+                                   </button>
+                                 ))}
+                               </div>
+                             )}
+                          </div>
+                          <div className="text-[11px] font-medium text-slate-400 tracking-wide">
+                             珂溪智能助理 · {activeAgent.badge}
+                          </div>
+                       </div>
                     </div>
-                    <p className="text-center text-[11px] font-medium text-slate-400 mt-3 tracking-wide">珂溪智能助理已接通财务数据；当前消息只会携带本会话历史。</p>
                   </div>
                </div>
             </div>
