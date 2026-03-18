@@ -1171,24 +1171,24 @@ export default function Workspace() {
 
           {showWelcomeCard ? (
             <div className="flex-1 flex flex-col min-h-0 items-center justify-center px-4 overflow-y-auto">
-               <div className="w-full max-w-[830px] pt-[8vh] pb-[4vh]">
-                  <div className="mb-10 pl-2 text-center">
-                     <h1 className="text-[42px] sm:text-[52px] font-extrabold leading-tight tracking-tight mb-2" style={{ background: 'linear-gradient(74deg, #b6860c 0, #d96e42 40%, #171412 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                       ✨ Xingz，你好
+               <div className="w-full max-w-[720px] pt-[8vh] pb-[4vh]">
+                  <div className="mb-8 pl-2 text-center">
+                     <h1 className="text-[32px] sm:text-[40px] font-extrabold leading-tight tracking-tight mb-2" style={{ background: 'linear-gradient(74deg, #b6860c 0, #d96e42 40%, #171412 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                       ✨ Xingz, 你好
                      </h1>
-                     <h2 className="text-[42px] sm:text-[52px] font-bold leading-tight tracking-tight text-slate-300">
-                       今天需要分析些什么？
+                     <h2 className="text-[32px] sm:text-[40px] font-bold leading-tight tracking-tight text-slate-300">
+                       需要我为你做些什么?
                      </h2>
-                     <p className="mt-4 text-sm text-slate-500 max-w-2xl mx-auto">{activeAgent.intro}</p>
+                     <p className="mt-3 text-[13px] text-slate-500 max-w-2xl mx-auto leading-relaxed px-4">{activeAgent.intro}</p>
                   </div>
 
-                  <div className="relative w-full border border-[#d96e42]/15 shadow-sm bg-white/90 hover:bg-white transition-colors rounded-[24px] p-2 flex flex-col group focus-within:bg-white focus-within:border-[#d96e42]/30 focus-within:shadow-md">
-                     <div className="flex items-start px-2 pt-2 pb-1">
-                        <button className="p-3 text-slate-500 hover:bg-[#fff7f0] rounded-full mt-1 shrink-0 transition" onClick={() => startFreshConversation(activeAgent.id)}>
-                           <span className="material-symbols-outlined text-[24px]">add</span>
+                  <div className="relative w-full border border-[#d96e42]/15 shadow-sm bg-white/90 hover:bg-white transition-colors rounded-[32px] p-1.5 flex flex-col group focus-within:bg-white focus-within:border-[#d96e42]/30 focus-within:shadow-md">
+                     <div className="flex items-start px-2 pt-1 pb-0">
+                        <button className="p-2 text-slate-400 hover:bg-[#fff7f0] rounded-full mt-1.5 shrink-0 transition" onClick={() => startFreshConversation(activeAgent.id)}>
+                           <span className="material-symbols-outlined text-[22px]">add</span>
                         </button>
                         <textarea
-                          className="flex-1 min-h-[56px] max-h-[200px] bg-transparent resize-none outline-none text-slate-900 text-[15px] p-3 placeholder:text-slate-400 pt-4"
+                          className="flex-1 min-h-[44px] max-h-[180px] bg-transparent resize-none outline-none text-slate-900 text-[14.5px] p-2.5 placeholder:text-slate-400 pt-3.5"
                           placeholder="给珂溪智能发送消息..."
                           value={inputValue}
                           onChange={(e) => setInputValue(e.target.value)}
@@ -1259,7 +1259,7 @@ export default function Workspace() {
           ) : (
             <div className="flex-1 flex flex-col min-h-0 pt-16">
                <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-6 custom-scrollbar">
-                  <div className="flex flex-col gap-6 max-w-[830px] mx-auto w-full">
+                  <div className="flex flex-col gap-6 max-w-[720px] mx-auto w-full">
                     {activeConversation.messages.map((message) => (
                       <AgentMessage
                         key={message.id}
@@ -1273,14 +1273,14 @@ export default function Workspace() {
                </div>
                
                <div className="w-full pb-6 px-4 bg-gradient-to-t from-[#fbf7f2] via-[#fbf7f2]/95 to-transparent pt-4">
-                  <div className="max-w-[830px] mx-auto">
-                    <div className="relative w-full border border-[#d96e42]/15 shadow-sm bg-white/90 hover:bg-white transition-colors rounded-[24px] p-2 flex flex-col group focus-within:bg-white focus-within:border-[#d96e42]/30 focus-within:shadow-md">
-                       <div className="flex items-start px-2 pt-2 pb-1">
-                          <button className="p-3 text-slate-500 hover:bg-[#fff7f0] rounded-full mt-1 shrink-0 transition" onClick={() => startFreshConversation(activeAgent.id)}>
-                             <span className="material-symbols-outlined text-[24px]">add</span>
+                  <div className="max-w-[720px] mx-auto">
+                    <div className="relative w-full border border-[#d96e42]/15 shadow-sm bg-white/90 hover:bg-white transition-colors rounded-[32px] p-1.5 flex flex-col group focus-within:bg-white focus-within:border-[#d96e42]/30 focus-within:shadow-md">
+                       <div className="flex items-start px-2 pt-1 pb-0">
+                          <button className="p-2 text-slate-400 hover:bg-[#fff7f0] rounded-full mt-1.5 shrink-0 transition" onClick={() => startFreshConversation(activeAgent.id)}>
+                             <span className="material-symbols-outlined text-[22px]">add</span>
                           </button>
                           <textarea
-                            className="flex-1 min-h-[56px] max-h-[200px] bg-transparent resize-none outline-none text-slate-900 text-[15px] p-3 placeholder:text-slate-400 pt-4"
+                            className="flex-1 min-h-[44px] max-h-[180px] bg-transparent resize-none outline-none text-slate-900 text-[14.5px] p-2.5 placeholder:text-slate-400 pt-3.5"
                             placeholder="给珂溪智能发送消息..."
                             value={inputValue}
                             onChange={(e) => setInputValue(e.target.value)}
@@ -1288,28 +1288,28 @@ export default function Workspace() {
                           />
                           <div className="flex items-center gap-1 self-end mb-2 mr-2">
                              {!inputValue.trim() ? (
-                               <button className="p-2 text-slate-500 hover:bg-[#fff7f0] rounded-full transition">
-                                  <span className="material-symbols-outlined text-[24px]">mic</span>
+                               <button className="p-1.5 text-slate-400 hover:bg-[#fff7f0] rounded-full transition">
+                                  <span className="material-symbols-outlined text-[22px]">mic</span>
                                </button>
                              ) : (
                                <button
-                                 className="p-2 text-slate-500 hover:bg-[#fff7f0] rounded-full transition"
+                                 className="p-1.5 text-slate-400 hover:bg-[#fff7f0] rounded-full transition"
                                  onClick={() => sendMessage()}
                                >
-                                 <span className="material-symbols-outlined text-[24px] text-[#b6860c]">send</span>
+                                 <span className="material-symbols-outlined text-[22px] text-[#b6860c]">send</span>
                                </button>
                              )}
                           </div>
                        </div>
-                       <div className="flex items-center justify-between px-4 pb-2 border-t border-[#d96e42]/5 pt-2">
+                       <div className="flex items-center justify-between px-4 pb-1.5 border-t border-[#d96e42]/5 pt-1.5">
                           <div className="relative" ref={agentSelectorRef}>
                              <button 
-                               className="flex items-center gap-2 text-sm text-[#b6860c] bg-[#b6860c]/5 hover:bg-[#b6860c]/10 px-3 py-1.5 rounded-full font-bold transition"
+                               className="flex items-center gap-2 text-[12px] text-[#b6860c] bg-[#b6860c]/5 hover:bg-[#b6860c]/10 px-2.5 py-1 rounded-full font-bold transition"
                                onClick={() => setIsAgentSelectorOpen(!isAgentSelectorOpen)}
                              >
-                                <span className="material-symbols-outlined text-[18px]">{activeAgent.icon}</span>
+                                <span className="material-symbols-outlined text-[16px]">{activeAgent.icon}</span>
                                 {activeAgent.label}
-                                <span className="material-symbols-outlined text-[16px]">expand_more</span>
+                                <span className="material-symbols-outlined text-[14px]">expand_more</span>
                              </button>
                              {isAgentSelectorOpen && (
                                <div className="absolute bottom-full left-0 mb-2 w-48 bg-white border border-[#eadfd5] rounded-2xl shadow-xl z-50 py-2 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200">
