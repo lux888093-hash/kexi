@@ -25,16 +25,17 @@ const {
   updateReportData,
 } = require('./lib/financialStore');
 const {
-  REQUIRED_SOURCE_GROUPS,
-  parseSourceFile,
-} = require('./lib/sourceFileParser');
-const {
-  createParsingDraftWorkbook,
   resolveParsingExportPath,
 } = require('./lib/sourceFileWorkbook');
 const {
   buildWorkspaceAgentReply,
 } = require('./lib/agentChat');
+const {
+  DEFAULT_PARSING_SKILL_ID,
+  listParsingSkills,
+  resolveParsingSkill,
+  toPublicParsingSkill,
+} = require('./lib/parsingSkills');
 
 const app = express();
 const PORT = process.env.PORT || 3101;
@@ -300,6 +301,13 @@ app.post('/api/financials/upload', upload.array('files', 12), (request, response
   });
 });
 
+app.get('/api/parsing/skills', (_request, response) => {
+  response.json({
+    defaultSkillId: DEFAULT_PARSING_SKILL_ID,
+    skills: listParsingSkills(),
+  });
+});
+
 app.post('/api/parsing/upload', upload.array('files', 12), async (request, response) => {
   const files = request.files || [];
 
@@ -310,6 +318,7 @@ app.post('/api/parsing/upload', upload.array('files', 12), async (request, respo
 
   const storeName = String(request.body.storeName || '').trim();
   const periodLabel = String(request.body.periodLabel || '').trim();
+  const skill = resolveParsingSkill(request.body.skillId);
 
   try {
     const results = await Promise.all(
@@ -317,7 +326,7 @@ app.post('/api/parsing/upload', upload.array('files', 12), async (request, respo
         const normalizedOriginalName = normalizeUploadFileName(file.originalname);
 
         try {
-          return await parseSourceFile(file.path, {
+          return await skill.parseFile(file.path, {
             originalName: normalizedOriginalName,
             storeName,
             periodLabel,
@@ -350,14 +359,16 @@ app.post('/api/parsing/upload', upload.array('files', 12), async (request, respo
         .filter(Boolean),
     );
 
-    const missingFiles = REQUIRED_SOURCE_GROUPS.filter(
+    const missingFiles = (skill.requiredSourceGroups || []).filter(
       (group) => !matchedGroupKeys.has(group.key),
     ).map((group) => group.label);
 
     response.status(failFiles.length ? 207 : 200).json({
       message: parsedFiles.length
-        ? '源文件解析完成。'
-        : '暂未成功解析出可直接入表的源文件。',
+        ? `${skill.label}解析完成。`
+        : `暂未成功解析出可直接用于${skill.deliverableLabel || '当前技能'}的源文件。`,
+      skillId: skill.id,
+      skill: toPublicParsingSkill(skill),
       parsedFiles,
       reviewFiles,
       failFiles,
@@ -382,8 +393,10 @@ app.post('/api/parsing/export-draft', async (request, response) => {
     reviewFiles = [],
     failFiles = [],
     missingFiles = [],
+    skillId = '',
   } = request.body || {};
 
+  const skill = resolveParsingSkill(skillId);
   const parsedList = Array.isArray(parsedFiles) ? parsedFiles : [];
   const reviewList = Array.isArray(reviewFiles) ? reviewFiles : [];
   const resolvedStoreName = resolveExportLabel(
@@ -398,7 +411,7 @@ app.post('/api/parsing/export-draft', async (request, response) => {
   );
 
   try {
-    const { token, downloadFileName } = await createParsingDraftWorkbook({
+    const { token, downloadFileName } = await skill.exportDraft({
       storeName: resolvedStoreName,
       periodLabel: resolvedPeriodLabel,
       parsedFiles: parsedList,
@@ -408,13 +421,15 @@ app.post('/api/parsing/export-draft', async (request, response) => {
     });
 
     response.json({
-      message: '体质表已生成。',
+      message: `${skill.deliverableLabel || '文档'}已生成。`,
+      skillId: skill.id,
+      skill: toPublicParsingSkill(skill),
       downloadPath: `/api/parsing/download/${token}`,
       downloadFileName,
     });
   } catch (error) {
     response.status(500).json({
-      message: error.message || '体质表生成失败，请稍后重试。',
+      message: error.message || `${skill.deliverableLabel || '文档'}生成失败，请稍后重试。`,
     });
   }
 });
@@ -432,6 +447,44 @@ app.get('/api/parsing/download/:token', (request, response) => {
   const requestedName = normalizeDownloadFileName(request.query.name || '');
 
   response.download(filePath, requestedName);
+});
+
+app.post('/api/parsing/chat', async (request, response) => {
+  try {
+    const { skillId, history, message, parsingContext } = request.body || {};
+
+    if (!String(message || '').trim()) {
+      response.status(400).json({
+        message: '请输入你要发送的内容。',
+      });
+      return;
+    }
+
+    const skill = resolveParsingSkill(skillId || parsingContext?.skillId);
+    const payload = await skill.chat({
+      message: String(message).trim(),
+      history: Array.isArray(history) ? history : [],
+      reports: listReports(),
+      settings: readSettings(),
+      parsingContext:
+        parsingContext && typeof parsingContext === 'object'
+          ? {
+              ...parsingContext,
+              skillId: skill.id,
+            }
+          : skill.createContext(),
+    });
+
+    response.json({
+      ...payload,
+      skillId: skill.id,
+      skill: toPublicParsingSkill(skill),
+    });
+  } catch (error) {
+    response.status(500).json({
+      message: error.message || '解析技能问答失败，请检查后端日志。',
+    });
+  }
 });
 
 app.post('/api/financials/ai-analysis', async (request, response) => {
