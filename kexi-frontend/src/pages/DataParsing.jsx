@@ -693,10 +693,10 @@ export default function DataParsing() {
         <div className="relative z-10 flex-1 overflow-y-auto px-4 lg:px-0 custom-scrollbar pb-32 pt-8">
           <div className="mx-auto max-w-[720px] space-y-10">
             {messages.map((msg) => (
-              <div key={msg.id} className={cn("flex gap-4 w-full group animate-in fade-in slide-in-from-bottom-4 duration-500", msg.sender === "user" ? "flex-row-reverse" : "flex-row")}>
+              <div key={msg.id} className={cn("flex w-full gap-3 group animate-in fade-in slide-in-from-bottom-4 duration-500", msg.sender === "user" ? "flex-row-reverse" : "flex-row")}>
                 {/* Refined Circular Avatars */}
                 <div className={cn(
-                  "size-10 rounded-full flex items-center justify-center shrink-0 shadow-sm transition-all duration-300", 
+                  "flex size-9 shrink-0 items-center justify-center rounded-full shadow-sm transition-all duration-300", 
                   msg.sender === "user" 
                     ? "bg-slate-200 text-slate-500" 
                     : "bg-gradient-to-br from-[#b6860c] to-[#d96e42] text-white shadow-[#b6860c]/20"
@@ -704,8 +704,8 @@ export default function DataParsing() {
                   <span className="material-symbols-outlined text-[20px]">{msg.sender === "user" ? "person" : activeSkill.icon}</span>
                 </div>
                 
-                <div className={cn("flex flex-col gap-2 max-w-[85%]", msg.sender === "user" ? "items-end text-right" : "items-start")}>
-                  <div className="flex items-center gap-2 mb-1 px-1">
+                <div className={cn("flex max-w-[85%] flex-col gap-1.5", msg.sender === "user" ? "items-end text-right" : "items-start")}>
+                  <div className="mb-0.5 flex items-center gap-2 px-1">
                     <span className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-slate-400/80">{msg.sender === "user" ? "管理员" : `珂溪助手 · ${activeSkill.label}`}</span>
                     {msg.sender === "ai" && !msg.loading && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-600 border border-emerald-100/50">在线</span>}
                   </div>
@@ -714,13 +714,13 @@ export default function DataParsing() {
 
                   {(msg.text || msg.sender === "ai") && (
                     <div className={cn(
-                      "rounded-2xl p-6 text-[14.5px] leading-relaxed shadow-sm border transition-all duration-300", 
+                      "rounded-[24px] border text-[14.5px] leading-[1.65] shadow-[0_10px_30px_rgba(15,23,42,0.04)] transition-all duration-300", 
                       msg.sender === "user" 
-                        ? "bg-[#b6860c] text-white border-[#b6860c]/10 rounded-tr-none shadow-[#b6860c]/10" 
-                        : "bg-white text-slate-800 border-[#eadfd2]/40 rounded-tl-none"
+                        ? "bg-white px-4 py-3 text-slate-800 border-[#eadfd2]/70 shadow-[0_10px_30px_rgba(15,23,42,0.04)]" 
+                        : "bg-white px-5 py-4 text-slate-800 border-[#eadfd2]/70"
                     )}>
                       {msg.sender === "user" ? (
-                        <div className="whitespace-pre-wrap font-medium tracking-tight">{msg.text}</div>
+                        <div className="whitespace-pre-wrap font-medium">{msg.text}</div>
                       ) : (
                         <div className="w-full">
                           <ThoughtProcess thought={msg.reasoning} />

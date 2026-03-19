@@ -686,16 +686,16 @@ function AgentMessage({ message, agent, currentModel = "", currentProvider = "" 
   return (
     <div
       className={cn(
-        "flex gap-4 max-w-4xl mx-auto w-full",
+        "flex max-w-4xl mx-auto w-full gap-3",
         isUser ? "flex-row-reverse" : "",
       )}
     >
       <div
         className={cn(
-          "size-10 rounded-xl flex items-center justify-center shrink-0",
+          "flex size-9 shrink-0 items-center justify-center rounded-full",
           isUser
             ? "bg-slate-200 text-slate-600"
-            : "bg-primary/20 text-primary",
+            : "bg-primary/18 text-primary",
         )}
       >
         <span className="material-symbols-outlined">
@@ -704,7 +704,7 @@ function AgentMessage({ message, agent, currentModel = "", currentProvider = "" 
       </div>
       <div
         className={cn(
-          "flex flex-col gap-1.5 pt-2",
+          "flex flex-col gap-1 pt-1",
           isUser ? "items-end" : "items-start",
         )}
       >
@@ -741,14 +741,14 @@ function AgentMessage({ message, agent, currentModel = "", currentProvider = "" 
         </div>
         <div
           className={cn(
-            "max-w-[860px] rounded-2xl p-6 shadow-sm border leading-relaxed",
+            "max-w-[860px] border text-[14.5px] leading-[1.65] transition-all",
             isUser
-              ? "bg-primary text-white rounded-tr-none border-primary/10 shadow-md"
-              : "bg-white rounded-tl-none border-primary/5 text-slate-800",
+              ? "rounded-[24px] bg-white px-4 py-3 text-slate-800 border-primary/5 shadow-[0_10px_30px_rgba(15,23,42,0.04)]"
+              : "rounded-[24px] bg-white px-5 py-4 text-slate-800 border-primary/5 shadow-[0_10px_30px_rgba(15,23,42,0.04)]",
           )}
         >
           {isUser ? (
-            <div className="whitespace-pre-wrap">{message.content}</div>
+            <div className="whitespace-pre-wrap font-medium">{message.content}</div>
           ) : meta.mode === "streaming" && !String(message.content || "").trim() ? (
             <div className="text-[15px] leading-7 text-slate-400">正在生成...</div>
           ) : (
@@ -1171,15 +1171,17 @@ export default function Workspace() {
 
           {showWelcomeCard ? (
             <div className="flex-1 flex flex-col min-h-0 items-center justify-center px-4 overflow-y-auto">
-               <div className="w-full max-w-[720px] pt-[8vh] pb-[4vh]">
-                  <div className="mb-8 pl-2 text-center">
+               <div className="flex min-h-[560px] w-full max-w-[720px] flex-col pt-[8vh] pb-[4vh]">
+                  <div className="mb-8 flex min-h-[190px] flex-col justify-end pl-2 text-center">
                      <h1 className="text-[32px] sm:text-[40px] font-extrabold leading-tight tracking-tight mb-2" style={{ background: 'linear-gradient(74deg, #b6860c 0, #d96e42 40%, #171412 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                        ✨ Xingz, 你好
                      </h1>
                      <h2 className="text-[32px] sm:text-[40px] font-bold leading-tight tracking-tight text-slate-300">
                        需要我为你做些什么?
                      </h2>
-                     <p className="mt-3 text-[13px] text-slate-500 max-w-2xl mx-auto leading-relaxed px-4">{activeAgent.intro}</p>
+                     <p className="mt-3 min-h-[72px] max-w-2xl mx-auto px-4 text-[13px] leading-relaxed text-slate-500">
+                       {activeAgent.intro}
+                     </p>
                   </div>
 
                   <div className="relative w-full border border-[#d96e42]/15 shadow-sm bg-white/90 hover:bg-white transition-colors rounded-[32px] p-1.5 flex flex-col group focus-within:bg-white focus-within:border-[#d96e42]/30 focus-within:shadow-md">
@@ -1247,7 +1249,7 @@ export default function Workspace() {
                   </div>
 
                   
-                  <div className="flex flex-wrap justify-center gap-3 mt-8 max-w-2xl mx-auto">
+                  <div className="mt-8 flex min-h-[104px] max-w-2xl mx-auto flex-wrap content-start justify-center gap-3">
                      {activeAgent.suggestions.map((suggestion) => (
                        <button key={suggestion} onClick={() => sendMessage(suggestion)} className="bg-[#fff7f0] border border-[#d96e42]/15 hover:border-[#d96e42]/30 hover:bg-[#fff2e8] text-[#b4542e] text-[13px] font-semibold px-4 py-2.5 rounded-full shadow-sm transition flex items-center gap-2">
                           <span className="material-symbols-outlined text-[16px]">chat_bubble</span> {suggestion}
