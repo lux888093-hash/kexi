@@ -53,23 +53,13 @@ export default function Sidebar1() {
         ))}
       </nav>
 
-      <div className="mt-auto rounded-[28px] border border-black/5 bg-white/80 p-4 shadow-sm shadow-black/5">
-        <p className="hidden text-[11px] font-bold uppercase tracking-[0.24em] text-slate-400 lg:block">
-          Workspace
-        </p>
+      <div className="mt-auto">
         <NavLink
           to="/settings"
-          className={({ isActive }) =>
-            [
-              "mt-2 flex w-full items-center gap-4 rounded-2xl px-3 py-3 text-left transition-colors",
-              isActive
-                ? "bg-[#b6860c]/12 text-[#b6860c] shadow-sm shadow-[#b6860c]/10"
-                : "text-slate-600 hover:bg-[#f2ece4] hover:text-[#8b6720]",
-            ].join(" ")
-          }
+          className={({ isActive }) => navClassName(isActive)}
         >
-          <span className="material-symbols-outlined">settings</span>
-          <span className="hidden lg:block text-sm font-semibold">
+          <span className="material-symbols-outlined text-[21px]">settings</span>
+          <span className="hidden lg:block font-semibold">
             系统设置
           </span>
         </NavLink>
