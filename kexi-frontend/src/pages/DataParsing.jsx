@@ -311,111 +311,138 @@ async function exportParsingDraft({ skillId, storeName, periodLabel, parsedFiles
 function SkillCatalogModal({ catalog, activeSkillId, onSelect, onClose, storeName, periodLabel }) {
   const activeSkill = getParsingSkillById(catalog.skills, activeSkillId);
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#171412]/30 backdrop-blur-[12px] p-4 animate-in fade-in duration-700">
-      <div className="bg-[#fcfaf7]/95 rounded-[56px] w-full max-w-[1200px] h-[85vh] flex flex-col shadow-[0_48px_160px_rgba(0,0,0,0.12)] overflow-hidden border border-white/60">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#171412]/30 backdrop-blur-[12px] p-4 animate-in fade-in duration-500">
+      <div className="bg-[#fcfaf7] rounded-[40px] w-full max-w-5xl h-[80vh] flex flex-col shadow-[0_32px_128px_rgba(0,0,0,0.15)] overflow-hidden border border-white/60">
         
         <div className="flex-1 overflow-hidden flex">
-          {/* Sidebar: Integrated & Minimal */}
-          <div className="w-[340px] bg-[#fbf6f1]/60 p-10 overflow-y-auto custom-scrollbar flex flex-col gap-8">
-            <div className="flex items-center gap-4 mb-4">
-              <div className="size-11 rounded-2xl bg-gradient-to-br from-[#b6860c] to-[#d96e42] text-white flex items-center justify-center shadow-lg shadow-[#b6860c]/20">
-                <span className="material-symbols-outlined text-[22px]">auto_awesome</span>
+          {/* Sidebar */}
+          <div className="w-72 bg-[#fbf6f1]/60 border-r border-[#eadfd2]/40 flex flex-col">
+            <div className="p-8 pb-4">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="size-9 rounded-xl bg-gradient-to-br from-[#b6860c] to-[#d96e42] text-white flex items-center justify-center shadow-lg shadow-[#b6860c]/20">
+                  <span className="material-symbols-outlined text-[20px]">auto_awesome</span>
+                </div>
+                <h2 className="text-lg font-black tracking-tight text-[#171412]">技能百科</h2>
               </div>
-              <h2 className="text-[20px] font-black tracking-tight text-[#171412]">技能百科</h2>
+              <p className="text-[11px] font-bold text-[#b97a5f]/60 uppercase tracking-wider">AI Capabilities</p>
             </div>
 
-            <nav className="flex flex-col gap-2">
-              <p className="text-[10px] font-black uppercase tracking-[0.4em] text-[#b97a5f]/50 mb-4 px-4">Capability List</p>
+            <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-1 custom-scrollbar">
+              <div className="text-[10px] font-black uppercase tracking-[0.3em] text-[#b97a5f]/40 mb-3 px-4 pt-4">解析能力清单</div>
               {catalog.skills.map((skill) => (
                 <button
                   key={skill.id}
                   onClick={() => onSelect(skill.id)}
-                  className={`group flex items-center gap-4 p-4 rounded-[28px] text-left transition-all duration-500 ${
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-left transition-all duration-300 ${
                     skill.id === activeSkillId 
-                      ? "bg-white shadow-[0_12px_32px_rgba(182,134,12,0.08)] text-[#171412]" 
+                      ? "bg-white shadow-[0_8px_24px_rgba(182,134,12,0.08)] text-[#b6860c]" 
                       : "text-slate-500 hover:bg-white/50 hover:text-[#8f5138]"
                   }`}
                 >
-                  <div className={`flex size-10 shrink-0 items-center justify-center rounded-full transition-all duration-500 ${
-                    skill.id === activeSkillId ? "bg-[#b6860c] text-white" : "bg-slate-200/50 text-slate-400 group-hover:bg-[#eadfd2]/50"
+                  <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-300 ${
+                    skill.id === activeSkillId ? "bg-[#b6860c] text-white" : "bg-[#eadfd2]/30 text-slate-400"
                   }`}>
                     <span className="material-symbols-outlined text-[18px]">{skill.icon}</span>
                   </div>
                   <span className="text-[14px] font-bold tracking-tight">{skill.label}</span>
                 </button>
               ))}
-            </nav>
+            </div>
           </div>
 
-          {/* Main Content: Spacious & Breathable */}
-          <div className="flex-1 p-16 overflow-y-auto custom-scrollbar bg-white/40 relative">
-            <button onClick={onClose} className="absolute top-10 right-10 flex size-12 items-center justify-center rounded-full bg-slate-50 border border-slate-100 hover:bg-[#171412] hover:text-white transition-all duration-500 shadow-sm group">
-              <span className="material-symbols-outlined text-[22px]">close</span>
-            </button>
+          {/* Main Content */}
+          <div className="flex-1 flex flex-col relative bg-white/40">
+            <div className="absolute top-8 right-8 z-10">
+              <button onClick={onClose} className="flex size-10 items-center justify-center rounded-full bg-white border border-[#eadfd2]/50 text-[#171412] hover:bg-[#171412] hover:text-white transition-all duration-500 shadow-sm">
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
 
-            <div className="max-w-[760px] animate-in fade-in slide-in-from-bottom-8 duration-700">
-              <div className="flex items-center gap-4 mb-8">
-                <span className="px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase tracking-[0.25em] border border-emerald-100/50">Production Ready</span>
-                <div className="h-1 w-1 rounded-full bg-slate-200"></div>
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.3em]">{activeSkill.badge}</span>
-              </div>
+            <div className="flex-1 p-12 overflow-y-auto custom-scrollbar">
+              <div className="max-w-3xl mx-auto animate-in slide-in-from-bottom-6 duration-700">
+                
+                <div className="flex items-center gap-3 mb-8">
+                  <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase tracking-widest border border-emerald-100/50">Production Ready</span>
+                  <div className="h-1 w-1 rounded-full bg-[#eadfd2]"></div>
+                  <span className="text-[11px] font-bold text-[#b97a5f]/50 uppercase tracking-[0.2em]">{activeSkill.badge}</span>
+                </div>
 
-              <h3 className="text-[48px] font-black tracking-tighter text-[#171412] mb-8 leading-[1.1]">{activeSkill.label}</h3>
-              <p className="text-[18px] leading-[1.8] text-slate-500 font-medium mb-12">{activeSkill.description}</p>
+                <h3 className="text-4xl font-black tracking-tighter text-[#171412] mb-6 leading-tight">{activeSkill.label}</h3>
+                <p className="text-[17px] leading-relaxed text-slate-500 font-medium mb-12">{activeSkill.description}</p>
 
-              <div className="flex flex-wrap gap-4 mb-20">
-                <div className="bg-[#fbf7f2] rounded-3xl px-8 py-6 flex items-center gap-5 border border-[#eadfd2]/30">
-                  <span className="material-symbols-outlined text-[#b6860c] text-[28px]">folder_special</span>
-                  <div>
-                    <p className="text-[9px] font-black uppercase tracking-[0.3em] text-[#b97a5f] mb-0.5">交付成果</p>
-                    <p className="text-[16px] font-black text-[#171412]">{activeSkill.deliverableLabel || "正式报表"}</p>
+                <div className="grid grid-cols-2 gap-5 mb-16">
+                  <div className="bg-[#fbf7f2] rounded-3xl p-6 border border-[#eadfd2]/30 flex items-center gap-5">
+                    <div className="size-12 rounded-2xl bg-white flex items-center justify-center shadow-sm border border-[#eadfd2]/20">
+                      <span className="material-symbols-outlined text-[#b6860c] text-[24px]">folder_special</span>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#b97a5f] mb-0.5">交付成果</p>
+                      <p className="text-[15px] font-black text-[#171412]">{activeSkill.deliverableLabel || "正式报表"}</p>
+                    </div>
+                  </div>
+                  <div className="bg-[#fbf7f2] rounded-3xl p-6 border border-[#eadfd2]/30 flex items-center gap-5">
+                    <div className="size-12 rounded-2xl bg-white flex items-center justify-center shadow-sm border border-[#eadfd2]/20">
+                      <span className="material-symbols-outlined text-[#d96e42] text-[24px]">location_on</span>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#b97a5f] mb-0.5">数据范围</p>
+                      <p className="text-[15px] font-black text-[#171412]">{storeName} · {periodLabel}</p>
+                    </div>
                   </div>
                 </div>
-                <div className="bg-[#fbf7f2] rounded-3xl px-8 py-6 flex items-center gap-5 border border-[#eadfd2]/30">
-                  <span className="material-symbols-outlined text-[#d96e42] text-[28px]">location_on</span>
-                  <div>
-                    <p className="text-[9px] font-black uppercase tracking-[0.3em] text-[#b97a5f] mb-0.5">数据范围</p>
-                    <p className="text-[16px] font-black text-[#171412]">{storeName} · {periodLabel}</p>
-                  </div>
-                </div>
-              </div>
 
-              <div className="space-y-16">
-                <section>
-                  <h4 className="text-[12px] font-black uppercase tracking-[0.4em] text-[#171412]/30 mb-8">职责边界 / Scope</h4>
-                  <div className="space-y-6">
-                    {(activeSkill.boundaries || []).map((b, i) => (
-                      <div key={i} className="flex items-start gap-6 group">
-                        <div className="mt-1.5 size-2 rounded-full bg-[#b6860c]/40 group-hover:scale-150 group-hover:bg-[#b6860c] transition-all duration-500"></div>
-                        <span className="text-[15px] leading-relaxed text-slate-600 font-semibold">{b}</span>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-
-                <section>
-                  <h4 className="text-[12px] font-black uppercase tracking-[0.4em] text-[#171412]/30 mb-8">输入要求 / Inputs</h4>
-                  <div className="flex flex-wrap gap-3">
-                    {(activeSkill.requiredSourceGroups || []).map((g) => (
-                      <div key={g.key} className="bg-slate-50 text-slate-500 border border-slate-100 rounded-2xl px-6 py-3.5 text-[13px] font-bold hover:bg-white hover:border-[#eadfd2] hover:text-[#8f5138] transition-all">
-                        {g.label}
-                      </div>
-                    ))}
-                  </div>
-                </section>
-
-                {activeSkill.suggestions && activeSkill.suggestions.length > 0 && (
-                  <section className="pb-20">
-                    <h4 className="text-[12px] font-black uppercase tracking-[0.4em] text-[#171412]/30 mb-8">推荐指令 / Prompts</h4>
-                    <div className="flex flex-col gap-3">
-                      {activeSkill.suggestions.map((s) => (
-                        <button key={s} onClick={() => { onSelect(activeSkill.id); onClose(); }} className="w-fit rounded-2xl bg-white border border-[#eadfd2]/60 px-6 py-4 text-[14px] font-bold text-slate-700 text-left hover:border-[#b6860c] hover:shadow-lg hover:shadow-[#b6860c]/5 transition-all">
-                          {s}
-                        </button>
+                <div className="space-y-12">
+                  <section>
+                    <h4 className="flex items-center gap-3 text-[11px] font-black uppercase tracking-[0.3em] text-[#171412]/30 mb-8">
+                      <span className="h-px w-6 bg-[#eadfd2]"></span>
+                      职责边界 / Scope
+                    </h4>
+                    <div className="space-y-4">
+                      {(activeSkill.boundaries || []).map((b, i) => (
+                        <div key={i} className="flex items-start gap-4 group">
+                          <div className="mt-2 size-1.5 rounded-full bg-[#b6860c]/40 group-hover:bg-[#b6860c] transition-colors shrink-0"></div>
+                          <span className="text-[15px] leading-relaxed text-slate-600 font-semibold">{b}</span>
+                        </div>
                       ))}
                     </div>
                   </section>
-                )}
+
+                  <section>
+                    <h4 className="flex items-center gap-3 text-[11px] font-black uppercase tracking-[0.3em] text-[#171412]/30 mb-8">
+                      <span className="h-px w-6 bg-[#eadfd2]"></span>
+                      输入要求 / Inputs
+                    </h4>
+                    <div className="flex flex-wrap gap-3">
+                      {(activeSkill.requiredSourceGroups || []).map((g) => (
+                        <div key={g.key} className="bg-white border border-[#eadfd2]/60 text-slate-600 rounded-2xl px-5 py-3 text-[13px] font-bold shadow-sm flex items-center gap-2 hover:border-[#b6860c]/40 transition-colors">
+                          <span className="material-symbols-outlined text-[16px] text-[#b97a5f]">description</span>
+                          {g.label}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  {activeSkill.suggestions && activeSkill.suggestions.length > 0 && (
+                    <section className="pb-16">
+                      <h4 className="flex items-center gap-3 text-[11px] font-black uppercase tracking-[0.3em] text-[#171412]/30 mb-8">
+                        <span className="h-px w-6 bg-[#eadfd2]"></span>
+                        推荐指令 / Prompts
+                      </h4>
+                      <div className="grid gap-3">
+                        {activeSkill.suggestions.map((s) => (
+                          <button key={s} onClick={() => { onSelect(activeSkill.id); onClose(); }} className="w-full text-left rounded-[24px] bg-[#fbf7f2]/50 border border-[#eadfd2]/40 p-5 text-[14px] font-bold text-slate-700 hover:border-[#b6860c]/60 hover:bg-white hover:shadow-xl hover:shadow-[#b6860c]/5 transition-all group">
+                            <div className="flex items-center justify-between">
+                              <span className="leading-relaxed group-hover:text-[#171412] transition-colors">{s}</span>
+                              <div className="size-8 rounded-full flex items-center justify-center text-[#eadfd2] group-hover:text-[#b6860c] group-hover:bg-[#b6860c]/5 transition-all">
+                                <span className="material-symbols-outlined text-[20px]">arrow_forward</span>
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </div>
               </div>
             </div>
           </div>
