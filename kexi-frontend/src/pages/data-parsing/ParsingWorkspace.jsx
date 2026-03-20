@@ -7,7 +7,7 @@ import {
   getParsingSkillById,
   getParsingSkillClientConfig,
 } from "../../lib/parsingSkills";
-import { FileChip, MarkdownMessage, SkillCatalogModal, ThoughtProcess } from "./ParsingUi";
+import { FileChip, MarkdownMessage, SkillCatalogModal, ThoughtProcess, WelcomeScreen } from "./ParsingUi";
 import {
   DRAFT_CONVERSATION_ID,
   MONTHS,
@@ -542,10 +542,14 @@ export default function ParsingWorkspace() {
   }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-[#fbf7f2] font-sans text-slate-900">
+    <div className="flex h-screen w-full overflow-hidden bg-[#fbf7f2] font-sans text-slate-900 relative">
+      {/* Decorative background elements */}
+      <div className="absolute top-[-10%] right-[-5%] size-[600px] rounded-full bg-gradient-to-br from-[#b6860c]/5 to-transparent blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-10%] left-[10%] size-[500px] rounded-full bg-gradient-to-tr from-[#d96e42]/5 to-transparent blur-[100px] pointer-events-none" />
+
       <Sidebar1 />
 
-      <main className="flex flex-1 overflow-hidden bg-transparent">
+      <main className="flex flex-1 overflow-hidden bg-transparent relative z-10">
         <aside
           className={cn(
             "flex h-full shrink-0 flex-col border-r border-[#eadfd5] bg-[#f8f1ea]/88 backdrop-blur-md transition-all duration-300",
@@ -629,9 +633,14 @@ export default function ParsingWorkspace() {
         </aside>
 
         <section className="relative flex min-w-0 flex-1 flex-col">
-          <header className="pointer-events-none absolute top-0 z-20 flex w-full items-center justify-between p-4">
-            <div className="pointer-events-auto flex items-center">
-              <span className="pl-2 text-xl font-bold text-[#171412]">珂溪智能</span>
+          <header className="pointer-events-none absolute top-0 z-20 flex w-full items-center justify-between p-6">
+            <div className="pointer-events-auto flex items-center gap-3">
+              <div className="flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-[#b6860c] to-[#d96e42] text-white shadow-lg shadow-[#b6860c]/20">
+                <span className="material-symbols-outlined text-[24px]">auto_awesome</span>
+              </div>
+              <span className="text-2xl font-black tracking-tight bg-gradient-to-r from-[#171412] to-[#171412]/60 bg-clip-text text-transparent">
+                智能解析器
+              </span>
             </div>
             <div className="pointer-events-auto flex items-center gap-4 pr-2">
               <div className="flex cursor-pointer items-center gap-1 rounded-full border border-[#b6860c]/20 bg-white/80 px-3 py-1.5 text-xs font-bold uppercase tracking-widest text-[#b6860c] shadow-sm transition hover:bg-white">
@@ -643,181 +652,191 @@ export default function ParsingWorkspace() {
             </div>
           </header>
 
-          <div className="flex min-h-0 flex-1 flex-col pt-16">
+          <div className="flex min-h-0 flex-1 flex-col pt-20">
             <div ref={scrollRef} className="custom-scrollbar flex-1 overflow-y-auto px-4 pb-6">
-              <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6">
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <div className="flex items-center gap-2 rounded-full border border-[#eadfd2]/70 bg-white/80 px-4 py-2 text-[12px] font-bold text-[#8b6720] shadow-sm">
-                    <span className="material-symbols-outlined text-[18px] text-[#b6860c]">
-                      {activeSkill.icon}
-                    </span>
-                    {activeSkill.label}
-                  </div>
-
-                  <div className="group relative">
-                    <select
-                      className="appearance-none rounded-full border border-[#eadfd2]/70 bg-white/80 py-2 pl-4 pr-8 text-[12px] font-bold text-slate-700 shadow-sm outline-none transition hover:border-[#b6860c]/40"
-                      onChange={(event) =>
-                        resetConversationContext({ selectedStore: event.target.value })
-                      }
-                      value={activeConversation.selectedStore}
-                    >
-                      {STORES.map((store) => (
-                        <option key={store} value={store}>
-                          {store}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="material-symbols-outlined pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[16px] text-slate-400 group-hover:text-[#b6860c]">
-                      expand_more
-                    </span>
-                  </div>
-
-                  <div className="group relative">
-                    <select
-                      className="appearance-none rounded-full border border-[#eadfd2]/70 bg-white/80 py-2 pl-4 pr-8 text-[12px] font-bold text-slate-700 shadow-sm outline-none transition hover:border-[#b6860c]/40"
-                      onChange={(event) =>
-                        resetConversationContext({ selectedMonth: event.target.value })
-                      }
-                      value={activeConversation.selectedMonth}
-                    >
-                      {MONTHS.map((month) => (
-                        <option key={month} value={month}>
-                          {month}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="material-symbols-outlined pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[16px] text-slate-400 group-hover:text-[#b6860c]">
-                      expand_more
-                    </span>
-                  </div>
-
-                  <button
-                    className="flex items-center gap-2 rounded-full border border-[#eadfd2]/70 bg-white/80 px-4 py-2 text-[12px] font-bold text-slate-600 shadow-sm transition hover:border-[#b6860c]/40 hover:text-[#8f5138]"
-                    onClick={() => setIsSkillModalOpen(true)}
-                    type="button"
-                  >
-                    <span className="material-symbols-outlined text-[18px]">menu_book</span>
-                    技能百科
-                  </button>
-
-                  {activePreviewPanel === "physical_table" ? (
-                    <button
-                      className="flex items-center gap-2 rounded-full border border-[#b6860c]/20 bg-[#fff7ef] px-4 py-2 text-[12px] font-bold text-[#b6860c] shadow-sm transition hover:bg-[#fff1e6]"
-                      onClick={() => setIsPanelOpen(true)}
-                      type="button"
-                    >
-                      <span className="material-symbols-outlined text-[18px]">table_chart</span>
-                      {activeSkill.deliverableActionLabel || "查看结果"}
-                    </button>
-                  ) : null}
-
-                  {activeConversation.pending ? (
-                    <div className="rounded-full bg-[#fff1e7] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[#b4542e]">
-                      处理中
-                    </div>
-                  ) : null}
-                </div>
-
-                {activeConversation.messages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={cn(
-                      "group flex w-full gap-3 animate-in fade-in slide-in-from-bottom-4 duration-500",
-                      message.sender === "user" ? "flex-row-reverse" : "flex-row",
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "flex size-9 shrink-0 items-center justify-center rounded-full shadow-sm transition-all duration-300",
-                        message.sender === "user"
-                          ? "bg-slate-200 text-slate-500"
-                          : "bg-gradient-to-br from-[#b6860c] to-[#d96e42] text-white shadow-[#b6860c]/20",
-                      )}
-                    >
-                      <span className="material-symbols-outlined text-[20px]">
-                        {message.sender === "user" ? "person" : activeSkill.icon}
-                      </span>
-                    </div>
-
-                    <div
-                      className={cn(
-                        "flex max-w-[85%] flex-col gap-1.5",
-                        message.sender === "user" ? "items-end text-right" : "items-start",
-                      )}
-                    >
-                      <div className="mb-0.5 flex items-center gap-2 px-1">
-                        <span className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-slate-400/80">
-                          {message.sender === "user" ? "管理台" : `珂溪助手 · ${activeSkill.label}`}
+              <div className="mx-auto flex w-full max-w-[720px] flex-col gap-8">
+                {activeConversation.messages.length === 0 ? (
+                  <WelcomeScreen
+                    activeSkill={activeSkill}
+                    onSuggestionClick={(text) => {
+                      setInputText(text);
+                    }}
+                  />
+                ) : (
+                  <>
+                    <div className="flex flex-wrap items-center gap-2 pt-1 animate-in fade-in slide-in-from-top-4 duration-500">
+                      <div className="flex items-center gap-2 rounded-full border border-white bg-white/60 px-4 py-2 text-[12px] font-bold text-[#8b6720] shadow-sm backdrop-blur-md">
+                        <span className="material-symbols-outlined text-[18px] text-[#b6860c]">
+                          {activeSkill.icon}
                         </span>
-                        {message.sender === "ai" && !message.loading ? (
-                          <span className="rounded-full border border-emerald-100/50 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-600">
-                            在线
-                          </span>
-                        ) : null}
+                        {activeSkill.label}
                       </div>
 
-                      {message.files ? (
-                        <div className="mb-2 flex flex-wrap gap-2">
-                          {message.files.map((file, index) => (
-                            <FileChip
-                              key={`${message.id}-${index}`}
-                              fileName={file.name}
-                              size={file.size}
-                            />
+                      <div className="group relative">
+                        <select
+                          className="appearance-none rounded-full border border-white bg-white/60 py-2 pl-4 pr-8 text-[12px] font-bold text-slate-700 shadow-sm outline-none transition hover:border-[#b6860c]/40 backdrop-blur-md"
+                          onChange={(event) =>
+                            resetConversationContext({ selectedStore: event.target.value })
+                          }
+                          value={activeConversation.selectedStore}
+                        >
+                          {STORES.map((store) => (
+                            <option key={store} value={store}>
+                              {store}
+                            </option>
                           ))}
-                        </div>
+                        </select>
+                        <span className="material-symbols-outlined pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[16px] text-slate-400 group-hover:text-[#b6860c]">
+                          expand_more
+                        </span>
+                      </div>
+
+                      <div className="group relative">
+                        <select
+                          className="appearance-none rounded-full border border-white bg-white/60 py-2 pl-4 pr-8 text-[12px] font-bold text-slate-700 shadow-sm outline-none transition hover:border-[#b6860c]/40 backdrop-blur-md"
+                          onChange={(event) =>
+                            resetConversationContext({ selectedMonth: event.target.value })
+                          }
+                          value={activeConversation.selectedMonth}
+                        >
+                          {MONTHS.map((month) => (
+                            <option key={month} value={month}>
+                              {month}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="material-symbols-outlined pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[16px] text-slate-400 group-hover:text-[#b6860c]">
+                          expand_more
+                        </span>
+                      </div>
+
+                      <button
+                        className="flex items-center gap-2 rounded-full border border-white bg-white/60 px-4 py-2 text-[12px] font-bold text-slate-600 shadow-sm transition hover:border-[#b6860c]/40 hover:text-[#8f5138] backdrop-blur-md"
+                        onClick={() => setIsSkillModalOpen(true)}
+                        type="button"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">menu_book</span>
+                        技能百科
+                      </button>
+
+                      {activePreviewPanel === "physical_table" ? (
+                        <button
+                          className="flex items-center gap-2 rounded-full border border-[#b6860c]/20 bg-[#fff7ef]/80 px-4 py-2 text-[12px] font-bold text-[#b6860c] shadow-sm transition hover:bg-[#fff1e6] backdrop-blur-md"
+                          onClick={() => setIsPanelOpen(true)}
+                          type="button"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">table_chart</span>
+                          {activeSkill.deliverableActionLabel || "查看结果"}
+                        </button>
                       ) : null}
 
-                      {message.text || message.sender === "ai" ? (
-                        <div
-                          className={cn(
-                            "rounded-[24px] border text-[14.5px] leading-[1.65] shadow-[0_10px_30px_rgba(15,23,42,0.04)] transition-all duration-300",
-                            message.sender === "user"
-                              ? "border-[#eadfd2]/70 bg-white px-4 py-3 text-slate-800"
-                              : "border-[#eadfd2]/70 bg-white px-5 py-4 text-slate-800",
-                          )}
-                        >
-                          {message.sender === "user" ? (
-                            <div className="whitespace-pre-wrap font-medium">{message.text}</div>
-                          ) : (
-                            <div className="w-full">
-                              <ThoughtProcess thought={message.reasoning} />
-                              {message.text ? <MarkdownMessage content={message.text} /> : null}
-                              {message.loading ? (
-                                <div className="mt-4 flex flex-col gap-3">
-                                  <div className="flex items-center gap-2">
-                                    <div className="size-1.5 animate-bounce rounded-full bg-[#b6860c]/40" />
-                                    <div
-                                      className="size-1.5 animate-bounce rounded-full bg-[#b6860c]/60"
-                                      style={{ animationDelay: "0.15s" }}
-                                    />
-                                    <div
-                                      className="size-1.5 animate-bounce rounded-full bg-[#b6860c]/80"
-                                      style={{ animationDelay: "0.3s" }}
-                                    />
-                                    {message.status ? (
-                                      <span className="ml-2 text-[11px] font-bold uppercase tracking-[0.2em] text-[#b97a5f]">
-                                        {message.status}
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                </div>
-                              ) : null}
-                            </div>
-                          )}
+                      {activeConversation.pending ? (
+                        <div className="rounded-full bg-[#fff1e7] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[#b4542e] animate-pulse">
+                          正在思考中...
                         </div>
                       ) : null}
                     </div>
-                  </div>
-                ))}
+
+                    {activeConversation.messages.map((message) => (
+                      <div
+                        key={message.id}
+                        className={cn(
+                          "group flex w-full gap-4 animate-in fade-in slide-in-from-bottom-6 duration-700",
+                          message.sender === "user" ? "flex-row-reverse" : "flex-row",
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "flex size-10 shrink-0 items-center justify-center rounded-2xl shadow-sm transition-all duration-500",
+                            message.sender === "user"
+                              ? "bg-white border border-slate-200 text-slate-500"
+                              : "bg-gradient-to-br from-[#b6860c] to-[#d96e42] text-white shadow-xl shadow-[#b6860c]/10",
+                          )}
+                        >
+                          <span className="material-symbols-outlined text-[22px]">
+                            {message.sender === "user" ? "person" : activeSkill.icon}
+                          </span>
+                        </div>
+
+                        <div
+                          className={cn(
+                            "flex max-w-[85%] flex-col gap-2",
+                            message.sender === "user" ? "items-end text-right" : "items-start",
+                          )}
+                        >
+                          <div className="flex items-center gap-2 px-1">
+                            <span className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">
+                              {message.sender === "user" ? "管理员" : `智能解析器 · ${activeSkill.label}`}
+                            </span>
+                          </div>
+
+                          {message.files ? (
+                            <div className="mb-2 flex flex-wrap gap-3">
+                              {message.files.map((file, index) => (
+                                <FileChip
+                                  key={`${message.id}-${index}`}
+                                  fileName={file.name}
+                                  size={file.size}
+                                />
+                              ))}
+                            </div>
+                          ) : null}
+
+                          {message.text || message.sender === "ai" ? (
+                            <div
+                              className={cn(
+                                "rounded-[32px] border text-[15px] leading-[1.7] shadow-[0_16px_48px_-12px_rgba(15,23,42,0.06)] transition-all duration-500",
+                                message.sender === "user"
+                                  ? "border-white bg-white/80 px-5 py-4 text-slate-800 backdrop-blur-sm"
+                                  : "border-white bg-white px-6 py-5 text-slate-800",
+                              )}
+                            >
+                              {message.sender === "user" ? (
+                                <div className="whitespace-pre-wrap font-semibold text-slate-700">
+                                  {message.text}
+                                </div>
+                              ) : (
+                                <div className="w-full">
+                                  <ThoughtProcess thought={message.reasoning} />
+                                  {message.text ? <MarkdownMessage content={message.text} /> : null}
+                                  {message.loading ? (
+                                    <div className="mt-6 flex flex-col gap-4">
+                                      <div className="flex items-center gap-3">
+                                        <div className="flex gap-1.5">
+                                          <div className="size-2 animate-bounce rounded-full bg-[#b6860c]/30" />
+                                          <div
+                                            className="size-2 animate-bounce rounded-full bg-[#b6860c]/60"
+                                            style={{ animationDelay: "0.2s" }}
+                                          />
+                                          <div
+                                            className="size-2 animate-bounce rounded-full bg-[#b6860c]"
+                                            style={{ animationDelay: "0.4s" }}
+                                          />
+                                        </div>
+                                        {message.status ? (
+                                          <span className="text-[11px] font-black uppercase tracking-[0.2em] text-[#b97a5f] animate-pulse">
+                                            {message.status}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
               </div>
             </div>
 
-            <div className="w-full bg-gradient-to-t from-[#fbf7f2] via-[#fbf7f2]/95 to-transparent px-4 pb-6 pt-4">
+            <div className="w-full bg-gradient-to-t from-[#fbf7f2] via-[#fbf7f2]/80 to-transparent px-4 pb-8 pt-4">
               <div className="mx-auto max-w-[720px]">
-                <div className="group relative flex w-full flex-col rounded-[32px] border border-[#d96e42]/15 bg-white/90 p-1.5 shadow-sm transition-colors hover:bg-white focus-within:border-[#d96e42]/30 focus-within:bg-white focus-within:shadow-md">
-                  <div className="flex items-start px-2 pb-0 pt-1">
+                <div className="group relative flex w-full flex-col rounded-[32px] border border-white bg-white/70 p-1.5 shadow-xl shadow-slate-200/40 transition-all hover:bg-white focus-within:bg-white focus-within:shadow-2xl focus-within:shadow-[#b6860c]/10 backdrop-blur-xl">
+                  <div className="flex items-start px-3 pb-0 pt-2">
                     <input
                       accept={acceptedFileTypes}
                       className="hidden"
@@ -827,14 +846,14 @@ export default function ParsingWorkspace() {
                       type="file"
                     />
                     <button
-                      className="mt-1.5 shrink-0 rounded-full p-2 text-slate-400 transition hover:bg-[#fff7f0]"
+                      className="mt-1.5 shrink-0 rounded-2xl p-2.5 text-slate-400 transition hover:bg-[#fbf7f2] hover:text-[#b6860c]"
                       onClick={() => fileInputRef.current?.click()}
                       type="button"
                     >
-                      <span className="material-symbols-outlined text-[22px]">add</span>
+                      <span className="material-symbols-outlined text-[24px]">add_circle</span>
                     </button>
                     <textarea
-                      className="max-h-[180px] min-h-[44px] flex-1 resize-none bg-transparent p-2.5 pt-3.5 text-[14.5px] text-slate-900 outline-none placeholder:text-slate-400"
+                      className="max-h-[200px] min-h-[48px] flex-1 resize-none bg-transparent p-3 text-[15px] font-medium text-slate-900 outline-none placeholder:text-slate-400 placeholder:font-normal"
                       onChange={(event) => setInputText(event.target.value)}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" && !event.shiftKey) {
@@ -842,71 +861,59 @@ export default function ParsingWorkspace() {
                           void handleSendMessage();
                         }
                       }}
-                      placeholder={activeSkill.placeholder || "输入指令或上传报表..."}
+                      placeholder={activeSkill.placeholder || "输入指令、上传报表，开启智能解析..."}
                       rows="1"
                       value={inputText}
                     />
                     <div className="mb-2 mr-2 flex items-center gap-1 self-end">
                       <button
                         className={cn(
-                          "rounded-full p-1.5 transition",
+                          "rounded-2xl p-2.5 transition-all duration-300",
                           inputText.trim() && !activeConversation.pending
-                            ? "text-slate-400 hover:bg-[#fff7f0]"
-                            : "cursor-not-allowed text-slate-300",
+                            ? "bg-[#b6860c] text-white shadow-lg shadow-[#b6860c]/20 hover:scale-105 active:scale-95"
+                            : "bg-slate-100 text-slate-300 cursor-not-allowed",
                         )}
                         disabled={!inputText.trim() || activeConversation.pending}
                         onClick={() => void handleSendMessage()}
                         type="button"
                       >
-                        <span className="material-symbols-outlined text-[22px] text-[#b6860c]">
+                        <span className="material-symbols-outlined text-[22px]">
                           send
                         </span>
                       </button>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between border-t border-[#d96e42]/5 px-4 pb-1.5 pt-1.5">
+                  <div className="flex items-center justify-between border-t border-slate-50 px-5 pb-2 pt-2">
                     <div className="relative" ref={skillSelectorRef}>
                       <button
-                        className="flex items-center gap-2 rounded-full bg-[#b6860c]/5 px-2.5 py-1 text-[12px] font-bold text-[#b6860c] transition hover:bg-[#b6860c]/10"
+                        className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-1.5 text-[12px] font-bold text-slate-600 transition hover:bg-[#b6860c]/10 hover:text-[#b6860c]"
                         onClick={() => setIsSkillSelectorOpen((current) => !current)}
                         type="button"
                       >
-                        <span className="material-symbols-outlined text-[16px]">
+                        <span className="material-symbols-outlined text-[18px]">
                           {activeSkill.icon}
                         </span>
                         {activeSkill.label}
-                        <span className="material-symbols-outlined text-[14px]">expand_more</span>
+                        <span className="material-symbols-outlined text-[16px]">expand_more</span>
                       </button>
 
                       {isSkillSelectorOpen ? (
-                        <div className="absolute bottom-full left-0 z-50 mb-2 w-64 overflow-hidden rounded-[28px] border border-[#eadfd2] bg-white py-2 shadow-[0_24px_64px_rgba(0,0,0,0.15)] animate-in fade-in slide-in-from-bottom-2 duration-200">
-                          <p className="px-5 py-2 text-[10px] font-bold uppercase tracking-[0.3em] text-[#b97a5f]">
-                            切换专业技能
-                          </p>
+                        <div className="absolute bottom-full left-0 z-50 mb-2 w-48 overflow-hidden rounded-2xl border border-[#eadfd5] bg-white py-2 shadow-xl animate-in fade-in slide-in-from-bottom-2 duration-200">
                           {skillCatalog.skills.map((skill) => (
                             <button
                               key={skill.id}
                               className={cn(
-                                "flex w-full items-center gap-4 px-5 py-4 text-left text-[14px] transition-all hover:bg-[#fbf7f2]",
+                                "flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-[#fff7f0]",
                                 skill.id === activeConversation.activeSkillId
-                                  ? "bg-[#fbf7f2]/80 font-black text-[#b6860c]"
-                                  : "font-bold text-slate-600",
+                                  ? "bg-[#fff7f0] font-bold text-[#b6860c]"
+                                  : "text-slate-600",
                               )}
                               onClick={() => handleSkillSelect(skill.id)}
                               type="button"
                             >
-                              <div
-                                className={cn(
-                                  "flex size-8 items-center justify-center rounded-xl transition-colors",
-                                  skill.id === activeConversation.activeSkillId
-                                    ? "bg-[#b6860c] text-white"
-                                    : "bg-slate-100 text-slate-500",
-                                )}
-                              >
-                                <span className="material-symbols-outlined text-[18px]">
-                                  {skill.icon}
-                                </span>
-                              </div>
+                              <span className="material-symbols-outlined text-[18px]">
+                                {skill.icon}
+                              </span>
                               {skill.label}
                             </button>
                           ))}
@@ -914,8 +921,8 @@ export default function ParsingWorkspace() {
                       ) : null}
                     </div>
 
-                    <div className="text-[11px] font-medium tracking-wide text-slate-400">
-                      智能解析 · {activeConversation.selectedStore} · {activeConversation.selectedMonth}
+                    <div className="text-[11px] font-black tracking-widest text-slate-400 uppercase opacity-60">
+                      Intelligent Parser Engine · {activeConversation.selectedStore}
                     </div>
                   </div>
                 </div>

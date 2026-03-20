@@ -198,16 +198,72 @@ export function MarkdownMessage({ content }) {
 
 export function FileChip({ fileName, size, status }) {
   const isPdf = fileName.toLowerCase().endsWith(".pdf");
-  const isExcel = fileName.toLowerCase().endsWith(".xlsx") || fileName.toLowerCase().endsWith(".xls");
+  const isExcel =
+    fileName.toLowerCase().endsWith(".xlsx") || fileName.toLowerCase().endsWith(".xls");
   const icon = isPdf ? "picture_as_pdf" : isExcel ? "table_view" : "draft";
   const iconColor = isPdf ? "text-rose-500" : isExcel ? "text-emerald-500" : "text-amber-500";
 
   return (
-    <div className="group inline-flex cursor-pointer items-center gap-2.5 rounded-2xl border border-[#eadfd2]/50 bg-white/80 px-4 py-2 text-xs font-bold text-slate-700 shadow-sm transition-all hover:border-[#b6860c]/40 hover:shadow-md">
-      <span className={`material-symbols-outlined text-[18px] ${iconColor}`}>{icon}</span>
-      <span className="max-w-[140px] truncate">{fileName}</span>
-      {size ? <span className="text-[10px] font-medium text-slate-400">{size}</span> : null}
-      {status === "PARTIAL" ? <span className="size-1.5 rounded-full bg-amber-400 animate-pulse" /> : null}
+    <div className="group flex cursor-pointer items-center gap-3 rounded-[20px] border border-white/60 bg-white/70 px-4 py-2.5 text-[13px] font-bold text-slate-700 shadow-sm transition-all hover:border-[#b6860c]/40 hover:bg-white hover:shadow-md">
+      <div className={cn("flex size-8 items-center justify-center rounded-xl bg-slate-50 shadow-inner group-hover:bg-white transition-colors")}>
+        <span className={`material-symbols-outlined text-[20px] ${iconColor}`}>{icon}</span>
+      </div>
+      <div className="flex flex-col">
+        <span className="max-w-[160px] truncate leading-tight">{fileName}</span>
+        {size ? <span className="text-[10px] font-medium text-slate-400 mt-0.5">{size}</span> : null}
+      </div>
+      {status === "PARTIAL" ? (
+        <span className="ml-1 size-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.6)]" />
+      ) : null}
+    </div>
+  );
+}
+
+export function WelcomeScreen({ activeSkill, onSuggestionClick }) {
+  const suggestions = activeSkill.suggestions || [
+    "分析本月营业额异常原因",
+    "生成华创店体质趋势报告",
+    "对比各店员工绩效表现",
+  ];
+
+  return (
+    <div className="flex flex-col items-center justify-center pt-24 pb-12 text-center animate-in fade-in slide-in-from-bottom-8 duration-1000">
+      <div className="relative mb-8">
+        <div className="absolute -inset-4 rounded-full bg-gradient-to-r from-[#b6860c]/20 to-[#d96e42]/20 blur-2xl animate-pulse" />
+        <div className="relative flex size-20 items-center justify-center rounded-[32px] bg-gradient-to-br from-[#b6860c] to-[#d96e42] text-white shadow-2xl shadow-[#b6860c]/30">
+          <span className="material-symbols-outlined text-[40px] leading-none">auto_awesome</span>
+        </div>
+      </div>
+
+      <h1 className="mb-4 text-4xl font-black tracking-tight text-[#171412]">
+        您好，我是<span className="bg-gradient-to-r from-[#b6860c] via-[#d96e42] to-[#b6860c] bg-clip-text text-transparent animate-gradient-x">智能解析器</span>
+      </h1>
+      <p className="mb-12 max-w-md text-lg font-medium text-slate-500 leading-relaxed">
+        今天我能帮您分析哪家门店的数据？你可以直接上传报表，或从下方建议开始。
+      </p>
+
+      <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {suggestions.slice(0, 3).map((text, i) => (
+          <button
+            key={i}
+            onClick={() => onSuggestionClick(text)}
+            className="group flex flex-col items-start rounded-[28px] border border-white bg-white/60 p-6 text-left shadow-sm transition-all hover:border-[#b6860c]/30 hover:bg-white hover:shadow-xl hover:shadow-[#b6860c]/5 animate-in fade-in slide-in-from-bottom-4 duration-700"
+            style={{ animationDelay: `${i * 150}ms` }}
+          >
+            <div className="mb-4 flex size-10 items-center justify-center rounded-2xl bg-[#fbf7f2] text-[#b6860c] transition-colors group-hover:bg-[#b6860c] group-hover:text-white">
+              <span className="material-symbols-outlined text-[20px]">
+                {i === 0 ? "insights" : i === 1 ? "analytics" : "auto_graph"}
+              </span>
+            </div>
+            <p className="text-[15px] font-bold text-slate-700 group-hover:text-[#171412] leading-snug">
+              {text}
+            </p>
+            <div className="mt-4 flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-400 group-hover:text-[#b6860c]">
+              立即开始 <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+            </div>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
