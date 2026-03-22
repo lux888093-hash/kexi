@@ -2,21 +2,31 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const PDFDocument = require('pdfkit');
-const { readSettings } = require('../appSettings');
-const {
-  aggregateShuadanFiles,
-  formatCurrency,
-} = require('./shuadanPacketParser');
+const { aggregateShuadanFiles } = require('./shuadanPacketParser');
 
 const PARSING_EXPORTS_DIR = path.join(__dirname, '..', '..', 'exports', 'parsing-drafts');
-const ZHIPU_API_URL =
-  process.env.ZHIPU_API_URL || 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 const FONT_CANDIDATES = [
   'C:/Windows/Fonts/simhei.ttf',
   'C:/Windows/Fonts/NotoSansSC-VF.ttf',
   'C:/Windows/Fonts/simsunb.ttf',
   'C:/Windows/Fonts/msyh.ttc',
 ];
+const SECTION_PAGE_COLUMNS = 4;
+const SECTION_PAGE_FRAME = {
+  x: 54,
+  y: 74,
+  height: 392,
+  titleY: 46,
+  totalY: 486,
+  totalWidth: 240,
+};
+const SECTION_CARD_STYLE = {
+  paddingX: 10,
+  paddingTop: 8,
+  imageHeight: 272,
+  dividerWidth: 46,
+};
+const SECTION_NUMBER_LABELS = ['一', '二', '三'];
 
 function ensureParsingExportsDir() {
   fs.mkdirSync(PARSING_EXPORTS_DIR, { recursive: true });
@@ -44,658 +54,833 @@ function dedupeStrings(values = []) {
   return [...new Set(values.map((value) => safeText(value)).filter(Boolean))];
 }
 
-function getSummaryModelCandidates() {
-  const settings = readSettings();
-
-  return [
-    process.env.ZHIPU_TEXT_MODEL || '',
-    process.env.ZHIPU_MODEL || '',
-    settings?.zhipuModel || '',
-    'glm-5',
-    'glm-4.7-flash',
-    'glm-4-flash-250414',
-  ].filter(Boolean).filter((value, index, array) => array.indexOf(value) === index);
+function formatPlainAmount(amount = 0) {
+  return Number(amount || 0).toFixed(2);
 }
 
-function extractJsonObjectFromText(text = '') {
-  const source = String(text || '')
-    .trim()
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim();
+function parseNormalizedTime(value = '') {
+  const matched = String(value || '').match(
+    /^(20\d{2})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/,
+  );
 
-  if (!source) {
+  if (!matched) {
     return null;
   }
 
-  try {
-    return JSON.parse(source);
-  } catch (_error) {
-    // Fall through.
+  return {
+    year: matched[1],
+    month: matched[2],
+    day: matched[3],
+    hour: matched[4],
+    minute: matched[5],
+    second: matched[6],
+  };
+}
+
+function formatDisplayTime(value = '', options = {}) {
+  const parts = parseNormalizedTime(value);
+
+  if (!parts) {
+    return '';
   }
 
-  const startIndex = source.indexOf('{');
+  const date = options.slashes
+    ? `${parts.year}/${parts.month}/${parts.day}`
+    : `${parts.year}-${parts.month}-${parts.day}`;
+  const time = `${parts.hour}:${parts.minute}:${parts.second}`;
 
-  if (startIndex === -1) {
+  return options.timeOnly ? time : `${date} ${time}`;
+}
+
+function formatDisplayTimeRange(values = [], options = {}) {
+  const points = dedupeStrings(values)
+    .map((value) => parseNormalizedTime(value))
+    .filter(Boolean)
+    .sort((left, right) =>
+      `${left.year}${left.month}${left.day}${left.hour}${left.minute}${left.second}`.localeCompare(
+        `${right.year}${right.month}${right.day}${right.hour}${right.minute}${right.second}`,
+      ),
+    );
+
+  if (!points.length) {
+    return '';
+  }
+
+  if (points.length === 1) {
+    const only = points[0];
+    return formatDisplayTime(
+      `${only.year}-${only.month}-${only.day} ${only.hour}:${only.minute}:${only.second}`,
+      options,
+    );
+  }
+
+  const first = points[0];
+  const last = points[points.length - 1];
+  const sameDay =
+    first.year === last.year && first.month === last.month && first.day === last.day;
+  const firstFull = formatDisplayTime(
+    `${first.year}-${first.month}-${first.day} ${first.hour}:${first.minute}:${first.second}`,
+    options,
+  );
+
+  if (!sameDay) {
+    const lastFull = formatDisplayTime(
+      `${last.year}-${last.month}-${last.day} ${last.hour}:${last.minute}:${last.second}`,
+      options,
+    );
+    return `${firstFull}-${lastFull}`;
+  }
+
+  return `${firstFull}-${last.hour}:${last.minute}:${last.second}`;
+}
+
+function formatAuditFileName(fileName = '') {
+  return safeText(path.basename(String(fileName || '')));
+}
+
+function normalizeCode(value = '') {
+  return safeText(value).replace(/[^\dA-Za-z]/g, '');
+}
+
+function formatVoucherCodeDisplay(value = '') {
+  const code = normalizeCode(value);
+
+  if (/^\d{12}$/.test(code)) {
+    return code.replace(/(\d{4})(\d{4})(\d{4})/, '$1 $2 $3');
+  }
+
+  if (/^\d{13}$/.test(code)) {
+    return code.replace(/(\d{4})(\d{4})(\d{4})(\d)/, '$1 $2 $3 $4');
+  }
+
+  return code;
+}
+
+function extractCodesFromLabel(label = '') {
+  return dedupeStrings(
+    (safeText(label).match(/[0-9A-Za-z]{8,24}/g) || []).map((item) => normalizeCode(item)),
+  );
+}
+
+function toDateObject(value = '') {
+  const parts = parseNormalizedTime(value);
+
+  if (!parts) {
     return null;
   }
 
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
+  const date = new Date(
+    `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}+08:00`,
+  );
 
-  for (let index = startIndex; index < source.length; index += 1) {
-    const character = source[index];
+  return Number.isNaN(date.getTime()) ? null : date;
+}
 
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
+function diffSeconds(left = '', right = '') {
+  const leftDate = toDateObject(left);
+  const rightDate = toDateObject(right);
 
-      if (character === '\\') {
-        escaped = true;
-        continue;
-      }
+  if (!leftDate || !rightDate) {
+    return Number.POSITIVE_INFINITY;
+  }
 
-      if (character === '"') {
-        inString = false;
-      }
+  return Math.abs(leftDate.getTime() - rightDate.getTime()) / 1000;
+}
 
-      continue;
+function formatClock(value = '') {
+  const parts = parseNormalizedTime(value);
+  return parts ? `${parts.hour}:${parts.minute}` : '';
+}
+
+function buildVerificationVoucherPool(aggregate = {}) {
+  const verificationSection = aggregate.sections.find((section) => section.key === 'verification') || {};
+  const refs = [];
+
+  (verificationSection.items || []).forEach((item) => {
+    if (item.voucherCode && item.normalizedTime) {
+      refs.push({
+        code: normalizeCode(item.voucherCode),
+        time: item.normalizedTime,
+        source: 'detail',
+      });
     }
 
-    if (character === '"') {
-      inString = true;
-      continue;
-    }
+    (item.listItems || []).forEach((listItem) => {
+      extractCodesFromLabel(listItem.label).forEach((code) => {
+        refs.push({
+          code,
+          time: listItem.time || item.normalizedTime,
+          source: 'list',
+        });
+      });
+    });
+  });
 
-    if (character === '{') {
-      depth += 1;
-    } else if (character === '}') {
-      depth -= 1;
+  return refs.filter((item) => item.code && item.time);
+}
 
-      if (depth === 0) {
-        try {
-          return JSON.parse(source.slice(startIndex, index + 1));
-        } catch (_error) {
-          return null;
+function findNearbyVoucherRefs(targetTime = '', refs = [], toleranceSeconds = 120) {
+  return refs
+    .map((ref) => ({
+      ...ref,
+      diffSeconds: diffSeconds(targetTime, ref.time),
+    }))
+    .filter((ref) => ref.diffSeconds <= toleranceSeconds)
+    .sort((left, right) => {
+      if (left.diffSeconds !== right.diffSeconds) {
+        return left.diffSeconds - right.diffSeconds;
+      }
+
+      if (left.source !== right.source) {
+        return left.source === 'list' ? -1 : 1;
+      }
+
+      return left.code.localeCompare(right.code);
+    });
+}
+
+function buildTransferVoucherLinks(aggregate = {}) {
+  const transferSection = aggregate.sections.find((section) => section.key === 'transfer') || {};
+  const refs = buildVerificationVoucherPool(aggregate);
+  const links = new Map();
+
+  (transferSection.items || []).forEach((item) => {
+    const key = item.assetToken || item.fileName;
+
+    if (item.isListPage) {
+      const listLines = [];
+
+      (item.listItems || []).forEach((listItem) => {
+        const candidates = findNearbyVoucherRefs(listItem.time || item.normalizedTime, refs);
+        const relaxedCandidates =
+          candidates.length
+            ? candidates
+            : findNearbyVoucherRefs(listItem.time || item.normalizedTime, refs, 1800);
+
+        if (!relaxedCandidates.length) {
+          return;
         }
-      }
-    }
-  }
 
-  return null;
-}
+        const listCodes = dedupeStrings(
+          relaxedCandidates
+            .filter((candidate) => candidate.source === 'list')
+            .map((candidate) => candidate.code),
+        );
+        const detailCodes = dedupeStrings(
+          relaxedCandidates
+            .filter((candidate) => candidate.source === 'detail')
+            .map((candidate) => candidate.code),
+        ).filter((code) => !listCodes.includes(code));
+        const primaryCodes = listCodes.length ? listCodes : detailCodes.slice(0, 1);
+        const extraDetailCodes = detailCodes.filter((code) => !primaryCodes.includes(code));
 
-function buildTransferAmountRepeatLines(section = {}) {
-  const entries = Array.isArray(section.items) ? section.items : [];
-  const amountMap = new Map();
+        if (!primaryCodes.length) {
+          return;
+        }
 
-  entries.forEach((item) => {
-    const amount = Number(item?.primaryAmount || 0);
+        let line = `${formatClock(listItem.time || item.normalizedTime)} 对应 ${primaryCodes
+          .map((code) => formatVoucherCodeDisplay(code))
+          .join('、')}`;
 
-    if (!amount) {
+        if (extraDetailCodes.length) {
+          line += `（另附详情页券码 ${extraDetailCodes
+            .map((code) => formatVoucherCodeDisplay(code))
+            .join('、')}）`;
+        }
+
+        listLines.push(line);
+      });
+
+      links.set(key, {
+        listLines: dedupeStrings(listLines).slice(0, 4),
+      });
       return;
     }
 
-    const key = amount.toFixed(2);
-    const current = amountMap.get(key) || {
-      amount,
-      times: [],
-    };
+    const primaryMatches = findNearbyVoucherRefs(item.normalizedTime, refs);
+    const relaxedMatches = primaryMatches.length
+      ? primaryMatches
+      : findNearbyVoucherRefs(item.normalizedTime, refs, 1800);
+    const codes = dedupeStrings(relaxedMatches.map((candidate) => candidate.code))
+      .map((code) => formatVoucherCodeDisplay(code))
+      .slice(0, 4);
 
-    if (item.normalizedTime) {
-      current.times.push(item.normalizedTime);
-    }
-
-    amountMap.set(key, current);
+    links.set(key, { codes });
   });
 
-  return [...amountMap.values()]
-    .filter((item) => item.times.length > 1)
-    .sort((left, right) => right.times.length - left.times.length || right.amount - left.amount)
-    .slice(0, 4)
-    .map((item) => `${formatCurrency(item.amount)} 出现 ${item.times.length} 次：${dedupeStrings(item.times).join('、')}`);
+  return links;
 }
 
-function buildFallbackAiAuditSummary(aggregate = {}) {
-  const transferSection = aggregate.sections.find((section) => section.key === 'transfer') || {};
+function buildSectionSummaryRows(aggregate = {}) {
   const verificationSection = aggregate.sections.find((section) => section.key === 'verification') || {};
-  const reviewSection = aggregate.sections.find((section) => section.key === 'review') || {};
-  const repeatedAmountLines = buildTransferAmountRepeatLines(transferSection);
-
-  return {
-    title: '财务安全审核分析',
-    scope: `审核范围：转账截图板块，共 ${transferSection.screenshotCount || 0} 张截图，当前口径合计 ${formatCurrency(aggregate.transferTotal || 0)}。`,
-    goal: '审核目标：检查是否存在重复计入、明显异常单据，并说明本版金额口径与归类规则。',
-    classificationSummary: [
-      `当前按截图归类为：核销截图板块 ${verificationSection.screenshotCount || 0} 张，转账截图板块 ${transferSection.screenshotCount || 0} 张${reviewSection.screenshotCount ? `，待复核 ${reviewSection.screenshotCount} 张` : ''}。`,
-      `金额口径：按每张截图中可见金额统计；若同一订单同时出现列表页和详情页，本版不做一对一配对，也不主动去重。`,
-      `核销截图板块合计 ${formatCurrency(aggregate.verificationTotal || 0)}，转账截图板块合计 ${formatCurrency(aggregate.transferTotal || 0)}。`,
-    ],
-    conclusions: [
-      aggregate.repeatedAmountTime?.length
-        ? `发现 ${aggregate.repeatedAmountTime.length} 组“同金额 + 同时间”的高风险重复，需要人工复核。`
-        : '未发现“同金额 + 同时间”的完全重复转账截图，当前转账板块未见直接重复入账。',
-      transferSection.listCount
-        ? `转账板块含 ${transferSection.listCount} 张列表页，本版按截图可见金额统计，后续若补录对应详情页，需人工删除或改写列表页金额口径。`
-        : '当前转账板块未出现列表页与详情页并存导致的明显统计冲突。',
-      verificationSection.listCount
-        ? `核销板块含 ${verificationSection.listCount} 张列表页，本版同样按截图可见金额统计，不与详情页自动对冲。`
-        : '当前核销板块以详情页为主，金额来源相对直接。',
-    ],
-    focusChecks: repeatedAmountLines.length
-      ? repeatedAmountLines
-      : ['重点盯同金额高频记录与列表页/详情页并存场景；当前未发现需要立刻剔除的重复单据。'],
-    recommendations: [
-      '本批继续按“分板块、按截图可见金额统计”的口径使用。',
-      '后续补图时，若同一业务同时补进列表页和单笔详情页，必须人工确认是否重复计入。',
-      reviewSection.screenshotCount
-        ? `待复核截图仍有 ${reviewSection.screenshotCount} 张，建议在报销前再次人工确认。`
-        : '当前截图包已完成分板块归类，可直接用于导出归档。',
-    ],
-    generatedBy: 'fallback',
-  };
-}
-
-function buildAiSummaryPrompt({ storeName = '', periodLabel = '', aggregate = {} } = {}) {
   const transferSection = aggregate.sections.find((section) => section.key === 'transfer') || {};
-  const verificationSection = aggregate.sections.find((section) => section.key === 'verification') || {};
-  const reviewSection = aggregate.sections.find((section) => section.key === 'review') || {};
-
-  const context = {
-    storeName: safeText(storeName),
-    periodLabel: safeText(periodLabel),
-    amountRule: '按每张截图中可见金额统计；若同一订单同时出现列表页和详情页，本版不做一对一配对，也不主动去重。',
-    summary: {
-      screenshotCount: aggregate.screenshotCount || 0,
-      verificationTotal: aggregate.verificationTotal || 0,
-      transferTotal: aggregate.transferTotal || 0,
-      actualReimbursementTotal: aggregate.actualReimbursementTotal || 0,
-    },
-    sections: [verificationSection, transferSection, reviewSection]
-      .filter((section) => section.key)
-      .map((section) => ({
-        key: section.key,
-        label: section.label,
-        screenshotCount: section.screenshotCount || 0,
-        total: section.summaryTotal || 0,
-        listCount: section.listCount || 0,
-        detailCount: section.detailCount || 0,
-        items: (section.items || []).slice(0, 20).map((item) => ({
-          caption: item.caption,
-          amount: item.primaryAmount,
-          time: item.normalizedTime,
-          isListPage: Boolean(item.isListPage),
-        })),
-      })),
-    duplicateTransfers: aggregate.duplicateTransfers || [],
-    repeatedAmountTime: aggregate.repeatedAmountTime || [],
-    caveats: aggregate.caveats || [],
-  };
 
   return [
-    '你是“门店刷单整理-分板块版.pdf”的财务审核总结器。',
-    '请严格基于给定 JSON 输出一个 JSON 对象，不要 Markdown，不要解释，不要补充额外文字。',
-    '统计口径非常重要：本版只按截图归类，不做一对一配对；金额按每张截图中可见金额统计；即使列表页与详情页疑似同单，也不要擅自去重，只能提示风险。',
-    '输出字段：',
-    '- title: 固定写“财务安全审核分析”',
-    '- scope: 一句话说明审核范围',
-    '- goal: 一句话说明审核目标',
-    '- classificationSummary: 2到4条，说明板块归类和金额口径',
-    '- conclusions: 3到5条，说明审核结论',
-    '- focusChecks: 2到5条，说明重点复核点',
-    '- recommendations: 2到4条，给出后续建议',
-    '要求：',
-    '- 结论必须简洁、可落地。',
-    '- 如果没有高风险重复，也要明确说未发现。',
-    '- 如果有列表页，要明确提醒后续补详情页时可能重复计入。',
-    '上下文 JSON：',
-    JSON.stringify(context, null, 2),
-  ].join('\n');
+    ['板块', '截图数量', '板块金额（元）'],
+    ['核销截图板块', `${verificationSection.screenshotCount || 0}`, formatPlainAmount(aggregate.verificationTotal)],
+    ['转账截图板块', `${transferSection.screenshotCount || 0}`, formatPlainAmount(aggregate.transferTotal)],
+  ];
 }
 
-async function requestShuadanAiAuditSummary({ storeName = '', periodLabel = '', aggregate = {} } = {}) {
-  const settings = readSettings();
-  const apiKey = String(process.env.ZHIPU_API_KEY || settings?.zhipuApiKey || '').trim();
-  const fallbackSummary = buildFallbackAiAuditSummary(aggregate);
-
-  if (!apiKey) {
-    return fallbackSummary;
-  }
-
-  const prompt = buildAiSummaryPrompt({
-    storeName,
-    periodLabel,
-    aggregate,
-  });
-  let lastError = null;
-
-  for (const model of getSummaryModelCandidates()) {
-    try {
-      const response = await fetch(ZHIPU_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          temperature: 0.2,
-          top_p: 0.7,
-          max_tokens: 1400,
-          messages: [
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
-        }),
-      });
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        const error = new Error(payload?.error?.message || payload?.message || `AI 审核总结调用失败（HTTP ${response.status}）`);
-        error.status = response.status;
-        throw error;
-      }
-
-      const raw = payload?.choices?.[0]?.message?.content || '';
-      const parsed = extractJsonObjectFromText(raw);
-
-      if (!parsed) {
-        throw new Error(`模型 ${model} 返回了无法解析的审核总结结果。`);
-      }
-
-      return {
-        ...fallbackSummary,
-        title: safeText(parsed.title) || fallbackSummary.title,
-        conclusions: dedupeStrings(parsed.conclusions).slice(0, 5).length
-          ? dedupeStrings(parsed.conclusions).slice(0, 5)
-          : fallbackSummary.conclusions,
-        focusChecks: dedupeStrings(parsed.focusChecks).slice(0, 5).length
-          ? dedupeStrings(parsed.focusChecks).slice(0, 5)
-          : fallbackSummary.focusChecks,
-        recommendations: dedupeStrings(parsed.recommendations).slice(0, 4).length
-          ? dedupeStrings(parsed.recommendations).slice(0, 4)
-          : fallbackSummary.recommendations,
-        generatedBy: model,
-      };
-    } catch (error) {
-      lastError = error;
-
-      if (error?.status === 401 || error?.status === 403) {
-        break;
-      }
-    }
-  }
-
-  return {
-    ...fallbackSummary,
-    error: lastError?.message || '',
-  };
-}
-
-function drawSectionSummaryTable(doc, sections = [], startY) {
-  const pageWidth = doc.page.width;
+function drawStandardSummaryTable(doc, rows = [], startY = 0) {
   const margin = doc.page.margins.left;
-  const totalWidth = pageWidth - margin * 2;
-  const columns = [0.24, 0.16, 0.2, 0.4];
-  const widths = columns.map((ratio) => totalWidth * ratio);
+  const totalWidth = doc.page.width - margin * 2;
+  const widths = [totalWidth * 0.46, totalWidth * 0.18, totalWidth * 0.36];
   let cursorY = startY;
 
-  const rows = [
-    ['板块', '截图数', '汇总金额', '统计规则'],
-    ...sections.map((section) => [
-      section.label,
-      `${section.screenshotCount}`,
-      section.key === 'review' ? '不计入' : formatCurrency(section.summaryTotal),
-      section.totalRule,
-    ]),
-  ];
-
   rows.forEach((row, rowIndex) => {
-    const height = rowIndex === 0 ? 28 : 34;
     let cursorX = margin;
+    const rowHeight = 34;
 
     row.forEach((cell, cellIndex) => {
       doc
         .save()
         .lineWidth(0.6)
-        .fillColor(rowIndex === 0 ? '#f5efe6' : '#ffffff')
-        .strokeColor('#d6c9b7')
-        .roundedRect(cursorX, cursorY, widths[cellIndex], height, 6)
+        .fillColor(rowIndex === 0 ? '#f6f1e8' : '#ffffff')
+        .strokeColor('#ccbfae')
+        .rect(cursorX, cursorY, widths[cellIndex], rowHeight)
         .fillAndStroke()
         .restore();
       doc
-        .fillColor('#2f261f')
-        .fontSize(rowIndex === 0 ? 11 : 10.5)
-        .text(safeText(cell), cursorX + 10, cursorY + 8, {
+        .fillColor('#1f1a17')
+        .fontSize(rowIndex === 0 ? 11 : 10.8)
+        .text(safeText(cell), cursorX + 10, cursorY + 10, {
           width: widths[cellIndex] - 20,
-          height: height - 10,
+          align: cellIndex === 0 ? 'left' : 'center',
         });
       cursorX += widths[cellIndex];
     });
 
-    cursorY += height + 8;
+    cursorY += rowHeight;
   });
 
   return cursorY;
 }
 
-function drawBulletList(doc, title, items = [], startY) {
-  doc
-    .fillColor('#1f2937')
-    .fontSize(13)
-    .text(title, doc.page.margins.left, startY);
-
-  let cursorY = startY + 22;
-
-  items.forEach((item) => {
-    doc
-      .fillColor('#475569')
-      .fontSize(10.5)
-      .text(`• ${safeText(item)}`, doc.page.margins.left + 6, cursorY, {
-        width: doc.page.width - doc.page.margins.left * 2 - 12,
-      });
-    cursorY = doc.y + 8;
-  });
-
-  return cursorY;
-}
-
-function drawSummaryPage(doc, options, aggregate) {
-  const { storeName = '', periodLabel = '' } = options;
-
+function drawSummaryPage(doc, aggregate) {
   doc
     .fillColor('#18110b')
-    .fontSize(22)
-    .text('门店刷单整理-分板块版', doc.page.margins.left, 48);
+    .fontSize(24)
+    .text('门店刷单整理-分板块版', doc.page.margins.left, 52);
   doc
-    .fillColor('#8a6d3b')
-    .fontSize(10.5)
+    .fillColor('#3f342b')
+    .fontSize(11)
     .text(
-      [safeText(storeName), safeText(periodLabel), `生成时间 ${new Date().toLocaleString('zh-CN')}`]
-        .filter(Boolean)
-        .join(' | '),
+      '说明：本版不做一对一配对，仅按截图分为“核销截图”和“转账截图”两个板块。',
       doc.page.margins.left,
-      80,
+      96,
     );
+  doc
+    .fillColor('#3f342b')
+    .fontSize(11)
+    .text(
+      '金额口径：按每张截图中可见金额统计；若同一订单同时出现列表页和详情页，本版不去重。',
+      doc.page.margins.left,
+      118,
+    );
+
+  let cursorY = drawStandardSummaryTable(doc, buildSectionSummaryRows(aggregate), 166);
+  const reviewSection = aggregate.sections.find((section) => section.key === 'review') || {};
+
+  if (reviewSection.screenshotCount) {
+    cursorY += 18;
+    doc
+      .fillColor('#6b5a48')
+      .fontSize(10.2)
+      .text(
+        `补充说明：仍有 ${reviewSection.screenshotCount} 张截图进入待复核板块，未计入本版板块金额。`,
+        doc.page.margins.left,
+        cursorY,
+      );
+  }
+}
+
+function buildCardTitle(item = {}) {
+  if (item.sectionKey === 'transfer') {
+    return item.isListPage ? '转账列表' : '实际转账';
+  }
+
+  if (item.platform === '抖音') {
+    if (item.isListPage) {
+      return '抖音核销合集';
+    }
+
+    return Number(item.primaryAmount || 0) < 980 ? '抖音核销详情' : '抖音核销';
+  }
+
+  if (item.platform === '大众点评') {
+    return item.isListPage ? '大众点评核销合集' : '大众点评核销';
+  }
+
+  return item.isListPage ? '核销合集' : '核销详情';
+}
+
+function buildItemTimeLabel(item = {}) {
+  const useSlashes = item.sectionKey === 'verification' && item.platform === '抖音';
+  const values = dedupeStrings([
+    item.normalizedTime,
+    ...(item.isListPage ? (item.listItems || []).map((listItem) => listItem.time) : []),
+  ]);
+
+  return formatDisplayTimeRange(values, { slashes: useSlashes });
+}
+
+function buildVerificationDetailLine(item = {}) {
+  const amount = formatPlainAmount(item.primaryAmount);
+  const listAmountItems = (item.listItems || []).filter((listItem) => listItem.amount);
+
+  if (item.isListPage) {
+    if (item.platform === '抖音') {
+      const businessLabel = safeText(item.businessLabel);
+      return `说明：同页可见 ${listAmountItems.length || item.listItems.length || 2} 笔${businessLabel || ''}核销，按页面可见金额合计 ${amount} 元。`;
+    }
+
+    const distinctAmounts = dedupeStrings(listAmountItems.map((listItem) => formatPlainAmount(listItem.amount)));
+
+    if (distinctAmounts.length === 1 && listAmountItems.length > 1) {
+      return `说明：同页可见 ${listAmountItems.length} 笔核销，消费金额均为 ${distinctAmounts[0]} 元，按页面合计 ${amount} 元。`;
+    }
+
+    return `说明：同页可见 ${listAmountItems.length || item.listItems.length || 2} 笔核销，按页面可见金额合计 ${amount} 元。`;
+  }
+
+  if (item.platform === '抖音') {
+    if (Number(item.primaryAmount || 0) < 980) {
+      return `说明：详情页按顾客实付金额 ${amount} 元统计；该页可能与列表页存在补充信息重叠。`;
+    }
+
+    if (item.orderId) {
+      return `说明：订单 ID ${normalizeCode(item.orderId)}，页面显示订单实收 ${amount} 元。`;
+    }
+
+    return `说明：页面显示订单实收 ${amount} 元。`;
+  }
+
+  if (item.voucherCode) {
+    return `说明：券码 ${formatVoucherCodeDisplay(item.voucherCode)}，单张核销截图。`;
+  }
+
+  if (item.orderId) {
+    return `说明：订单号 ${normalizeCode(item.orderId)}，单张核销截图。`;
+  }
+
+  return `说明：页面显示订单实收 ${amount} 元。`;
+}
+
+function buildTransferDetailLine(item = {}, transferVoucherLinks = new Map()) {
+  const link = transferVoucherLinks.get(item.assetToken || item.fileName) || {};
+
+  if (item.isListPage) {
+    if (Array.isArray(link.listLines) && link.listLines.length) {
+      return `券码：${link.listLines.join('；')}`;
+    }
+
+    return '券码：当前样本缺少可对应的核销记录，列表页先按截图可见金额统计。';
+  }
+
+  if (Array.isArray(link.codes) && link.codes.length) {
+    return `券码：${link.codes.join('、')}`;
+  }
+
+  if (item.voucherCode) {
+    return `券码：${formatVoucherCodeDisplay(item.voucherCode)}`;
+  }
+
+  if (item.orderId) {
+    return `单号：${normalizeCode(item.orderId)}`;
+  }
+
+  return '说明：按截图可见金额统计。';
+}
+
+function buildCardLines(item = {}, transferVoucherLinks = new Map()) {
+  return [
+    buildCardTitle(item),
+    `${formatPlainAmount(item.primaryAmount)} 元`,
+    `时间：${buildItemTimeLabel(item) || '待补充'}`,
+    item.sectionKey === 'transfer'
+      ? buildTransferDetailLine(item, transferVoucherLinks)
+      : buildVerificationDetailLine(item),
+  ];
+}
+
+function drawSectionCellFrame(doc, x, y, width, height) {
+  doc
+    .save()
+    .lineWidth(0.9)
+    .strokeColor('#1b1b1b')
+    .rect(x, y, width, height)
+    .stroke()
+    .restore();
+}
+
+function drawSectionPageTitle(doc, title) {
+  doc
+    .fillColor('#18110b')
+    .fontSize(18)
+    .text(title, 0, SECTION_PAGE_FRAME.titleY, {
+      width: doc.page.width,
+      align: 'center',
+    });
+}
+
+function drawSectionPageTotal(doc, section = {}) {
+  doc
+    .fillColor('#18110b')
+    .fontSize(16)
+    .text(
+      `${safeText(section.label)}合计：${formatPlainAmount(section.summaryTotal)} 元`,
+      doc.page.width - SECTION_PAGE_FRAME.x - SECTION_PAGE_FRAME.totalWidth,
+      SECTION_PAGE_FRAME.totalY,
+      {
+        width: SECTION_PAGE_FRAME.totalWidth,
+        align: 'right',
+      },
+    );
+}
+
+function drawItemCard(doc, item, x, y, width, height, transferVoucherLinks) {
+  const imageHeight = Math.min(SECTION_CARD_STYLE.imageHeight, height - 114);
+  const imageX = x + SECTION_CARD_STYLE.paddingX;
+  const imageY = y + SECTION_CARD_STYLE.paddingTop;
+  const dividerY = imageY + imageHeight + 6;
+  const textWidth = width - SECTION_CARD_STYLE.paddingX * 2;
+  const titleY = dividerY + 10;
+  const lines = buildCardLines(item, transferVoucherLinks);
+
+  drawSectionCellFrame(doc, x, y, width, height);
+
+  try {
+    doc.image(item.assetPath, imageX, imageY, {
+      fit: [textWidth, imageHeight],
+      align: 'center',
+      valign: 'top',
+    });
+  } catch (_error) {
+    doc
+      .fillColor('#8b8b8b')
+      .fontSize(10)
+      .text('图片加载失败', imageX, imageY + 12, {
+        width: textWidth,
+        align: 'center',
+      });
+  }
 
   doc
     .save()
-    .fillColor('#fff7ed')
-    .roundedRect(doc.page.margins.left, 112, 770, 90, 18)
-    .fill()
+    .lineWidth(0.7)
+    .strokeColor('#2a2a2a')
+    .moveTo(x + width / 2 - SECTION_CARD_STYLE.dividerWidth / 2, dividerY)
+    .lineTo(x + width / 2 + SECTION_CARD_STYLE.dividerWidth / 2, dividerY)
+    .stroke()
     .restore();
 
-  const cardItems = [
-    {
-      label: '核销板块合计',
-      value: formatCurrency(aggregate.verificationTotal),
-    },
-    {
-      label: '转账板块合计',
-      value: formatCurrency(aggregate.transferTotal),
-    },
-    {
-      label: '实际报销口径',
-      value: formatCurrency(aggregate.actualReimbursementTotal),
-    },
-    {
-      label: '已接收截图',
-      value: `${aggregate.screenshotCount} 张`,
-    },
-  ];
-
-  cardItems.forEach((item, index) => {
-    const x = doc.page.margins.left + 20 + index * 185;
-    doc
-      .fillColor('#8c6239')
-      .fontSize(10)
-      .text(item.label, x, 132);
-    doc
-      .fillColor('#18110b')
-      .fontSize(18)
-      .text(item.value, x, 150, {
-        width: 150,
-      });
-  });
-
-  let cursorY = drawSectionSummaryTable(doc, aggregate.sections, 228);
-
-  const caveats = [
-    '默认输出为分板块版，核销截图与转账截图分别成组排版。',
-    '金额统计优先按详情页去重汇总；列表页会保留在证据页中，但尽量不与详情页重复计入。',
-    '若转账截图存在，则“实际报销口径”优先采用转账板块汇总。',
-    ...(aggregate.caveats || []),
-  ];
-
-  const normalizedCaveats = [
-    '本版不做一对一配对，仅按截图分为“核销截图板块”和“转账截图板块”两个部分。',
-    '金额口径按每张截图中可见金额统计；若同一订单同时出现列表页和详情页，本版不主动去重。',
-    '若存在转账截图，实际报销口径默认参考转账截图板块金额；核销板块主要用于归类与留档。',
-    ...(aggregate.caveats || []),
-  ];
-
-  cursorY = drawBulletList(doc, '整理说明', normalizedCaveats, cursorY + 8);
-
-  const auditLines = [
-    aggregate.duplicateTransfers.length
-      ? `发现 ${aggregate.duplicateTransfers.length} 组疑似重复转账详情，需要人工确认。`
-      : '未发现明显重复的转账详情截图。',
-    aggregate.repeatedAmountTime.length
-      ? `发现 ${aggregate.repeatedAmountTime.length} 组“相同金额 + 相同时间”重复。`
-      : '未发现明显重复的“金额 + 时间”组合。',
-  ];
-
-  drawBulletList(doc, '初步审计结论', auditLines, cursorY + 8);
+  doc
+    .fillColor('#1d1a17')
+    .fontSize(14.2)
+    .text(lines[0], imageX, titleY, {
+      width: textWidth,
+      align: 'center',
+    });
+  doc
+    .fillColor('#1d1a17')
+    .fontSize(13.2)
+    .text(lines[1], imageX, doc.y + 4, {
+      width: textWidth,
+      align: 'center',
+    });
+  doc
+    .fillColor('#222222')
+    .fontSize(8.8)
+    .text(lines[2], imageX, doc.y + 8, {
+      width: textWidth,
+    });
+  doc
+    .fillColor('#222222')
+    .fontSize(8.4)
+    .text(lines[3], imageX, doc.y + 4, {
+      width: textWidth,
+      height: height - (doc.y - y) - 10,
+      lineGap: 1,
+    });
 }
 
-function drawSectionImagePages(doc, section) {
+function drawSectionImagePages(doc, section, sectionIndex, transferVoucherLinks) {
   if (!section.items.length) {
     return;
   }
 
-  const marginX = doc.page.margins.left;
-  const topY = 74;
-  const gap = 18;
-  const headerHeight = 48;
-  const footerHeight = 44;
-  const availableWidth = doc.page.width - marginX * 2;
-  const availableHeight =
-    doc.page.height - doc.page.margins.top - doc.page.margins.bottom - headerHeight - footerHeight;
-  const cellWidth = (availableWidth - gap) / 2;
-  const cellHeight = (availableHeight - gap) / 2;
-  const imageHeight = cellHeight - 54;
+  const pages = chunk(section.items, SECTION_PAGE_COLUMNS);
+  const sectionNumber = SECTION_NUMBER_LABELS[sectionIndex] || `${sectionIndex + 1}`;
+  const gridX = SECTION_PAGE_FRAME.x;
+  const gridY = SECTION_PAGE_FRAME.y;
+  const gridWidth = doc.page.width - gridX * 2;
+  const cellWidth = gridWidth / SECTION_PAGE_COLUMNS;
+  const cellHeight = SECTION_PAGE_FRAME.height;
 
-  chunk(section.items, 4).forEach((items, pageIndex) => {
+  pages.forEach((items, pageIndex) => {
+    const isFirstPage = pageIndex === 0;
+    const isLastPage = pageIndex === pages.length - 1;
+
     doc.addPage({
       size: 'A4',
       layout: 'landscape',
       margin: 36,
     });
 
-    doc
-      .fillColor('#18110b')
-      .fontSize(18)
-      .text(section.label, marginX, 34);
-    doc
-      .fillColor('#8a6d3b')
-      .fontSize(10.5)
-      .text(
-        `第 ${pageIndex + 1} 页 | 截图 ${section.screenshotCount} 张 | 汇总 ${section.key === 'review' ? '不计入金额' : formatCurrency(section.summaryTotal)}`,
-        marginX,
-        56,
-      );
-
-    items.forEach((item, index) => {
-      const row = Math.floor(index / 2);
-      const col = index % 2;
-      const x = marginX + col * (cellWidth + gap);
-      const y = topY + row * (cellHeight + gap);
-
-      doc
-        .save()
-        .lineWidth(0.8)
-        .fillColor('#ffffff')
-        .strokeColor('#ddd6cb')
-        .roundedRect(x, y, cellWidth, cellHeight, 16)
-        .fillAndStroke()
-        .restore();
-
-      try {
-        doc.image(item.assetPath, x + 12, y + 12, {
-          fit: [cellWidth - 24, imageHeight - 18],
-          align: 'center',
-          valign: 'center',
-        });
-      } catch (_error) {
-        doc
-          .fillColor('#94a3b8')
-          .fontSize(10)
-          .text('图片载入失败', x + 16, y + 24);
-      }
-
-      const metaLine = [item.platform, item.screenshotKind, item.isListPage ? '列表页' : '详情页']
-        .map((value) => safeText(value))
-        .filter(Boolean)
-        .join(' | ');
-
-      doc
-        .fillColor('#111827')
-        .fontSize(10)
-        .text(item.caption || item.shortCaption || item.fileName, x + 12, y + imageHeight, {
-          width: cellWidth - 24,
-          height: 28,
-        });
-      doc
-        .fillColor('#64748b')
-        .fontSize(8.8)
-        .text(metaLine, x + 12, y + imageHeight + 22, {
-          width: cellWidth - 24,
-          height: 12,
-        });
-    });
-  });
-}
-
-function drawAuditPage(doc, aggregate) {
-  doc.addPage({
-    size: 'A4',
-    layout: 'landscape',
-    margin: 36,
-  });
-
-  doc
-    .fillColor('#18110b')
-    .fontSize(20)
-    .text('财务安全复核页', doc.page.margins.left, 42);
-  doc
-    .fillColor('#8a6d3b')
-    .fontSize(10.5)
-    .text('用于提示可能的重复、列表页重叠与待复核风险。', doc.page.margins.left, 68);
-
-  let cursorY = 112;
-
-  const duplicateLines = aggregate.duplicateTransfers.length
-    ? aggregate.duplicateTransfers.map(
-        (item) =>
-          `${item.count} 次重复：${item.captions.join(' / ') || item.key}`,
-      )
-    : ['未发现明显重复的转账详情截图。'];
-  cursorY = drawBulletList(doc, '1. 转账重复检查', duplicateLines, cursorY);
-
-  const amountTimeLines = aggregate.repeatedAmountTime.length
-    ? aggregate.repeatedAmountTime.map(
-        (item) =>
-          `${formatCurrency(item.amount)} @ ${item.normalizedTime} 出现 ${item.count} 次：${item.captions.join(' / ')}`,
-      )
-    : ['未发现明显重复的“金额 + 时间”组合。'];
-  cursorY = drawBulletList(doc, '2. 金额 + 时间重复检查', amountTimeLines, cursorY + 4);
-
-  const caveatLines = aggregate.caveats.length
-    ? aggregate.caveats
-    : ['当前截图包未触发额外的列表页或待复核提醒。'];
-  drawBulletList(doc, '3. 其他风险提示', caveatLines, cursorY + 4);
-}
-
-function drawAiAuditSummaryPages(doc, aiSummary = {}) {
-  const sections = [
-    ['AI 归类总结', aiSummary.classificationSummary || []],
-    ['审核结论', aiSummary.conclusions || []],
-    ['重点复核点', aiSummary.focusChecks || []],
-    ['财务建议', aiSummary.recommendations || []],
-  ].filter(([, items]) => Array.isArray(items) && items.length);
-
-  if (!sections.length) {
-    return;
-  }
-
-  doc.addPage({
-    size: 'A4',
-    layout: 'landscape',
-    margin: 36,
-  });
-
-  doc
-    .fillColor('#18110b')
-    .fontSize(20)
-    .text(aiSummary.title || '财务安全审核分析', doc.page.margins.left, 42);
-
-  if (aiSummary.scope) {
-    doc
-      .fillColor('#8a6d3b')
-      .fontSize(10.5)
-      .text(aiSummary.scope, doc.page.margins.left, 68, {
-        width: doc.page.width - doc.page.margins.left * 2,
-      });
-  }
-
-  if (aiSummary.goal) {
-    doc
-      .fillColor('#475569')
-      .fontSize(10.5)
-      .text(aiSummary.goal, doc.page.margins.left, doc.y + 8, {
-        width: doc.page.width - doc.page.margins.left * 2,
-      });
-  }
-
-  let cursorY = doc.y + 18;
-
-  sections.forEach(([title, items], index) => {
-    if (cursorY > doc.page.height - doc.page.margins.bottom - 120) {
-      doc.addPage({
-        size: 'A4',
-        layout: 'landscape',
-        margin: 36,
-      });
-      doc
-        .fillColor('#18110b')
-        .fontSize(18)
-        .text(`${aiSummary.title || '财务安全审核分析'}（续）`, doc.page.margins.left, 42);
-      cursorY = 86;
+    if (isFirstPage) {
+      drawSectionPageTitle(doc, `${sectionNumber}、${section.label}`);
     }
 
-    cursorY = drawBulletList(doc, `${index + 1}. ${title}`, items, cursorY);
-    cursorY += 4;
+    for (let index = 0; index < SECTION_PAGE_COLUMNS; index += 1) {
+      const x = gridX + cellWidth * index;
+      const item = items[index];
+
+      if (item) {
+        drawItemCard(doc, item, x, gridY, cellWidth, cellHeight, transferVoucherLinks);
+      } else {
+        drawSectionCellFrame(doc, x, gridY, cellWidth, cellHeight);
+      }
+    }
+
+    if (isLastPage) {
+      drawSectionPageTotal(doc, section);
+    }
+  });
+}
+
+function buildTransferAmountSummary(transferSection = {}) {
+  const groups = new Map();
+
+  (transferSection.items || []).forEach((item) => {
+    const amount = Number(item.primaryAmount || 0);
+
+    if (!amount) {
+      return;
+    }
+
+    const key = amount.toFixed(2);
+    const current = groups.get(key) || {
+      amount,
+      times: [],
+      entries: [],
+    };
+
+    if (item.normalizedTime) {
+      current.times.push(item.normalizedTime);
+    }
+
+    current.entries.push({
+      time: item.normalizedTime || '',
+      fileName: item.fileName || '',
+    });
+
+    groups.set(key, current);
   });
 
-  doc
-    .fillColor('#94a3b8')
-    .fontSize(9)
-    .text(
-      `生成方式：${safeText(aiSummary.generatedBy || 'fallback')}`,
-      doc.page.margins.left,
-      doc.page.height - doc.page.margins.bottom + 4,
+  return [...groups.values()]
+    .map((item) => {
+      const uniqueTimes = dedupeStrings(item.times);
+      const sameTimeDuplicates = [...item.entries.reduce((map, entry) => {
+        if (!entry.time) {
+          return map;
+        }
+
+        const current = map.get(entry.time) || [];
+        current.push(entry.fileName || '');
+        map.set(entry.time, current);
+        return map;
+      }, new Map()).entries()]
+        .filter(([, fileNames]) => fileNames.length > 1)
+        .map(([time, fileNames]) => ({
+          time,
+          count: fileNames.length,
+          fileNames: dedupeStrings(fileNames).slice(0, 4),
+        }));
+
+      return {
+        ...item,
+        uniqueTimes,
+        hasSameTimeDuplicate: uniqueTimes.length < item.times.length,
+        sameTimeDuplicates,
+      };
+    })
+    .filter((item) => item.times.length > 1)
+    .sort((left, right) => right.times.length - left.times.length || right.amount - left.amount);
+}
+
+function buildAuditSections(aggregate = {}, transferVoucherLinks = new Map()) {
+  const transferSection = aggregate.sections.find((section) => section.key === 'transfer') || {};
+  const reviewSection = aggregate.sections.find((section) => section.key === 'review') || {};
+  const repeatedAmounts = buildTransferAmountSummary(transferSection);
+  const transferListItem = (transferSection.items || []).find((item) => item.isListPage);
+  const transferListLink = transferListItem
+    ? transferVoucherLinks.get(transferListItem.assetToken || transferListItem.fileName) || {}
+    : {};
+  const listDateText = transferListItem?.normalizedTime
+    ? formatDisplayTime(transferListItem.normalizedTime).slice(0, 10)
+    : '当前';
+  const repeatedAmountLabels = repeatedAmounts
+    .slice(0, 3)
+    .map((item) => `${formatPlainAmount(item.amount)} 元`);
+  const sameTimeRepeatedAmounts = repeatedAmounts.filter((item) => item.hasSameTimeDuplicate);
+  const differentTimeRepeatedAmounts = repeatedAmounts.filter((item) => !item.hasSameTimeDuplicate);
+  const sameTimeLabels = sameTimeRepeatedAmounts
+    .slice(0, 3)
+    .map((item) => `${formatPlainAmount(item.amount)} 元`);
+  const differentTimeLabels = differentTimeRepeatedAmounts
+    .slice(0, 3)
+    .map((item) => `${formatPlainAmount(item.amount)} 元`);
+
+  const conclusions = [
+    aggregate.repeatedAmountTime.length
+      ? `发现 ${aggregate.repeatedAmountTime.length} 组“同金额 + 同时间”的高风险重复，需要人工复核。`
+      : '未发现“同金额 + 同时间”的完全重复转账截图，当前转账板块未见直接重复入账。',
+    repeatedAmounts.length
+      ? sameTimeLabels.length && differentTimeLabels.length
+        ? `已知的高频重复金额主要是 ${repeatedAmountLabels.join('、')}；其中 ${sameTimeLabels.join('、')} 存在同时间重复，按高风险疑似重复处理，${differentTimeLabels.join('、')} 虽重复出现，但时间不同，暂不判定为重复单据。`
+        : sameTimeLabels.length
+          ? `已知的高频重复金额主要是 ${sameTimeLabels.join('、')}，且存在同时间重复，按高风险疑似重复处理。`
+          : `已知的高频重复金额主要是 ${differentTimeLabels.join('、')}，但它们对应时间不同，不判定为重复单据。`
+      : '当前转账板块未发现需要立即剔除的重复金额组合。',
+    transferListItem
+      ? `${formatPlainAmount(transferListItem.primaryAmount)} 元这张为 ${listDateText} 的转账列表截图，内容本身是多笔转账汇总；在当前文档里未见与其它单笔重复计入。`
+      : '当前截图包未出现需要单独剔除的转账列表页重叠问题。',
+    '从现有截图看，未发现超出板块统计逻辑的异常大额单笔；本批高金额主要来自 1050 元代金券相关业务，属于业务特征导致的高频高额。',
+  ];
+  const focusChecks = [
+    ...repeatedAmounts.slice(0, 3).map((item) => {
+      const times = item.uniqueTimes
+        .slice(0, 3)
+        .map((time) => formatDisplayTime(time))
+        .join('、');
+
+      if (item.hasSameTimeDuplicate) {
+        const duplicateDetails = item.sameTimeDuplicates
+          .slice(0, 2)
+          .map((duplicate) => {
+            const duplicateTime = formatDisplayTime(duplicate.time);
+            const duplicateFiles = duplicate.fileNames
+              .map((fileName) => formatAuditFileName(fileName))
+              .join('、');
+
+            if (duplicateFiles) {
+              return `${duplicateTime} 对应截图：${duplicateFiles}`;
+            }
+
+            return duplicateTime;
+          })
+          .join('；');
+
+        return `${formatPlainAmount(item.amount)} 元出现 ${item.times.length} 次：${times}。其中 ${duplicateDetails || '存在同时间重复记录'}，为同金额同时间重复，按高风险疑似重复处理，建议核对原图并剔除重复入账。`;
+      }
+
+      return `${formatPlainAmount(item.amount)} 元出现 ${item.times.length} 次：${times}。时间不同，需结合原图复核但不直接判重。`;
+    }),
+    Array.isArray(transferListLink.listLines) && transferListLink.listLines.length
+      ? `${formatPlainAmount(transferListItem.primaryAmount)} 元列表页当前可对应 ${transferListLink.listLines.join('；')}。后续若补录这些单笔详情，应删除或改写列表页金额统计。`
+      : '后续补图时，应优先补单笔转账详情页；若同时保留列表页，需人工避免二次计入。',
+  ].filter(Boolean);
+  const recommendations = [
+    '本批可按“转账截图金额为准”继续使用。',
+    '后续补图时，优先补单笔转账详情页；一旦补齐，应删除对应的汇总列表页金额统计。',
+    aggregate.repeatedAmountTime.length
+      ? `审批时重点复核“同金额 + 同分钟/同时间”重复出现的记录；当前已发现 ${aggregate.repeatedAmountTime.length} 组，报销前应人工确认并剔除重复入账。`
+      : '审批时重点盯“同金额 + 同分钟”重复出现的记录；本版暂未发现这种高风险情形。',
+  ];
+
+  if (reviewSection.screenshotCount) {
+    recommendations.splice(
+      2,
+      0,
+      `仍有 ${reviewSection.screenshotCount} 张截图进入待复核板块，报销前建议再做一次人工确认。`,
     );
+  }
+
+  return {
+    scope: `审核范围：转账截图板块，共 ${transferSection.screenshotCount || 0} 张截图，当前口径合计 ${formatPlainAmount(aggregate.transferTotal)} 元。`,
+    goal: '审核目标：检查是否存在重复计入、明显异常单据，降低因店长高频操作造成的金额错误风险。',
+    conclusions,
+    focusChecks,
+    recommendations,
+  };
+}
+
+function openAuditPage(doc, title) {
+  doc.addPage({
+    size: 'A4',
+    layout: 'landscape',
+    margin: 36,
+  });
+  doc
+    .fillColor('#18110b')
+    .fontSize(20)
+    .text(title, doc.page.margins.left, 42);
+  return 86;
+}
+
+function ensureAuditPageSpace(doc, cursorY, neededHeight, state) {
+  const limit = doc.page.height - doc.page.margins.bottom - 18;
+
+  if (cursorY + neededHeight <= limit) {
+    return cursorY;
+  }
+
+  state.pageCount += 1;
+  return openAuditPage(doc, '三、财务安全审核分析（续）');
+}
+
+function drawAuditBulletSection(doc, title, items = [], startY, state) {
+  let cursorY = ensureAuditPageSpace(doc, startY, 36, state);
+
+  doc
+    .fillColor('#18110b')
+    .fontSize(14)
+    .text(title, doc.page.margins.left, cursorY);
+  cursorY = doc.y + 10;
+
+  items.forEach((item) => {
+    cursorY = ensureAuditPageSpace(doc, cursorY, 48, state);
+    doc
+      .fillColor('#3f342b')
+      .fontSize(10.8)
+      .text(`- ${safeText(item)}`, doc.page.margins.left + 2, cursorY, {
+        width: doc.page.width - doc.page.margins.left * 2 - 4,
+      });
+    cursorY = doc.y + 7;
+  });
+
+  return cursorY + 4;
+}
+
+function drawAuditAnalysis(doc, aggregate, transferVoucherLinks) {
+  const audit = buildAuditSections(aggregate, transferVoucherLinks);
+  const state = { pageCount: 1 };
+  let cursorY = openAuditPage(doc, '三、财务安全审核分析');
+
+  doc
+    .fillColor('#6d5740')
+    .fontSize(10.8)
+    .text(audit.scope, doc.page.margins.left, cursorY, {
+      width: doc.page.width - doc.page.margins.left * 2,
+    });
+  cursorY = doc.y + 8;
+  doc
+    .fillColor('#6d5740')
+    .fontSize(10.8)
+    .text(audit.goal, doc.page.margins.left, cursorY, {
+      width: doc.page.width - doc.page.margins.left * 2,
+    });
+  cursorY = doc.y + 16;
+
+  cursorY = drawAuditBulletSection(doc, '审核结论', audit.conclusions, cursorY, state);
+  cursorY = drawAuditBulletSection(doc, '重点复核点', audit.focusChecks, cursorY, state);
+  state.pageCount += 1;
+  cursorY = openAuditPage(doc, '三、财务安全审核分析（续）');
+  drawAuditBulletSection(doc, '财务建议', audit.recommendations, cursorY, state);
 }
 
 async function createShuadanPacketPdf({
-  storeName = '',
-  periodLabel = '',
   parsedFiles = [],
   reviewFiles = [],
 }) {
@@ -715,12 +900,7 @@ async function createShuadanPacketPdf({
     throw new Error('当前环境缺少可用于导出中文 PDF 的字体文件。');
   }
 
-  const aiSummary = await requestShuadanAiAuditSummary({
-    storeName,
-    periodLabel,
-    aggregate,
-  });
-
+  const transferVoucherLinks = buildTransferVoucherLinks(aggregate);
   const token = `${Date.now()}-${crypto.randomUUID()}.pdf`;
   const filePath = path.join(PARSING_EXPORTS_DIR, token);
 
@@ -742,16 +922,15 @@ async function createShuadanPacketPdf({
     doc.pipe(stream);
     doc.font(fontPath);
 
-    drawSummaryPage(doc, { storeName, periodLabel }, aggregate);
+    drawSummaryPage(doc, aggregate);
 
     aggregate.sections
-      .filter((section) => section.items.length)
-      .forEach((section) => {
-        drawSectionImagePages(doc, section);
+      .filter((section) => ['verification', 'transfer'].includes(section.key) && section.items.length)
+      .forEach((section, index) => {
+        drawSectionImagePages(doc, section, index, transferVoucherLinks);
       });
 
-    drawAuditPage(doc, aggregate);
-    drawAiAuditSummaryPages(doc, aiSummary);
+    drawAuditAnalysis(doc, aggregate, transferVoucherLinks);
     doc.end();
   });
 

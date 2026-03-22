@@ -112,6 +112,55 @@ function formatCurrency(amount) {
   })}`;
 }
 
+function parseCaptureDateFromName(originalName = '') {
+  const matched = String(originalName || '').match(/(20\d{2})(\d{2})(\d{2})/);
+
+  if (!matched) {
+    return null;
+  }
+
+  return {
+    year: matched[1],
+    month: matched[2],
+    day: matched[3],
+  };
+}
+
+function correctFutureTimeAgainstCaptureDate(value = '', originalName = '') {
+  const matched = String(value || '').match(
+    /^(20\d{2})-(\d{2})-(\d{2}) (\d{2}:\d{2}:\d{2})$/,
+  );
+  const captureDate = parseCaptureDateFromName(originalName);
+
+  if (!matched || !captureDate) {
+    return value;
+  }
+
+  const current = new Date(
+    `${matched[1]}-${matched[2]}-${matched[3]}T${matched[4]}+08:00`,
+  );
+  const capture = new Date(
+    `${captureDate.year}-${captureDate.month}-${captureDate.day}T23:59:59+08:00`,
+  );
+
+  if (Number.isNaN(current.getTime()) || Number.isNaN(capture.getTime()) || current <= capture) {
+    return value;
+  }
+
+  const futureDays = (current.getTime() - capture.getTime()) / (24 * 60 * 60 * 1000);
+
+  if (futureDays <= 3) {
+    return value;
+  }
+
+  const corrected = `${matched[1]}-${captureDate.month}-${matched[3]} ${matched[4]}`;
+  const correctedDate = new Date(
+    `${matched[1]}-${captureDate.month}-${matched[3]}T${matched[4]}+08:00`,
+  );
+
+  return !Number.isNaN(correctedDate.getTime()) && correctedDate <= capture ? corrected : value;
+}
+
 function dedupeStrings(values = []) {
   return [...new Set(values.map((value) => safeText(value)).filter(Boolean))];
 }
@@ -238,7 +287,7 @@ function normalizeDateTime(value = '') {
   }
 
   const matched = text.match(
-    /(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})(?:[日号]?\s+|\s*T?)(\d{1,2}):(\d{2})(?::(\d{2}))?/,
+    /(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})(?:[日号]?\s+|\s*T?)(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/,
   );
 
   if (!matched) {
@@ -251,6 +300,19 @@ function normalizeDateTime(value = '') {
   const hour = matched[4].padStart(2, '0');
   const minute = matched[5].padStart(2, '0');
   const second = (matched[6] || '00').padStart(2, '0');
+
+  if (
+    Number(month) < 1 ||
+    Number(month) > 12 ||
+    Number(day) < 1 ||
+    Number(day) > 31 ||
+    Number(hour) > 23 ||
+    Number(minute) > 59 ||
+    Number(second) > 59
+  ) {
+    return '';
+  }
+
   return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
 }
 
@@ -561,13 +623,16 @@ function escapePowerShellString(value = '') {
   return String(value || '').replace(/'/g, "''");
 }
 
-function buildWindowsOcrCommand(filePath) {
+function buildWindowsOcrCommand(filePath, options = {}) {
   const escapedPath = escapePowerShellString(filePath);
+  const scaleFactor = Math.max(1, Number(options.scaleFactor || 1) || 1);
+  const scaleLiteral = scaleFactor.toFixed(2);
 
   return [
     "$OutputEncoding = [System.Text.Encoding]::UTF8",
     "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
     "Add-Type -AssemblyName System.Runtime.WindowsRuntime",
+    ...(scaleFactor > 1 ? ['Add-Type -AssemblyName System.Drawing'] : []),
     "$null = [Windows.Storage.StorageFile, Windows.Storage, ContentType=WindowsRuntime]",
     "$null = [Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics.Imaging, ContentType=WindowsRuntime]",
     "$null = [Windows.Media.Ocr.OcrEngine, Windows.Media.Ocr, ContentType=WindowsRuntime]",
@@ -580,19 +645,51 @@ function buildWindowsOcrCommand(filePath) {
     "  return $task.Result",
     "}",
     `$path = '${escapedPath}'`,
-    "$file = AwaitWinRt ([Windows.Storage.StorageFile]::GetFileFromPathAsync($path)) 'Windows.Storage.StorageFile, Windows, ContentType=WindowsRuntime'",
-    "$stream = AwaitWinRt ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) 'Windows.Storage.Streams.IRandomAccessStream, Windows, ContentType=WindowsRuntime'",
-    "$decoder = AwaitWinRt ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) 'Windows.Graphics.Imaging.BitmapDecoder, Windows, ContentType=WindowsRuntime'",
-    "$bitmap = AwaitWinRt ($decoder.GetSoftwareBitmapAsync()) 'Windows.Graphics.Imaging.SoftwareBitmap, Windows, ContentType=WindowsRuntime'",
-    "$engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage((New-Object Windows.Globalization.Language('zh-CN')))",
-    "$result = AwaitWinRt ($engine.RecognizeAsync($bitmap)) 'Windows.Media.Ocr.OcrResult, Windows, ContentType=WindowsRuntime'",
-    "$lines = @($result.Lines | ForEach-Object { $_.Text })",
-    "[string]::Join([Environment]::NewLine, $lines)",
+    `$scaleFactor = [double]::Parse('${scaleLiteral}', [System.Globalization.CultureInfo]::InvariantCulture)`,
+    "$tempPath = ''",
+    "try {",
+    "  if ($scaleFactor -gt 1) {",
+    "    $sourceImage = [System.Drawing.Image]::FromFile($path)",
+    "    try {",
+    "      $scaledWidth = [Math]::Max(1, [int]([Math]::Round($sourceImage.Width * $scaleFactor)))",
+    "      $scaledHeight = [Math]::Max(1, [int]([Math]::Round($sourceImage.Height * $scaleFactor)))",
+    "      $bitmapImage = New-Object System.Drawing.Bitmap $scaledWidth, $scaledHeight",
+    "      try {",
+    "        $graphics = [System.Drawing.Graphics]::FromImage($bitmapImage)",
+    "        try {",
+    "          $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic",
+    "          $graphics.DrawImage($sourceImage, 0, 0, $scaledWidth, $scaledHeight)",
+    "        } finally {",
+    "          $graphics.Dispose()",
+    "        }",
+    "        $tempPath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), ([System.Guid]::NewGuid().ToString() + '.png'))",
+    "        $bitmapImage.Save($tempPath, [System.Drawing.Imaging.ImageFormat]::Png)",
+    "        $path = $tempPath",
+    "      } finally {",
+    "        $bitmapImage.Dispose()",
+    "      }",
+    "    } finally {",
+    "      $sourceImage.Dispose()",
+    "    }",
+    "  }",
+    "  $file = AwaitWinRt ([Windows.Storage.StorageFile]::GetFileFromPathAsync($path)) 'Windows.Storage.StorageFile, Windows, ContentType=WindowsRuntime'",
+    "  $stream = AwaitWinRt ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) 'Windows.Storage.Streams.IRandomAccessStream, Windows, ContentType=WindowsRuntime'",
+    "  $decoder = AwaitWinRt ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) 'Windows.Graphics.Imaging.BitmapDecoder, Windows, ContentType=WindowsRuntime'",
+    "  $bitmap = AwaitWinRt ($decoder.GetSoftwareBitmapAsync()) 'Windows.Graphics.Imaging.SoftwareBitmap, Windows, ContentType=WindowsRuntime'",
+    "  $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage((New-Object Windows.Globalization.Language('zh-CN')))",
+    "  $result = AwaitWinRt ($engine.RecognizeAsync($bitmap)) 'Windows.Media.Ocr.OcrResult, Windows, ContentType=WindowsRuntime'",
+    "  $lines = @($result.Lines | ForEach-Object { $_.Text })",
+    "  [string]::Join([Environment]::NewLine, $lines)",
+    "} finally {",
+    "  if ($tempPath -and (Test-Path -LiteralPath $tempPath)) {",
+    "    Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue",
+    "  }",
+    "}",
   ].join('; ');
 }
 
-async function runWindowsOcr(filePath) {
-  const command = buildWindowsOcrCommand(filePath);
+async function runWindowsOcr(filePath, options = {}) {
+  const command = buildWindowsOcrCommand(filePath, options);
   const { stdout } = await execFileAsync(
     'powershell.exe',
     [
@@ -614,6 +711,9 @@ async function runWindowsOcr(filePath) {
 function compactOcrText(text = '') {
   return normalizeText(text)
     .replace(/[：﹕]/g, ':')
+    .replace(/°\s*[Cc]/g, ':')
+    .replace(/[℃]/g, ':')
+    .replace(/(\d)\s*[°oO]\s*(\d)/g, '$1:$2')
     .replace(/[·•]/g, '.')
     .replace(/[—–]/g, '-')
     .replace(/(\d)\s*一\s*(?=\d)/g, '$1-')
@@ -624,6 +724,9 @@ function normalizeLooseOcrText(text = '') {
   return normalizeText(text)
     .replace(/\uFF1A/g, ':')
     .replace(/\uFF0C/g, ',')
+    .replace(/°\s*[Cc]/g, ':')
+    .replace(/[℃]/g, ':')
+    .replace(/(\d)\s*[°oO]\s*(\d)/g, '$1:$2')
     .replace(/[\u00B7\u2022\u2027]/g, '.')
     .replace(/[\u2012\u2013\u2014\u2212]/g, '-')
     .replace(/(\d)\s*[一-]\s*(?=\d)/g, '$1-')
@@ -811,6 +914,32 @@ function extractAllDateTimes(compactText = '') {
     .filter(Boolean);
 }
 
+function extractLooseFullDateTimes(text = '') {
+  const normalized = normalizeLooseOcrText(text)
+    .replace(/[℃C]/g, ':')
+    .replace(
+      /(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?/g,
+      '$1-$2-$3 ',
+    );
+
+  return dedupeStrings(
+    [...normalized.matchAll(
+      /(20\d{2})\s*[-/]\s*(\d{1,2})\s*[-/]\s*(\d{1,2})\s*(\d{1,2})\s*[-:：]\s*(\d{1,2})(?:\s*[-:：]\s*(\d{1,2}))?/g,
+    )].map((matched) =>
+      normalizeDateTime(
+        `${matched[1]}-${matched[2]}-${matched[3]} ${matched[4]}:${matched[5]}:${matched[6] || '00'}`,
+      ),
+    ),
+  ).filter(Boolean);
+}
+
+function filterMeaningfulDateTimes(values = []) {
+  const cleaned = dedupeStrings(values).filter(Boolean);
+  const nonBoundary = cleaned.filter((value) => !/ (?:00:00:00|23:59:00)$/.test(value));
+
+  return nonBoundary.length ? nonBoundary : cleaned;
+}
+
 function inferYearFromPeriodLabel(periodLabel = '') {
   const matched = String(periodLabel || '').match(/(20\d{2})/);
   return matched ? matched[1] : '';
@@ -884,6 +1013,23 @@ function extractVoucherCodes(compactText = '') {
   );
 }
 
+function normalizeLooseCode(value = '') {
+  return safeText(value)
+    .replace(/\s+/g, '')
+    .replace(/[Oo]/g, '0')
+    .replace(/[Il|]/g, '1')
+    .replace(/[^\dA-Za-z]/g, '');
+}
+
+function extractStandaloneNumericCodes(text = '') {
+  return dedupeStrings(
+    extractOcrLines(text)
+      .filter((line) => /^[\dA-Za-z引oOIl|\s.-]{10,28}$/.test(safeText(line)))
+      .map((line) => normalizeLooseCode(line))
+      .filter((line) => /^\d{12,24}$/.test(line)),
+  );
+}
+
 function dedupeListItems(items = []) {
   return (Array.isArray(items) ? items : [])
     .map((item) => ({
@@ -916,22 +1062,26 @@ function buildTransferListItemsFromOcr(compactText = '', fallbackYear = '', rawT
   return dedupeListItems(
     Array.from({ length: count }, (_item, index) => ({
       amount: amounts[index] ?? null,
-      time: dateTimes[index] || '',
+      time: filterMeaningfulDateTimes(dateTimes)[index] || '',
       label: friendPayCount >= 2 ? '亲友代付' : '',
     })),
   );
 }
 
-function buildVerificationListItemsFromOcr(compactText = '', fallbackYear = '') {
+function buildVerificationListItemsFromOcr(compactText = '', fallbackYear = '', rawText = '') {
   const amounts = extractRepeatedLabelAmounts(compactText, [
     '订单实收',
     '消费金额',
     '实付金额',
     '支付金额',
   ]);
-  const voucherCodes = extractVoucherCodes(compactText);
-  const dateTimes = dedupeStrings([
+  const voucherCodes = dedupeStrings([
+    ...extractVoucherCodes(compactText),
+    ...extractStandaloneNumericCodes(rawText || compactText),
+  ]);
+  const dateTimes = filterMeaningfulDateTimes([
     ...extractAllDateTimes(compactText),
+    ...extractLooseFullDateTimes(rawText || compactText),
     ...extractMonthDayTimes(compactText, fallbackYear),
   ]);
   const count = Math.max(amounts.length, voucherCodes.length, dateTimes.length);
@@ -979,6 +1129,18 @@ function buildOcrEvidence(compactText = '') {
       .filter(([needle]) => compactText.includes(needle))
       .map(([, label]) => label),
   ).slice(0, 6);
+}
+
+function detectBusinessLabel(compactText = '') {
+  if (compactText.includes('1050元代金券')) {
+    return '1050元代金券';
+  }
+
+  if (compactText.includes('1000代1100')) {
+    return '1000代1100代金券';
+  }
+
+  return '';
 }
 
 function countMatches(source = '', pattern = '') {
@@ -1041,11 +1203,12 @@ function parseWithWindowsOcrText(ocrText = '', options = {}) {
             (compactText.includes('代付') && Math.max(extractAllAmounts(compactText).length, transferLooseAmounts.length) > 1)
           ? 'transfer'
         : 'unknown';
-  const dateTimes = [
+  const dateTimes = filterMeaningfulDateTimes([
     ...extractAllDateTimes(compactText),
+    ...extractLooseFullDateTimes(ocrText),
     ...extractMonthDayTimes(compactText, fallbackYear),
     ...extractLooseMonthDayTimes(looseText, fallbackYear),
-  ];
+  ]);
   const repeatedFriendPayCount = Math.max(
     countMatches(compactText, '浜插弸浠ｄ粯'),
     countMatches(looseText.replace(/\s+/g, ''), '亲友代付'),
@@ -1092,7 +1255,7 @@ function parseWithWindowsOcrText(ocrText = '', options = {}) {
       : [];
   const verificationListItems =
     sectionKey === 'verification' && effectiveIsListPage
-      ? buildVerificationListItemsFromOcr(compactText, fallbackYear)
+      ? buildVerificationListItemsFromOcr(compactText, fallbackYear, ocrText)
       : [];
   const listItems = sectionKey === 'transfer' ? transferListItems : verificationListItems;
   let primaryAmount = null;
@@ -1125,12 +1288,15 @@ function parseWithWindowsOcrText(ocrText = '', options = {}) {
       null;
   }
 
-  const voucherCode = effectiveIsListPage
-    ? ''
-    : (compactText.match(/(?:核销券码|券码):?([0-9A-Za-z]{8,24})/) || [])[1] || '';
   const orderId = effectiveIsListPage
     ? ''
     : (compactText.match(/(?:订单号|订单ID|交易单号):?([0-9A-Za-z]{8,32})/) || [])[1] || '';
+  const standaloneCodes = extractStandaloneNumericCodes(ocrText);
+  const voucherCode = effectiveIsListPage
+    ? ''
+    : (compactText.match(/(?:核销券码|券码):?([0-9A-Za-z]{8,24})/) || [])[1] ||
+      standaloneCodes.find((code) => code && code !== orderId) ||
+      '';
   const applicantName = (compactText.match(/申请人:?([^:¥0-9]{1,8})/) || [])[1] || '';
   const recipientName = (compactText.match(/收款方:?([^:¥0-9]{1,12})/) || [])[1] || '';
 
@@ -1148,15 +1314,158 @@ function parseWithWindowsOcrText(ocrText = '', options = {}) {
     recipientName: safeText(recipientName),
     listItems,
     evidence: buildOcrEvidence(compactText),
+    businessLabel: detectBusinessLabel(compactText),
     shortCaption: '',
     confidence: sectionKey === 'unknown' ? 0.3 : 0.62,
     ocrText: compactText,
   });
 }
 
+function shouldRetryOcrWithScaling(ocrText = '', parsed = {}, options = {}) {
+  const rawText = normalizeText(ocrText);
+  const captureDate = parseCaptureDateFromName(options.originalName || '');
+
+  if (!rawText) {
+    return false;
+  }
+
+  if (parsed.sectionKey === 'verification' && parsed.isListPage) {
+    return true;
+  }
+
+  if (!parsed.normalizedTime && /(支付时间|核销时间|20\d{2})/.test(rawText)) {
+    return true;
+  }
+
+  if (/°\s*[Cc]|℃/.test(rawText)) {
+    return true;
+  }
+
+  if (
+    captureDate &&
+    parsed.normalizedTime &&
+    parsed.normalizedTime.startsWith(`${captureDate.year}-`) &&
+    parsed.normalizedTime.slice(5, 7) !== captureDate.month
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function isScaledAmountImplausible(baseAmount, scaledAmount) {
+  const normalizedBase = toNumber(baseAmount);
+  const normalizedScaled = toNumber(scaledAmount);
+
+  if (normalizedBase === null || normalizedScaled === null) {
+    return false;
+  }
+
+  if (normalizedScaled <= 0 || normalizedBase <= 0) {
+    return false;
+  }
+
+  return (
+    normalizedScaled > normalizedBase * 3 ||
+    normalizedScaled < Math.max(10, normalizedBase * 0.5)
+  );
+}
+
+function mergeScaledListItems(baseItems = [], scaledItems = []) {
+  const normalizedBase = normalizeListItems(baseItems);
+  const normalizedScaled = normalizeListItems(scaledItems);
+  const targetCount = normalizedBase.length || normalizedScaled.length;
+
+  return dedupeListItems(
+    Array.from({ length: targetCount }, (_item, index) => {
+      const baseItem = normalizedBase[index] || {};
+      const scaledItem = normalizedScaled[index] || {};
+
+      return {
+        amount:
+          baseItem.amount === null || baseItem.amount === undefined
+            ? scaledItem.amount ?? null
+            : baseItem.amount,
+        time: scaledItem.time || baseItem.time || '',
+        label: scaledItem.label || baseItem.label || '',
+      };
+    }),
+  );
+}
+
+function mergeScaledOcrPayloads(basePayload = {}, scaledPayload = {}) {
+  const merged = mergeNormalizedPayloads(scaledPayload, basePayload);
+  const baseAmount = toNumber(basePayload.primaryAmount);
+  const scaledAmount = toNumber(scaledPayload.primaryAmount);
+  const useBaseVerificationRealPay =
+    basePayload.sectionKey === 'verification' &&
+    !basePayload.isListPage &&
+    /顾客实付/.test(safeText(basePayload.ocrText || '')) &&
+    baseAmount !== null &&
+    scaledAmount !== null &&
+    baseAmount >= scaledAmount;
+  const useBaseAmount =
+    useBaseVerificationRealPay ||
+    isScaledAmountImplausible(baseAmount, scaledAmount);
+  const useMergedList =
+    (basePayload.isListPage || scaledPayload.isListPage) &&
+    (Array.isArray(basePayload.listItems) && basePayload.listItems.length) &&
+    (Array.isArray(scaledPayload.listItems) && scaledPayload.listItems.length);
+
+  if (!useBaseAmount && !useMergedList) {
+    return merged;
+  }
+
+  const listItems = useMergedList
+    ? mergeScaledListItems(basePayload.listItems, scaledPayload.listItems)
+    : merged.listItems;
+  let primaryAmount = useBaseAmount ? basePayload.primaryAmount : merged.primaryAmount;
+
+  if (listItems.length) {
+    const listAmountValues = listItems
+      .map((item) => toNumber(item.amount))
+      .filter((value) => value !== null);
+    const listAmountTotal = sumAmounts(listAmountValues);
+
+    if (listAmountTotal) {
+      primaryAmount = listAmountTotal;
+    }
+  }
+
+  return normalizeMonetaryPayload({
+    ...merged,
+    primaryAmount,
+    listItems,
+  });
+}
+
 async function parseWithWindowsOcrFallback(filePath, options = {}) {
   const ocrText = await runWindowsOcr(filePath);
-  return parseWithWindowsOcrText(ocrText, options);
+  const parsed = parseWithWindowsOcrText(ocrText, options);
+
+  if (!shouldRetryOcrWithScaling(ocrText, parsed, options)) {
+    return parsed;
+  }
+
+  try {
+    const scaledOcrText = await runWindowsOcr(filePath, {
+      scaleFactor: 3,
+    });
+
+    if (!scaledOcrText || scaledOcrText === ocrText) {
+      return parsed;
+    }
+
+    const scaledParsed = parseWithWindowsOcrText(scaledOcrText, options);
+    const preferred = choosePreferredPayload(scaledParsed, parsed);
+
+    return {
+      ...mergeScaledOcrPayloads(parsed, scaledParsed),
+      ocrText: preferred === scaledParsed ? scaledOcrText : ocrText,
+    };
+  } catch {
+    return parsed;
+  }
 }
 
 function hasResolvedSection(payload = {}) {
@@ -1198,6 +1507,10 @@ function shouldRunOcrAssist(payload = {}) {
   }
 
   if (!hasCoreSignal(payload)) {
+    return true;
+  }
+
+  if (payload.sectionKey === 'verification') {
     return true;
   }
 
@@ -1286,6 +1599,94 @@ function normalizeMonetaryPayload(payload = {}) {
           .filter((item) => item.label || item.time || item.amount !== null)
       : [],
   };
+}
+
+function inferVerificationPlatform(payload = {}) {
+  const explicitPlatform = safeText(payload.platform);
+  const listItems = Array.isArray(payload.listItems) ? payload.listItems : [];
+  const labels = listItems.map((item) => safeText(item.label)).join(' ');
+  const evidence = dedupeStrings(payload.evidence || []).join(' ');
+  const businessLabel = safeText(payload.businessLabel);
+
+  if (explicitPlatform.includes('抖音')) {
+    return '抖音';
+  }
+
+  if (
+    payload.sectionKey === 'verification' &&
+    /1050元代金券/.test(businessLabel)
+  ) {
+    return '抖音';
+  }
+
+  if (
+    payload.sectionKey === 'verification' &&
+    payload.screenshotKind === 'verification_list' &&
+    !explicitPlatform &&
+    listItems.length >= 2 &&
+    listItems.every((item) => Number(item.amount || 0) >= 1000) &&
+    !/券码/.test(labels) &&
+    /订单实收|已核销/.test(evidence)
+  ) {
+    return '抖音';
+  }
+
+  if (
+    payload.sectionKey === 'verification' &&
+    payload.screenshotKind === 'verification_detail' &&
+    !explicitPlatform &&
+    !payload.voucherCode &&
+    Number(payload.primaryAmount || 0) >= 900 &&
+    /订单实收|已核销/.test(evidence)
+  ) {
+    return '抖音';
+  }
+
+  if (
+    explicitPlatform.includes('美团') ||
+    explicitPlatform.includes('大众点评') ||
+    payload.voucherCode ||
+    /券码/.test(labels)
+  ) {
+    return '大众点评';
+  }
+
+  return explicitPlatform;
+}
+
+function normalizeShuadanPayloadForOutput(payload = {}, options = {}) {
+  const normalizedTime = correctFutureTimeAgainstCaptureDate(payload.normalizedTime || '', options.originalName);
+  const listItems = Array.isArray(payload.listItems)
+    ? payload.listItems.map((item) => ({
+        ...item,
+        time: correctFutureTimeAgainstCaptureDate(item.time || '', options.originalName),
+      }))
+    : [];
+  const businessLabel = safeText(payload.businessLabel);
+  const platform =
+    payload.sectionKey === 'verification'
+      ? inferVerificationPlatform({
+          ...payload,
+          normalizedTime,
+          listItems,
+        })
+      : safeText(payload.platform);
+
+  return normalizeMonetaryPayload({
+    ...payload,
+    platform,
+    normalizedTime,
+    listItems,
+    businessLabel: businessLabel
+      ? businessLabel
+      : platform === '抖音' &&
+          payload.screenshotKind === 'verification_list' &&
+          Array.isArray(listItems) &&
+          listItems.length >= 2 &&
+          Number(payload.primaryAmount || 0) >= 2000
+        ? '1050元代金券'
+        : '',
+  });
 }
 
 function choosePreferredPayload(left = {}, right = {}) {
@@ -1415,6 +1816,7 @@ function mergeNormalizedPayloads(primary = {}, secondary = {}) {
     recipientName: preferred.recipientName || alternate.recipientName || '',
     listItems,
     evidence: dedupeStrings([...(preferred.evidence || []), ...(alternate.evidence || [])]).slice(0, 6),
+    businessLabel: preferred.businessLabel || alternate.businessLabel || '',
     shortCaption: preferred.shortCaption || alternate.shortCaption || '',
     confidence: Math.max(
       Number(preferred.confidence || 0) || 0,
@@ -1655,6 +2057,9 @@ function buildReviewResult({
   reason,
   normalizedPayload = {},
 }) {
+  const normalizedReviewPayload = normalizeShuadanPayloadForOutput(normalizedPayload, {
+    originalName,
+  });
   const section = SECTION_DEFINITIONS.review;
 
   return {
@@ -1667,44 +2072,45 @@ function buildReviewResult({
     storeName,
     periodLabel,
     bodySheetSection: section.bodySheetSection,
-    parsedDataSummary: normalizedPayload.sectionKey && normalizedPayload.sectionKey !== 'unknown'
-      ? buildParsedDataSummary(normalizedPayload)
+    parsedDataSummary: normalizedReviewPayload.sectionKey && normalizedReviewPayload.sectionKey !== 'unknown'
+      ? buildParsedDataSummary(normalizedReviewPayload)
       : ['当前截图已接收，但尚未稳定识别到可直接归板块的结构化字段。'],
     previewLines: dedupeStrings([
-      buildCaption(normalizedPayload),
-      ...(normalizedPayload.evidence || []),
+      buildCaption(normalizedReviewPayload),
+      ...(normalizedReviewPayload.evidence || []),
     ]).slice(0, 5),
     metrics: {
-      primaryAmount: normalizedPayload.primaryAmount || null,
-      listCount: normalizedPayload.listItems?.length || 0,
-      confidence: normalizedPayload.confidence || 0,
+      primaryAmount: normalizedReviewPayload.primaryAmount || null,
+      listCount: normalizedReviewPayload.listItems?.length || 0,
+      confidence: normalizedReviewPayload.confidence || 0,
     },
     structuredData: {
       kind: 'shuadan-screenshot',
       assetToken,
       sectionKey: 'review',
       sectionLabel: section.label,
-      screenshotKind: normalizedPayload.screenshotKind || 'other',
-      isListPage: Boolean(normalizedPayload.isListPage),
-      platform: normalizedPayload.platform || '',
-      primaryAmount: normalizedPayload.primaryAmount || null,
-      amountCandidates: normalizedPayload.amountCandidates || [],
-      normalizedTime: normalizedPayload.normalizedTime || '',
-      voucherCode: normalizedPayload.voucherCode || '',
-      orderId: normalizedPayload.orderId || '',
-      applicantName: normalizedPayload.applicantName || '',
-      recipientName: normalizedPayload.recipientName || '',
-      listItems: normalizedPayload.listItems || [],
-      evidence: normalizedPayload.evidence || [],
+      screenshotKind: normalizedReviewPayload.screenshotKind || 'other',
+      isListPage: Boolean(normalizedReviewPayload.isListPage),
+      platform: normalizedReviewPayload.platform || '',
+      primaryAmount: normalizedReviewPayload.primaryAmount || null,
+      amountCandidates: normalizedReviewPayload.amountCandidates || [],
+      normalizedTime: normalizedReviewPayload.normalizedTime || '',
+      voucherCode: normalizedReviewPayload.voucherCode || '',
+      orderId: normalizedReviewPayload.orderId || '',
+      applicantName: normalizedReviewPayload.applicantName || '',
+      recipientName: normalizedReviewPayload.recipientName || '',
+      listItems: normalizedReviewPayload.listItems || [],
+      evidence: normalizedReviewPayload.evidence || [],
+      businessLabel: normalizedReviewPayload.businessLabel || '',
       caption: buildCaption({
-        ...normalizedPayload,
+        ...normalizedReviewPayload,
         sectionKey: 'review',
       }),
       shortCaption: buildShortCaption({
-        ...normalizedPayload,
+        ...normalizedReviewPayload,
         sectionKey: 'review',
       }),
-      confidence: normalizedPayload.confidence || 0,
+      confidence: normalizedReviewPayload.confidence || 0,
     },
     reason,
   };
@@ -1762,6 +2168,7 @@ async function parseShuadanScreenshot(filePath, options = {}) {
     try {
       ocrNormalized = {
         ...(await parseWithWindowsOcrFallback(filePath, {
+          originalName,
           periodLabel,
         })),
         model: 'windows-ocr-fallback',
@@ -1777,6 +2184,22 @@ async function parseShuadanScreenshot(filePath, options = {}) {
 
   if (ocrHasListSignal) {
     finalNormalized = mergeNormalizedPayloads(ocrNormalized, finalNormalized);
+  }
+
+  if (!finalNormalized.normalizedTime && !pipeline.includes('ocr')) {
+    try {
+      ocrNormalized = {
+        ...(await parseWithWindowsOcrFallback(filePath, {
+          originalName,
+          periodLabel,
+        })),
+        model: 'windows-ocr-fallback',
+      };
+      pipeline.push('ocr');
+      finalNormalized = mergeNormalizedPayloads(ocrNormalized, finalNormalized);
+    } catch (error) {
+      errors.push(error.message || '本地 OCR 补时失败');
+    }
   }
 
   if (!ocrHasListSignal && shouldRunTextAudit(finalNormalized, ocrNormalized || {})) {
@@ -1808,6 +2231,10 @@ async function parseShuadanScreenshot(filePath, options = {}) {
       errors.push(error.message || '文本审核失败');
     }
   }
+
+  finalNormalized = normalizeShuadanPayloadForOutput(finalNormalized, {
+    originalName,
+  });
 
   if (!hasResolvedSection(finalNormalized)) {
     return buildReviewResult({
@@ -1869,6 +2296,7 @@ async function parseShuadanScreenshot(filePath, options = {}) {
       recipientName: finalNormalized.recipientName,
       listItems: finalNormalized.listItems,
       evidence: finalNormalized.evidence,
+      businessLabel: finalNormalized.businessLabel || '',
       caption,
       shortCaption: buildShortCaption(finalNormalized),
       confidence: finalNormalized.confidence,
@@ -1980,6 +2408,7 @@ function aggregateShuadanFiles(parsedFiles = [], reviewFiles = []) {
         caption: safeText(structured.caption),
         shortCaption: safeText(structured.shortCaption),
         evidence: dedupeStrings(structured.evidence).slice(0, 6),
+        businessLabel: safeText(structured.businessLabel),
         confidence: Number(structured.confidence || 0) || 0,
         reviewReason: safeText(file.reason || ''),
       };
