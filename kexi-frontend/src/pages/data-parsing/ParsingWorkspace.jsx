@@ -6,6 +6,7 @@ import {
   getFallbackParsingSkillCatalog,
   getParsingSkillById,
   getParsingSkillClientConfig,
+  SHUADAN_PACKET_SKILL_ID,
 } from "../../lib/parsingSkills";
 import { FileChip, MarkdownMessage, SkillCatalogModal, ThoughtProcess, WelcomeScreen } from "./ParsingUi";
 import {
@@ -45,8 +46,8 @@ function buildHeaderDeliverableMeta(skill = {}, acceptedFileTypes = "") {
 
   return {
     icon: isPdfOutput ? "picture_as_pdf" : "draft",
-    eyebrow: skill.previewPanel === "physical_table" ? actionLabel : "当前输出",
-    label: outputLabel,
+    eyebrow: skill.previewPanel === "physical_table" ? actionLabel : isPdfOutput ? "" : "当前输出",
+    label: isPdfOutput ? "查看PDF文件" : outputLabel,
     hint: acceptedFileTypes
       ? `支持 ${acceptedFileTypes.replace(/,/g, " / ")}`
       : "按当前技能生成对应结果",
@@ -687,6 +688,14 @@ export default function ParsingWorkspace() {
               </span>
             </div>
             <div className="pointer-events-auto flex items-center gap-4 pr-2">
+              <button
+                className="flex items-center gap-1.5 rounded-full border border-[#b6860c]/20 bg-white/80 px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[#b6860c] shadow-sm transition hover:bg-white hover:border-[#b6860c]/40"
+                onClick={() => setIsSkillModalOpen(true)}
+                type="button"
+              >
+                <span className="material-symbols-outlined text-[16px]">menu_book</span>
+                <span>技能百科</span>
+              </button>
               <div className="flex cursor-pointer items-center gap-1 rounded-full border border-[#b6860c]/20 bg-white/80 px-3 py-1.5 text-xs font-bold uppercase tracking-widest text-[#b6860c] shadow-sm transition hover:bg-white">
                 PRO
               </div>
@@ -708,94 +717,84 @@ export default function ParsingWorkspace() {
                   />
                 ) : (
                   <>
-                    <div className="flex flex-wrap items-center gap-2 pt-1 animate-in fade-in slide-in-from-top-4 duration-500">
-                      <div className="flex items-center gap-2 rounded-full border border-white bg-white/60 px-4 py-2 text-[12px] font-bold text-[#8b6720] shadow-sm backdrop-blur-md">
+                    <div className="flex flex-wrap items-center justify-center gap-2 pt-1 animate-in fade-in slide-in-from-top-4 duration-500">
+                      <div className="flex shrink-0 items-center gap-2 rounded-full border border-white bg-white/60 px-4 py-2 text-[12px] font-bold text-[#8b6720] shadow-sm backdrop-blur-md">
                         <span className="material-symbols-outlined text-[18px] text-[#b6860c]">
                           {activeSkill.icon}
                         </span>
-                        {activeSkill.label}
+                        <span className="whitespace-nowrap">{activeSkill.label}</span>
                       </div>
 
-                      <div className="group relative">
-                        <select
-                          className="appearance-none rounded-full border border-white bg-white/60 py-2 pl-4 pr-8 text-[12px] font-bold text-slate-700 shadow-sm outline-none transition hover:border-[#b6860c]/40 backdrop-blur-md"
-                          onChange={(event) =>
-                            resetConversationContext({ selectedStore: event.target.value })
-                          }
-                          value={activeConversation.selectedStore}
-                        >
-                          {STORES.map((store) => (
-                            <option key={store} value={store}>
-                              {store}
-                            </option>
-                          ))}
-                        </select>
-                        <span className="material-symbols-outlined pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[16px] text-slate-400 group-hover:text-[#b6860c]">
-                          expand_more
-                        </span>
-                      </div>
+                      {activeSkill.id !== SHUADAN_PACKET_SKILL_ID && (
+                        <>
+                          <div className="group relative shrink-0">
+                            <select
+                              className="appearance-none rounded-full border border-white bg-white/60 py-2 pl-4 pr-8 text-[12px] font-bold text-slate-700 shadow-sm outline-none transition hover:border-[#b6860c]/40 backdrop-blur-md"
+                              onChange={(event) =>
+                                resetConversationContext({ selectedStore: event.target.value })
+                              }
+                              value={activeConversation.selectedStore}
+                            >
+                              {STORES.map((store) => (
+                                <option key={store} value={store}>
+                                  {store}
+                                </option>
+                              ))}
+                            </select>
+                            <span className="material-symbols-outlined pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[16px] text-slate-400 group-hover:text-[#b6860c]">
+                              expand_more
+                            </span>
+                          </div>
 
-                      <div className="group relative">
-                        <select
-                          className="appearance-none rounded-full border border-white bg-white/60 py-2 pl-4 pr-8 text-[12px] font-bold text-slate-700 shadow-sm outline-none transition hover:border-[#b6860c]/40 backdrop-blur-md"
-                          onChange={(event) =>
-                            resetConversationContext({ selectedMonth: event.target.value })
-                          }
-                          value={activeConversation.selectedMonth}
-                        >
-                          {MONTHS.map((month) => (
-                            <option key={month} value={month}>
-                              {month}
-                            </option>
-                          ))}
-                        </select>
-                        <span className="material-symbols-outlined pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[16px] text-slate-400 group-hover:text-[#b6860c]">
-                          expand_more
-                        </span>
-                      </div>
-
-                      <button
-                        className="flex items-center gap-2 rounded-full border border-white bg-white/60 px-4 py-2 text-[12px] font-bold text-slate-600 shadow-sm transition hover:border-[#b6860c]/40 hover:text-[#8f5138] backdrop-blur-md"
-                        onClick={() => setIsSkillModalOpen(true)}
-                        type="button"
-                      >
-                        <span className="material-symbols-outlined text-[18px]">menu_book</span>
-                        技能百科
-                      </button>
+                          <div className="group relative shrink-0">
+                            <select
+                              className="appearance-none rounded-full border border-white bg-white/60 py-2 pl-4 pr-8 text-[12px] font-bold text-slate-700 shadow-sm outline-none transition hover:border-[#b6860c]/40 backdrop-blur-md"
+                              onChange={(event) =>
+                                resetConversationContext({ selectedMonth: event.target.value })
+                              }
+                              value={activeConversation.selectedMonth}
+                            >
+                              {MONTHS.map((month) => (
+                                <option key={month} value={month}>
+                                  {month}
+                                </option>
+                              ))}
+                            </select>
+                            <span className="material-symbols-outlined pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[16px] text-slate-400 group-hover:text-[#b6860c]">
+                              expand_more
+                            </span>
+                          </div>
+                        </>
+                      )}
 
                       {activePreviewPanel === "physical_table" ? (
                         <button
-                          className="flex items-center gap-2 rounded-full border border-[#b6860c]/20 bg-[#fff7ef]/80 px-4 py-2 text-[12px] font-bold text-[#b6860c] shadow-sm transition hover:bg-[#fff1e6] backdrop-blur-md"
+                          className="flex h-[40px] shrink-0 items-center gap-2 rounded-full border border-[#b6860c]/20 bg-[#fff7ef]/80 px-4 text-[12px] font-bold text-[#b6860c] shadow-sm transition hover:bg-[#fff1e6] backdrop-blur-md"
                           onClick={() => setIsPanelOpen(true)}
                           type="button"
                         >
                           <span className="material-symbols-outlined text-[18px]">table_chart</span>
-                          {activeSkill.deliverableActionLabel || "查看结果"}
+                          <span className="whitespace-nowrap">
+                            {activeSkill.deliverableActionLabel || "查看结果"}
+                          </span>
                         </button>
                       ) : activeSkill.deliverableLabel ? (
                         <div
-                          className="flex items-center gap-3 rounded-full border border-[#d7c7b0]/40 bg-[#fffaf4]/90 px-4 py-2 text-left shadow-sm backdrop-blur-md"
+                          className="flex h-[40px] shrink-0 items-center gap-2 rounded-full border border-[#b6860c]/20 bg-[#fff7ef]/80 px-4 text-[12px] font-bold text-[#b6860c] shadow-sm backdrop-blur-md"
                           title={headerDeliverableMeta.hint}
                         >
-                          <div className="flex size-8 items-center justify-center rounded-full bg-[#f4eadc] text-[#b6860c]">
-                            <span className="material-symbols-outlined text-[18px]">
-                              {headerDeliverableMeta.icon}
-                            </span>
-                          </div>
-                          <div className="flex flex-col leading-tight">
-                            <span className="text-[10px] font-black uppercase tracking-[0.18em] text-[#b97a5f]">
-                              {headerDeliverableMeta.eyebrow}
-                            </span>
-                            <span className="text-[12px] font-bold text-slate-700">
-                              {headerDeliverableMeta.label}
-                            </span>
-                          </div>
+                          <span className="material-symbols-outlined text-[18px]">
+                            {headerDeliverableMeta.icon}
+                          </span>
+                          <span className="whitespace-nowrap">
+                            {headerDeliverableMeta.label}
+                          </span>
                         </div>
                       ) : null}
 
                       {activeConversation.pending ? (
-                        <div className="rounded-full bg-[#fff1e7] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[#b4542e] animate-pulse">
-                          正在思考中...
+                        <div className="shrink-0 rounded-full bg-[#fff1e7] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[#b4542e] animate-pulse">
+                          正在思考...
                         </div>
                       ) : null}
                     </div>
@@ -899,7 +898,7 @@ export default function ParsingWorkspace() {
             <div className="w-full bg-gradient-to-t from-[#fbf7f2] via-[#fbf7f2]/80 to-transparent px-4 pb-8 pt-4">
               <div className="mx-auto max-w-[720px]">
                 <div className="group relative flex w-full flex-col rounded-[32px] border border-white bg-white/70 p-1.5 shadow-xl shadow-slate-200/40 transition-all hover:bg-white focus-within:bg-white focus-within:shadow-2xl focus-within:shadow-[#b6860c]/10 backdrop-blur-xl">
-                  <div className="flex items-start px-3 pb-0 pt-2">
+                  <div className="flex items-end px-3 pb-1 pt-2">
                     <input
                       accept={acceptedFileTypes}
                       className="hidden"
@@ -909,7 +908,7 @@ export default function ParsingWorkspace() {
                       type="file"
                     />
                     <button
-                      className="mt-1.5 shrink-0 rounded-2xl p-2.5 text-slate-400 transition hover:bg-[#fbf7f2] hover:text-[#b6860c]"
+                      className="mb-1 shrink-0 rounded-full p-2.5 text-slate-400 transition hover:bg-[#fbf7f2] hover:text-[#b6860c]"
                       onClick={() => fileInputRef.current?.click()}
                       type="button"
                     >
@@ -928,12 +927,12 @@ export default function ParsingWorkspace() {
                       rows="1"
                       value={inputText}
                     />
-                    <div className="mb-2 mr-2 flex items-center gap-1 self-end">
+                    <div className="mb-1 mr-1 flex items-center gap-1">
                       <button
                         className={cn(
-                          "rounded-2xl p-2.5 transition-all duration-300",
+                          "flex size-10 items-center justify-center rounded-full transition-all duration-500",
                           inputText.trim() && !activeConversation.pending
-                            ? "bg-[#b6860c] text-white shadow-lg shadow-[#b6860c]/20 hover:scale-105 active:scale-95"
+                            ? "bg-gradient-to-tr from-[#b6860c] to-[#d96e42] text-white shadow-lg shadow-[#b6860c]/25 hover:scale-105 active:scale-95"
                             : "bg-slate-100 text-slate-300 cursor-not-allowed",
                         )}
                         disabled={!inputText.trim() || activeConversation.pending}
@@ -952,24 +951,15 @@ export default function ParsingWorkspace() {
                         aria-expanded={isSkillSelectorOpen}
                         aria-haspopup="listbox"
                         aria-label={`选择解析技能，当前为${activeSkill.label}`}
-                        className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-2 text-left transition hover:bg-[#b6860c]/10"
+                        className="flex items-center gap-2 text-[12px] text-[#b6860c] bg-[#b6860c]/5 hover:bg-[#b6860c]/10 px-2.5 py-1.5 rounded-full font-bold transition"
                         onClick={() => setIsSkillSelectorOpen((current) => !current)}
                         type="button"
                       >
-                        <span className="flex size-9 items-center justify-center rounded-2xl bg-white text-slate-500 shadow-sm">
-                          <span className="material-symbols-outlined text-[18px]">
-                            {activeSkill.icon}
-                          </span>
+                        <span className="material-symbols-outlined text-[18px]">
+                          {activeSkill.icon}
                         </span>
-                        <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                          <span className="text-[10px] font-black uppercase tracking-[0.18em] text-[#b97a5f]/70">
-                            当前技能
-                          </span>
-                          <span className="truncate text-[13px] font-bold text-slate-700">
-                            {activeSkill.label}
-                          </span>
-                        </span>
-                        <span className="material-symbols-outlined text-[16px] text-slate-400">
+                        <span>{activeSkill.label}</span>
+                        <span className="material-symbols-outlined text-[16px]">
                           expand_more
                         </span>
                       </button>
@@ -977,7 +967,7 @@ export default function ParsingWorkspace() {
                       {isSkillSelectorOpen ? (
                         <div
                           aria-label="解析技能列表"
-                          className="absolute bottom-full left-0 z-50 mb-2 w-72 overflow-hidden rounded-2xl border border-[#eadfd5] bg-white py-2 shadow-xl animate-in fade-in slide-in-from-bottom-2 duration-200"
+                          className="absolute bottom-full left-0 z-50 mb-2 w-52 overflow-hidden rounded-2xl border border-[#eadfd5] bg-white py-2 shadow-xl animate-in fade-in slide-in-from-bottom-2 duration-200"
                           role="listbox"
                         >
                           {skillCatalog.skills.map((skill) => (
@@ -985,48 +975,27 @@ export default function ParsingWorkspace() {
                               aria-selected={skill.id === activeConversation.activeSkillId}
                               key={skill.id}
                               className={cn(
-                                "group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-[#fff7f0]",
+                                "flex w-full items-center gap-3 px-4 py-2.5 text-sm text-left transition-colors hover:bg-[#fff7f0]",
                                 skill.id === activeConversation.activeSkillId
-                                  ? "bg-[#fff7f0] text-[#b6860c]"
+                                  ? "bg-[#fff7f0] text-[#b6860c] font-bold"
                                   : "text-slate-600",
                               )}
                               onClick={() => handleSkillSelect(skill.id)}
                               role="option"
                               type="button"
                             >
-                              <span
-                                className={cn(
-                                  "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-2xl bg-[#f7f2ea] text-slate-400 transition-colors",
-                                  skill.id === activeConversation.activeSkillId
-                                    ? "bg-[#fff1dc] text-[#b6860c]"
-                                    : "",
-                                )}
-                              >
-                                <span className="material-symbols-outlined text-[18px]">
-                                  {skill.icon}
-                                </span>
+                              <span className="material-symbols-outlined text-[18px]">
+                                {skill.icon}
                               </span>
-                              <span className="min-w-0 flex-1">
-                                <span className="flex items-center justify-between gap-3">
-                                  <span className="truncate text-[13px] font-bold">
-                                    {skill.label}
-                                  </span>
-                                  <span className="shrink-0 rounded-full bg-[#f6eee2] px-2 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-[#b97a5f]">
-                                    {skill.deliverableLabel || "输出"}
-                                  </span>
-                                </span>
-                                <span className="mt-1 block text-[11px] font-medium leading-relaxed text-slate-400 transition-colors group-hover:text-slate-500">
-                                  {skill.summary}
-                                </span>
-                              </span>
+                              <span>{skill.label}</span>
                             </button>
                           ))}
                         </div>
                       ) : null}
                     </div>
 
-                    <div className="text-[11px] font-black tracking-widest text-slate-400 uppercase opacity-60">
-                      Intelligent Parser Engine · {activeConversation.selectedStore}
+                    <div className="text-[11px] font-medium tracking-wide text-slate-400">
+                      智能解析助理 · {activeSkill.badge || "通用"}
                     </div>
                   </div>
                 </div>
