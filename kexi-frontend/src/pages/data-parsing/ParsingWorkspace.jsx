@@ -38,6 +38,21 @@ import {
   uploadSourceFiles,
 } from "./parsingUtils";
 
+function buildHeaderDeliverableMeta(skill = {}, acceptedFileTypes = "") {
+  const outputLabel = skill.deliverableLabel || "输出文件";
+  const actionLabel = skill.deliverableActionLabel || "查看结果";
+  const isPdfOutput = /pdf/i.test(outputLabel);
+
+  return {
+    icon: isPdfOutput ? "picture_as_pdf" : "draft",
+    eyebrow: skill.previewPanel === "physical_table" ? actionLabel : "当前输出",
+    label: outputLabel,
+    hint: acceptedFileTypes
+      ? `支持 ${acceptedFileTypes.replace(/,/g, " / ")}`
+      : "按当前技能生成对应结果",
+  };
+}
+
 export default function ParsingWorkspace() {
   const fallbackCatalog = getFallbackParsingSkillCatalog();
   const [skillCatalog, setSkillCatalog] = useState(() => fallbackCatalog);
@@ -72,6 +87,7 @@ export default function ParsingWorkspace() {
     Array.isArray(activeSkill.acceptedFileTypes) && activeSkill.acceptedFileTypes.length
       ? activeSkill.acceptedFileTypes.join(",")
       : ".xls,.xlsx,.csv,.pdf,.doc,.docx";
+  const headerDeliverableMeta = buildHeaderDeliverableMeta(activeSkill, acceptedFileTypes);
   const lastMessage = activeConversation.messages[activeConversation.messages.length - 1];
 
   useEffect(() => {
@@ -133,6 +149,34 @@ export default function ParsingWorkspace() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isSkillModalOpen && !isSkillSelectorOpen) {
+      return;
+    }
+
+    let cancelled = false;
+
+    requestParsingSkills()
+      .then((catalog) => {
+        if (cancelled) {
+          return;
+        }
+
+        setSkillCatalog(catalog);
+        setConversations((current) =>
+          clampSavedConversations(
+            current.map((conversation) => buildParsingConversation(catalog, conversation)),
+          ),
+        );
+        setDraftConversation((current) => buildParsingConversation(catalog, current));
+      })
+      .catch(() => null);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isSkillModalOpen, isSkillSelectorOpen]);
 
   function upsertConversation(conversation) {
     setConversations((current) =>
@@ -728,6 +772,25 @@ export default function ParsingWorkspace() {
                           <span className="material-symbols-outlined text-[18px]">table_chart</span>
                           {activeSkill.deliverableActionLabel || "查看结果"}
                         </button>
+                      ) : activeSkill.deliverableLabel ? (
+                        <div
+                          className="flex items-center gap-3 rounded-full border border-[#d7c7b0]/40 bg-[#fffaf4]/90 px-4 py-2 text-left shadow-sm backdrop-blur-md"
+                          title={headerDeliverableMeta.hint}
+                        >
+                          <div className="flex size-8 items-center justify-center rounded-full bg-[#f4eadc] text-[#b6860c]">
+                            <span className="material-symbols-outlined text-[18px]">
+                              {headerDeliverableMeta.icon}
+                            </span>
+                          </div>
+                          <div className="flex flex-col leading-tight">
+                            <span className="text-[10px] font-black uppercase tracking-[0.18em] text-[#b97a5f]">
+                              {headerDeliverableMeta.eyebrow}
+                            </span>
+                            <span className="text-[12px] font-bold text-slate-700">
+                              {headerDeliverableMeta.label}
+                            </span>
+                          </div>
+                        </div>
                       ) : null}
 
                       {activeConversation.pending ? (
@@ -886,35 +949,76 @@ export default function ParsingWorkspace() {
                   <div className="flex items-center justify-between border-t border-slate-50 px-5 pb-2 pt-2">
                     <div className="relative" ref={skillSelectorRef}>
                       <button
-                        className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-1.5 text-[12px] font-bold text-slate-600 transition hover:bg-[#b6860c]/10 hover:text-[#b6860c]"
+                        aria-expanded={isSkillSelectorOpen}
+                        aria-haspopup="listbox"
+                        aria-label={`选择解析技能，当前为${activeSkill.label}`}
+                        className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-2 text-left transition hover:bg-[#b6860c]/10"
                         onClick={() => setIsSkillSelectorOpen((current) => !current)}
                         type="button"
                       >
-                        <span className="material-symbols-outlined text-[18px]">
-                          {activeSkill.icon}
+                        <span className="flex size-9 items-center justify-center rounded-2xl bg-white text-slate-500 shadow-sm">
+                          <span className="material-symbols-outlined text-[18px]">
+                            {activeSkill.icon}
+                          </span>
                         </span>
-                        {activeSkill.label}
-                        <span className="material-symbols-outlined text-[16px]">expand_more</span>
+                        <span className="flex min-w-0 flex-1 flex-col leading-tight">
+                          <span className="text-[10px] font-black uppercase tracking-[0.18em] text-[#b97a5f]/70">
+                            当前技能
+                          </span>
+                          <span className="truncate text-[13px] font-bold text-slate-700">
+                            {activeSkill.label}
+                          </span>
+                        </span>
+                        <span className="material-symbols-outlined text-[16px] text-slate-400">
+                          expand_more
+                        </span>
                       </button>
 
                       {isSkillSelectorOpen ? (
-                        <div className="absolute bottom-full left-0 z-50 mb-2 w-48 overflow-hidden rounded-2xl border border-[#eadfd5] bg-white py-2 shadow-xl animate-in fade-in slide-in-from-bottom-2 duration-200">
+                        <div
+                          aria-label="解析技能列表"
+                          className="absolute bottom-full left-0 z-50 mb-2 w-72 overflow-hidden rounded-2xl border border-[#eadfd5] bg-white py-2 shadow-xl animate-in fade-in slide-in-from-bottom-2 duration-200"
+                          role="listbox"
+                        >
                           {skillCatalog.skills.map((skill) => (
                             <button
+                              aria-selected={skill.id === activeConversation.activeSkillId}
                               key={skill.id}
                               className={cn(
-                                "flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-[#fff7f0]",
+                                "group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-[#fff7f0]",
                                 skill.id === activeConversation.activeSkillId
-                                  ? "bg-[#fff7f0] font-bold text-[#b6860c]"
+                                  ? "bg-[#fff7f0] text-[#b6860c]"
                                   : "text-slate-600",
                               )}
                               onClick={() => handleSkillSelect(skill.id)}
+                              role="option"
                               type="button"
                             >
-                              <span className="material-symbols-outlined text-[18px]">
-                                {skill.icon}
+                              <span
+                                className={cn(
+                                  "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-2xl bg-[#f7f2ea] text-slate-400 transition-colors",
+                                  skill.id === activeConversation.activeSkillId
+                                    ? "bg-[#fff1dc] text-[#b6860c]"
+                                    : "",
+                                )}
+                              >
+                                <span className="material-symbols-outlined text-[18px]">
+                                  {skill.icon}
+                                </span>
                               </span>
-                              {skill.label}
+                              <span className="min-w-0 flex-1">
+                                <span className="flex items-center justify-between gap-3">
+                                  <span className="truncate text-[13px] font-bold">
+                                    {skill.label}
+                                  </span>
+                                  <span className="shrink-0 rounded-full bg-[#f6eee2] px-2 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-[#b97a5f]">
+                                    {skill.deliverableLabel || "输出"}
+                                  </span>
+                                </span>
+                                <span className="mt-1 block text-[11px] font-medium leading-relaxed text-slate-400 transition-colors group-hover:text-slate-500">
+                                  {skill.summary}
+                                </span>
+                              </span>
                             </button>
                           ))}
                         </div>

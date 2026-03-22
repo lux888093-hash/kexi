@@ -347,7 +347,7 @@ export function SkillCatalogModal({
                 >
                   <div
                     className={cn(
-                      "flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-300",
+                      "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-300",
                       skill.id === activeSkillId
                         ? "bg-[#b6860c] text-white"
                         : "bg-[#eadfd2]/30 text-slate-400",
@@ -355,7 +355,12 @@ export function SkillCatalogModal({
                   >
                     <span className="material-symbols-outlined text-[18px]">{skill.icon}</span>
                   </div>
-                  <span className="text-[14px] font-bold tracking-tight">{skill.label}</span>
+                  <span className="min-w-0">
+                    <span className="block text-[14px] font-bold tracking-tight">{skill.label}</span>
+                    <span className="mt-1 block text-[11px] font-medium leading-relaxed text-slate-400">
+                      {skill.summary}
+                    </span>
+                  </span>
                 </button>
               ))}
             </div>
@@ -428,6 +433,25 @@ export function SkillCatalogModal({
                   <section>
                     <h4 className="mb-8 flex items-center gap-3 text-[11px] font-black uppercase tracking-[0.3em] text-[#171412]/30">
                       <span className="h-px w-6 bg-[#eadfd2]" />
+                      核心职责 / Responsibilities
+                    </h4>
+                    <div className="space-y-4">
+                      {(activeSkill.responsibilities || []).map((responsibility, index) => (
+                        <div className="group flex items-start gap-4" key={index}>
+                          <div className="mt-1.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-[#fff4e8] text-[#b6860c] transition-colors group-hover:bg-[#ffe8cf]">
+                            <span className="material-symbols-outlined text-[16px]">task_alt</span>
+                          </div>
+                          <span className="text-[15px] font-semibold leading-relaxed text-slate-600">
+                            {responsibility}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section>
+                    <h4 className="mb-8 flex items-center gap-3 text-[11px] font-black uppercase tracking-[0.3em] text-[#171412]/30">
+                      <span className="h-px w-6 bg-[#eadfd2]" />
                       职责边界 / Scope
                     </h4>
                     <div className="space-y-4">
@@ -447,6 +471,12 @@ export function SkillCatalogModal({
                       <span className="h-px w-6 bg-[#eadfd2]" />
                       输入要求 / Inputs
                     </h4>
+                    <div className="mb-4 rounded-3xl border border-[#eadfd2]/40 bg-[#fbf7f2] px-5 py-4 text-[13px] font-semibold text-slate-500">
+                      支持格式：
+                      <span className="ml-2 font-black text-[#171412]">
+                        {(activeSkill.acceptedFileTypes || []).join(" / ") || "按技能配置"}
+                      </span>
+                    </div>
                     <div className="flex flex-wrap gap-3">
                       {(activeSkill.requiredSourceGroups || []).map((group) => (
                         <div

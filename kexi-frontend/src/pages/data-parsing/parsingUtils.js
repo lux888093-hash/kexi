@@ -56,6 +56,7 @@ export function generateConversationId(prefix = "conversation") {
 }
 
 export function getParserModeLabel(mode = "") {
+  if (mode === "image-vision") return "图片识别";
   if (mode === "pdf-text") return "PDF 文本解析";
   if (mode === "spreadsheet") return "表格直读";
   if (mode === "document") return "参考文档";
@@ -68,7 +69,16 @@ export function buildFileMetaSummary(metrics = {}) {
   if (metrics.sheetName) items.push(metrics.sheetName);
   if (metrics.rowCount) items.push(`${metrics.rowCount} 行`);
   if (metrics.pageCount) items.push(`${metrics.pageCount} 页`);
+  if (metrics.listCount) items.push(`${metrics.listCount} 条列表记录`);
   if (metrics.charCount) items.push(`${metrics.charCount} 字`);
+  if (typeof metrics.primaryAmount === "number" && Number.isFinite(metrics.primaryAmount)) {
+    items.push(
+      `主金额 ¥${metrics.primaryAmount.toLocaleString("zh-CN", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+      })}`,
+    );
+  }
   if (typeof metrics.totalAmount === "number" && Number.isFinite(metrics.totalAmount)) {
     items.push(
       `总计 ¥${metrics.totalAmount.toLocaleString("zh-CN", {

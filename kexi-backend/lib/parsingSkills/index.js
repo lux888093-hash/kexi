@@ -2,8 +2,11 @@ const {
   BODY_TABLE_SKILL,
   BODY_TABLE_SKILL_ID,
 } = require('./bodyTableSkill');
+const {
+  SHUADAN_PACKET_SKILL,
+} = require('./shuadanPacketSkill');
 
-const PARSING_SKILLS = [BODY_TABLE_SKILL];
+const PARSING_SKILLS = [BODY_TABLE_SKILL, SHUADAN_PACKET_SKILL];
 const DEFAULT_PARSING_SKILL_ID = BODY_TABLE_SKILL_ID;
 const SKILL_MAP = new Map(PARSING_SKILLS.map((skill) => [skill.id, skill]));
 

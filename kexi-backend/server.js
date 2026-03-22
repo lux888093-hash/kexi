@@ -36,6 +36,7 @@ const {
   resolveParsingSkill,
   toPublicParsingSkill,
 } = require('./lib/parsingSkills');
+const { parseShuadanScreenshot } = require('./lib/parsingSkills/shuadanPacketParser');
 
 const app = express();
 const PORT = process.env.PORT || 3101;
@@ -133,6 +134,28 @@ function resolveExportLabel(inputValue = '', candidates = [], pattern = /./) {
 
   const fallback = candidates.find((value) => pattern.test(String(value || '').trim()));
   return String(fallback || raw || '').trim();
+}
+
+function resolveFreshParsingSkill(skillId = '') {
+  const normalizedSkillId = String(skillId || '').trim();
+
+  if (normalizedSkillId !== 'shuadan_packet_builder') {
+    return resolveParsingSkill(normalizedSkillId);
+  }
+
+  [
+    './lib/parsingSkills/shuadanPacketParser',
+    './lib/parsingSkills/shuadanPacketSkill',
+    './lib/parsingSkills/index',
+  ].forEach((modulePath) => {
+    try {
+      delete require.cache[require.resolve(modulePath)];
+    } catch (_error) {
+      // Ignore cache misses.
+    }
+  });
+
+  return require('./lib/parsingSkills').resolveParsingSkill(normalizedSkillId);
 }
 
 app.get('/api/system/health', (_request, response) => {
@@ -318,7 +341,7 @@ app.post('/api/parsing/upload', upload.array('files', 12), async (request, respo
 
   const storeName = String(request.body.storeName || '').trim();
   const periodLabel = String(request.body.periodLabel || '').trim();
-  const skill = resolveParsingSkill(request.body.skillId);
+  const skill = resolveFreshParsingSkill(request.body.skillId);
 
   try {
     const results = await Promise.all(
@@ -326,6 +349,14 @@ app.post('/api/parsing/upload', upload.array('files', 12), async (request, respo
         const normalizedOriginalName = normalizeUploadFileName(file.originalname);
 
         try {
+          if (skill.id === 'shuadan_packet_builder') {
+            return await parseShuadanScreenshot(file.path, {
+              originalName: normalizedOriginalName,
+              storeName,
+              periodLabel,
+            });
+          }
+
           return await skill.parseFile(file.path, {
             originalName: normalizedOriginalName,
             storeName,
