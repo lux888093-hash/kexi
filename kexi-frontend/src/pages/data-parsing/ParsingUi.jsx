@@ -313,136 +313,124 @@ export function SkillCatalogModal({
   const activeSkill = getParsingSkillById(catalog.skills, activeSkillId);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#171412]/30 p-4 backdrop-blur-[12px] animate-in fade-in duration-500">
-      <div className="flex h-[80vh] w-full max-w-5xl flex-col overflow-hidden rounded-[40px] border border-white/60 bg-[#fcfaf7] shadow-[0_32px_128px_rgba(0,0,0,0.15)]">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#171412]/40 p-4 backdrop-blur-[20px] animate-in fade-in duration-500">
+      <div className="flex h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-[40px] border border-white/20 bg-[#fcfaf7] shadow-[0_32px_128px_rgba(0,0,0,0.2)]">
         <div className="flex flex-1 overflow-hidden">
-          <div className="flex w-72 flex-col border-r border-[#eadfd2]/40 bg-[#fbf6f1]/60">
-            <div className="p-8 pb-4">
-              <div className="mb-2 flex items-center gap-3">
-                <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-[#b6860c] to-[#d96e42] text-white shadow-lg shadow-[#b6860c]/20">
-                  <span className="material-symbols-outlined text-[20px]">auto_awesome</span>
+          {/* Sidebar */}
+          <div className="flex w-64 flex-col border-r border-[#eadfd2]/40 bg-[#fbf6f1]/80 backdrop-blur-md">
+            <div className="p-6">
+              <div className="mb-1 flex items-center gap-2">
+                <div className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-[#b6860c] to-[#d96e42] text-white shadow-md shadow-[#b6860c]/20">
+                  <span className="material-symbols-outlined text-[16px]">auto_awesome</span>
                 </div>
-                <h2 className="text-lg font-black tracking-tight text-[#171412]">技能百科</h2>
+                <h2 className="text-sm font-black tracking-tight text-[#171412]">技能百科</h2>
               </div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-[#b97a5f]/60">
-                AI Capabilities
-              </p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#b97a5f]/60">Capabilities</p>
             </div>
 
-            <div className="custom-scrollbar flex-1 space-y-1 overflow-y-auto px-4 pb-6">
-              <div className="mb-3 px-4 pt-4 text-[10px] font-black uppercase tracking-[0.3em] text-[#b97a5f]/40">
-                解析能力清单
-              </div>
+            <div className="custom-scrollbar flex-1 space-y-0.5 overflow-y-auto px-2 pb-6">
               {catalog.skills.map((skill) => (
                 <button
                   key={skill.id}
                   className={cn(
-                    "flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition-all duration-300",
+                    "group flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition-all duration-300",
                     skill.id === activeSkillId
-                      ? "bg-white text-[#b6860c] shadow-[0_8px_24px_rgba(182,134,12,0.08)]"
-                      : "text-slate-500 hover:bg-white/50 hover:text-[#8f5138]",
+                      ? "bg-white text-[#b6860c] shadow-sm"
+                      : "text-slate-500 hover:bg-white/40 hover:text-[#8f5138]",
                   )}
                   onClick={() => onSelect(skill.id)}
                   type="button"
                 >
                   <div
                     className={cn(
-                      "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-300",
+                      "flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors duration-300",
                       skill.id === activeSkillId
                         ? "bg-[#b6860c] text-white"
-                        : "bg-[#eadfd2]/30 text-slate-400",
+                        : "bg-[#eadfd2]/30 text-slate-400 group-hover:bg-[#eadfd2]/50",
                     )}
                   >
-                    <span className="material-symbols-outlined text-[18px]">{skill.icon}</span>
+                    <span className="material-symbols-outlined text-[16px]">{skill.icon}</span>
                   </div>
-                  <span className="min-w-0">
-                    <span className="block text-[14px] font-bold tracking-tight">{skill.label}</span>
-                    <span className="mt-1 block text-[11px] font-medium leading-relaxed text-slate-400">
-                      {skill.summary}
-                    </span>
-                  </span>
+                  <div className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-bold tracking-tight">{skill.label}</span>
+                  </div>
+                  {skill.id === activeSkillId && (
+                    <div className="size-1.5 rounded-full bg-[#b6860c]" />
+                  )}
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="relative flex flex-1 flex-col bg-white/40">
-            <div className="absolute right-8 top-8 z-10">
+          {/* Content Area */}
+          <div className="relative flex flex-1 flex-col bg-white/60 backdrop-blur-sm">
+            <div className="absolute right-6 top-6 z-10">
               <button
-                className="flex size-10 items-center justify-center rounded-full border border-[#eadfd2]/50 bg-white text-[#171412] shadow-sm transition-all duration-500 hover:bg-[#171412] hover:text-white"
+                className="flex size-9 items-center justify-center rounded-full border border-slate-200 bg-white/80 text-slate-400 shadow-sm transition-all duration-300 hover:bg-slate-900 hover:text-white backdrop-blur-md"
                 onClick={onClose}
                 type="button"
               >
-                <span className="material-symbols-outlined text-[20px]">close</span>
+                <span className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
 
-            <div className="custom-scrollbar flex-1 overflow-y-auto p-12">
-              <div className="mx-auto max-w-3xl animate-in slide-in-from-bottom-6 duration-700">
-                <div className="mb-8 flex items-center gap-3">
-                  <span className="rounded-full border border-emerald-100/50 bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-emerald-600">
-                    Production Ready
+            <div className="custom-scrollbar flex-1 overflow-y-auto p-10 pb-20">
+              <div className="mx-auto max-w-2xl animate-in slide-in-from-bottom-4 duration-500">
+                {/* Header Meta */}
+                <div className="mb-6 flex items-center gap-2">
+                  <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-emerald-600">
+                    Live Status
                   </span>
-                  <div className="h-1 w-1 rounded-full bg-[#eadfd2]" />
-                  <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#b97a5f]/50">
+                  <span className="rounded-full bg-[#fff4e8] px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-[#b6860c]">
                     {activeSkill.badge}
                   </span>
                 </div>
 
-                <h3 className="mb-6 text-4xl font-black leading-tight tracking-tighter text-[#171412]">
+                <h3 className="mb-4 text-3xl font-black tracking-tighter text-[#171412]">
                   {activeSkill.label}
                 </h3>
-                <p className="mb-12 text-[17px] font-medium leading-relaxed text-slate-500">
+                <p className="mb-8 text-[15px] font-medium leading-relaxed text-slate-500">
                   {activeSkill.description}
                 </p>
 
-                <div className="mb-16 grid grid-cols-2 gap-5">
-                  <div className="flex items-center gap-5 rounded-3xl border border-[#eadfd2]/30 bg-[#fbf7f2] p-6">
-                    <div className="flex size-12 items-center justify-center rounded-2xl border border-[#eadfd2]/20 bg-white shadow-sm">
-                      <span className="material-symbols-outlined text-[24px] text-[#b6860c]">
-                        folder_special
-                      </span>
+                {/* Streamlined Meta Bar */}
+                <div className="mb-10 flex items-center gap-6 border-b border-[#eadfd2]/40 pb-8">
+                  <div className="flex items-center gap-3">
+                    <div className="flex size-10 items-center justify-center rounded-xl bg-[#fbf7f2] text-[#b6860c]">
+                      <span className="material-symbols-outlined text-[20px]">inventory_2</span>
                     </div>
                     <div>
-                      <p className="mb-0.5 text-[10px] font-black uppercase tracking-[0.2em] text-[#b97a5f]">
-                        交付成果
-                      </p>
-                      <p className="text-[15px] font-black text-[#171412]">
-                        {activeSkill.deliverableLabel || "正式报表"}
-                      </p>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-[#b97a5f]/60">交付成果</p>
+                      <p className="text-[13px] font-black text-[#171412]">{activeSkill.deliverableLabel || "正式报表"}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-5 rounded-3xl border border-[#eadfd2]/30 bg-[#fbf7f2] p-6">
-                    <div className="flex size-12 items-center justify-center rounded-2xl border border-[#eadfd2]/20 bg-white shadow-sm">
-                      <span className="material-symbols-outlined text-[24px] text-[#d96e42]">
-                        location_on
-                      </span>
+                  <div className="h-8 w-px bg-[#eadfd2]/40" />
+                  <div className="flex items-center gap-3">
+                    <div className="flex size-10 items-center justify-center rounded-xl bg-[#fbf7f2] text-[#d96e42]">
+                      <span className="material-symbols-outlined text-[20px]">monitoring</span>
                     </div>
                     <div>
-                      <p className="mb-0.5 text-[10px] font-black uppercase tracking-[0.2em] text-[#b97a5f]">
-                        数据范围
-                      </p>
-                      <p className="text-[15px] font-black text-[#171412]">
-                        {storeName} · {periodLabel}
-                      </p>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-[#b97a5f]/60">数据上下文</p>
+                      <p className="text-[13px] font-black text-[#171412]">{storeName} · {periodLabel}</p>
                     </div>
                   </div>
                 </div>
 
-                <div className="space-y-12">
+                {/* Detail Sections - Compact */}
+                <div className="grid gap-10">
                   <section>
-                    <h4 className="mb-8 flex items-center gap-3 text-[11px] font-black uppercase tracking-[0.3em] text-[#171412]/30">
-                      <span className="h-px w-6 bg-[#eadfd2]" />
+                    <h4 className="mb-4 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                      <span className="h-px w-4 bg-slate-200" />
                       核心职责 / Responsibilities
                     </h4>
-                    <div className="space-y-4">
-                      {(activeSkill.responsibilities || []).map((responsibility, index) => (
-                        <div className="group flex items-start gap-4" key={index}>
-                          <div className="mt-1.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-[#fff4e8] text-[#b6860c] transition-colors group-hover:bg-[#ffe8cf]">
-                            <span className="material-symbols-outlined text-[16px]">task_alt</span>
+                    <div className="space-y-2.5">
+                      {(activeSkill.responsibilities || []).map((text, idx) => (
+                        <div className="group flex items-start gap-3" key={idx}>
+                          <div className="mt-1 flex size-5 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-500">
+                            <span className="material-symbols-outlined text-[13px]">check</span>
                           </div>
-                          <span className="text-[15px] font-semibold leading-relaxed text-slate-600">
-                            {responsibility}
+                          <span className="text-[14px] font-semibold leading-tight text-slate-600 group-hover:text-slate-900 transition-colors">
+                            {text}
                           </span>
                         </div>
                       ))}
@@ -450,16 +438,18 @@ export function SkillCatalogModal({
                   </section>
 
                   <section>
-                    <h4 className="mb-8 flex items-center gap-3 text-[11px] font-black uppercase tracking-[0.3em] text-[#171412]/30">
-                      <span className="h-px w-6 bg-[#eadfd2]" />
-                      职责边界 / Scope
+                    <h4 className="mb-4 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                      <span className="h-px w-4 bg-slate-200" />
+                      能力边界 / Boundaries
                     </h4>
-                    <div className="space-y-4">
-                      {(activeSkill.boundaries || []).map((boundary, index) => (
-                        <div className="group flex items-start gap-4" key={index}>
-                          <div className="mt-2 size-1.5 shrink-0 rounded-full bg-[#b6860c]/40 transition-colors group-hover:bg-[#b6860c]" />
-                          <span className="text-[15px] font-semibold leading-relaxed text-slate-600">
-                            {boundary}
+                    <div className="space-y-2.5">
+                      {(activeSkill.boundaries || []).map((text, idx) => (
+                        <div className="group flex items-start gap-3" key={idx}>
+                          <div className="mt-1 flex size-5 shrink-0 items-center justify-center rounded-full bg-slate-50 text-slate-300">
+                            <span className="material-symbols-outlined text-[13px]">block</span>
+                          </div>
+                          <span className="text-[14px] font-semibold leading-tight text-slate-500 group-hover:text-slate-700 transition-colors italic">
+                            {text}
                           </span>
                         </div>
                       ))}
@@ -467,63 +457,55 @@ export function SkillCatalogModal({
                   </section>
 
                   <section>
-                    <h4 className="mb-8 flex items-center gap-3 text-[11px] font-black uppercase tracking-[0.3em] text-[#171412]/30">
-                      <span className="h-px w-6 bg-[#eadfd2]" />
-                      输入要求 / Inputs
+                    <h4 className="mb-4 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                      <span className="h-px w-4 bg-slate-200" />
+                      数据输入 / Requirements
                     </h4>
-                    <div className="mb-4 rounded-3xl border border-[#eadfd2]/40 bg-[#fbf7f2] px-5 py-4 text-[13px] font-semibold text-slate-500">
-                      支持格式：
-                      <span className="ml-2 font-black text-[#171412]">
-                        {(activeSkill.acceptedFileTypes || []).join(" / ") || "按技能配置"}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-3">
+                    <div className="mb-3 flex flex-wrap gap-2">
                       {(activeSkill.requiredSourceGroups || []).map((group) => (
                         <div
-                          className="flex items-center gap-2 rounded-2xl border border-[#eadfd2]/60 bg-white px-5 py-3 text-[13px] font-bold text-slate-600 shadow-sm transition-colors hover:border-[#b6860c]/40"
+                          className="flex items-center gap-1.5 rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-1.5 text-[12px] font-bold text-slate-600"
                           key={group.key}
                         >
-                          <span className="material-symbols-outlined text-[16px] text-[#b97a5f]">
-                            description
-                          </span>
+                          <span className="material-symbols-outlined text-[14px] text-slate-400">description</span>
                           {group.label}
                         </div>
                       ))}
                     </div>
+                    <p className="text-[11px] font-medium text-slate-400">
+                      支持格式：{(activeSkill.acceptedFileTypes || []).join(" / ")}
+                    </p>
                   </section>
 
-                  {activeSkill.suggestions && activeSkill.suggestions.length > 0 ? (
-                    <section className="pb-16">
-                      <h4 className="mb-8 flex items-center gap-3 text-[11px] font-black uppercase tracking-[0.3em] text-[#171412]/30">
-                        <span className="h-px w-6 bg-[#eadfd2]" />
+                  {activeSkill.suggestions && activeSkill.suggestions.length > 0 && (
+                    <section className="mt-4 pt-10">
+                      <h4 className="mb-4 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-[#b97a5f]/50">
+                        <span className="h-px w-4 bg-[#b6860c]/30" />
                         推荐指令 / Prompts
                       </h4>
-                      <div className="grid gap-3">
-                        {activeSkill.suggestions.map((suggestion) => (
+                      <div className="grid gap-1.5">
+                        {activeSkill.suggestions.map((text) => (
                           <button
-                            className="group w-full rounded-[24px] border border-[#eadfd2]/40 bg-[#fbf7f2]/50 p-5 text-left text-[14px] font-bold text-slate-700 transition-all hover:border-[#b6860c]/60 hover:bg-white hover:shadow-xl hover:shadow-[#b6860c]/5"
-                            key={suggestion}
-                            onClick={() => {
-                              onSelect(activeSkill.id);
-                              onClose();
-                            }}
-                            type="button"
+                            key={text}
+                            className="group flex w-full items-center justify-between rounded-xl border border-transparent px-3 py-2.5 text-left transition-all duration-300 hover:border-[#b6860c]/10 hover:bg-[#b6860c]/5 hover:pl-4"
+                            onClick={() => { onSelect(activeSkill.id); onClose(); }}
                           >
-                            <div className="flex items-center justify-between">
-                              <span className="leading-relaxed transition-colors group-hover:text-[#171412]">
-                                {suggestion}
+                            <div className="flex items-center gap-3 min-w-0">
+                              <span className="material-symbols-outlined text-[16px] text-[#b6860c]/40 group-hover:text-[#b6860c] transition-colors">
+                                chat_bubble
                               </span>
-                              <div className="flex size-8 items-center justify-center rounded-full text-[#eadfd2] transition-all group-hover:bg-[#b6860c]/5 group-hover:text-[#b6860c]">
-                                <span className="material-symbols-outlined text-[20px]">
-                                  arrow_forward
-                                </span>
-                              </div>
+                              <span className="truncate text-[13px] font-bold text-slate-600 group-hover:text-[#171412] transition-colors leading-none">
+                                {text}
+                              </span>
                             </div>
+                            <span className="material-symbols-outlined text-[16px] text-slate-200 opacity-0 transition-all -translate-x-2 group-hover:translate-x-0 group-hover:text-[#b6860c] group-hover:opacity-100">
+                              arrow_forward
+                            </span>
                           </button>
                         ))}
                       </div>
                     </section>
-                  ) : null}
+                  )}
                 </div>
               </div>
             </div>
