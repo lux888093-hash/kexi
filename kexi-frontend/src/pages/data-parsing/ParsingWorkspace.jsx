@@ -30,10 +30,12 @@ import {
   hasConversationMessages,
   loadStoredParsingConversations,
   mergeFilesByName,
+  normalizeGeneratedDeliverable,
   normalizeParsedFile,
   normalizeParsingContext,
   normalizeReviewFile,
   requestParsingSkills,
+  resolveConversationPdfDeliverable,
   resolveDownloadUrl,
   serializeParsingConversation,
   uploadSourceFiles,
@@ -90,6 +92,12 @@ export default function ParsingWorkspace() {
       : ".xls,.xlsx,.csv,.pdf,.doc,.docx";
   const headerDeliverableMeta = buildHeaderDeliverableMeta(activeSkill, acceptedFileTypes);
   const lastMessage = activeConversation.messages[activeConversation.messages.length - 1];
+  const activeGeneratedDeliverable = resolveConversationPdfDeliverable(activeConversation);
+  const activePdfPreviewUrl =
+    /\.pdf$/i.test(activeGeneratedDeliverable?.fileName || "") &&
+    activeGeneratedDeliverable?.previewUrl
+      ? activeGeneratedDeliverable.previewUrl
+      : "";
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -250,6 +258,15 @@ export default function ParsingWorkspace() {
       return;
     }
     resetConversationContext({ activeSkillId: skillId });
+  }
+
+  function handleOpenGeneratedPdf() {
+    if (!activePdfPreviewUrl) {
+      window.alert("当前对话还没有生成 PDF 文件，请先在本对话中完成一次 PDF 生成。");
+      return;
+    }
+
+    window.open(activePdfPreviewUrl, "_blank", "noopener,noreferrer");
   }
 
   async function handleSendMessage() {
@@ -487,19 +504,9 @@ export default function ParsingWorkspace() {
         matchedGroupKeys,
         skillSnapshot.requiredSourceGroups,
       );
-      const nextParsingContext = normalizeParsingContext(
-        {
-          ...conversationSnapshot.chatParsingContext,
-          parsedFiles: mergedParsedFiles,
-          reviewFiles: mergedReviewFiles,
-          failFiles: mergedFailFiles,
-          missingFiles,
-        },
-        skillSnapshot,
-        conversationSnapshot.selectedStore,
-        conversationSnapshot.selectedMonth,
+      let generatedDeliverable = normalizeGeneratedDeliverable(
+        conversationSnapshot.chatParsingContext?.generatedDeliverable,
       );
-
       let downloadSection = "";
       try {
         updatePersistedConversation(conversationId, (conversation) => ({
@@ -528,7 +535,17 @@ export default function ParsingWorkspace() {
           exportResult.downloadPath,
           exportResult.downloadFileName,
         );
-        downloadSection = `\n\n---\n\n**解析已完成**：已回填到《${exportResult.downloadFileName}》。\n\n[点击下载《${exportResult.downloadFileName}》](${downloadUrl})`;
+        generatedDeliverable = normalizeGeneratedDeliverable({
+          fileName: exportResult.downloadFileName,
+          downloadPath: exportResult.downloadPath,
+          previewPath: exportResult.previewPath,
+          downloadUrl,
+          generatedAt: Date.now(),
+        });
+        const resolvedPreviewUrl = generatedDeliverable?.previewUrl || "";
+        downloadSection = resolvedPreviewUrl
+          ? `\n\n---\n\n**解析已完成**：已回填到《${exportResult.downloadFileName}》。\n\n[点击预览《${exportResult.downloadFileName}》](${resolvedPreviewUrl})`
+          : `\n\n---\n\n**解析已完成**：已回填到《${exportResult.downloadFileName}》。\n\n[点击下载《${exportResult.downloadFileName}》](${downloadUrl})`;
       } catch {
         downloadSection = "\n\n---\n\n**提示**：解析成功，但生成下载文件时出错。";
       }
@@ -540,6 +557,20 @@ export default function ParsingWorkspace() {
         storeName: conversationSnapshot.selectedStore,
         periodLabel: conversationSnapshot.selectedMonth,
       })}${downloadSection}`;
+
+      const nextParsingContext = normalizeParsingContext(
+        {
+          ...conversationSnapshot.chatParsingContext,
+          parsedFiles: mergedParsedFiles,
+          reviewFiles: mergedReviewFiles,
+          failFiles: mergedFailFiles,
+          missingFiles,
+          generatedDeliverable,
+        },
+        skillSnapshot,
+        conversationSnapshot.selectedStore,
+        conversationSnapshot.selectedMonth,
+      );
 
       if (typeof skillClientSnapshot.buildInsightMarkdown === "function") {
         finalText = `${finalText}\n\n---\n\n## 数据洞察\n\n${skillClientSnapshot.buildInsightMarkdown({
@@ -776,6 +807,26 @@ export default function ParsingWorkspace() {
                           <span className="material-symbols-outlined text-[18px]">table_chart</span>
                           <span className="whitespace-nowrap">
                             {activeSkill.deliverableActionLabel || "查看结果"}
+                          </span>
+                        </button>
+                      ) : /pdf/i.test(activeSkill.deliverableLabel || "") ? (
+                        <button
+                          className="flex h-[40px] shrink-0 items-center gap-2 rounded-full border border-[#b6860c]/20 bg-[#fff7ef]/80 px-4 text-[12px] font-bold text-[#b6860c] shadow-sm transition hover:bg-[#fff1e6] backdrop-blur-md"
+                          onClick={handleOpenGeneratedPdf}
+                          title={
+                            activePdfPreviewUrl
+                              ? `查看当前会话生成的 ${
+                                  activeGeneratedDeliverable?.fileName || headerDeliverableMeta.label
+                                }`
+                              : "当前对话还没有生成 PDF 文件"
+                          }
+                          type="button"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">
+                            {headerDeliverableMeta.icon}
+                          </span>
+                          <span className="whitespace-nowrap">
+                            {headerDeliverableMeta.label}
                           </span>
                         </button>
                       ) : activeSkill.deliverableLabel ? (

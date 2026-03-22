@@ -125,6 +125,17 @@ function normalizeDownloadFileName(fileName = '') {
   return normalized;
 }
 
+function isPdfExportFile(filePath = '', fileName = '') {
+  return /\.pdf$/i.test(String(fileName || filePath || '').trim());
+}
+
+function buildInlineContentDisposition(fileName = '') {
+  const normalized = normalizeDownloadFileName(fileName || 'document.pdf');
+  const asciiFallback = normalized.replace(/[^\x20-\x7e]+/g, '_') || 'document.pdf';
+
+  return `inline; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(normalized)}`;
+}
+
 function resolveExportLabel(inputValue = '', candidates = [], pattern = /./) {
   const raw = String(inputValue || '').trim();
 
@@ -456,6 +467,7 @@ app.post('/api/parsing/export-draft', async (request, response) => {
       skillId: skill.id,
       skill: toPublicParsingSkill(skill),
       downloadPath: `/api/parsing/download/${token}`,
+      previewPath: isPdfExportFile(token, downloadFileName) ? `/api/parsing/view/${token}` : '',
       downloadFileName,
     });
   } catch (error) {
@@ -478,6 +490,30 @@ app.get('/api/parsing/download/:token', (request, response) => {
   const requestedName = normalizeDownloadFileName(request.query.name || '');
 
   response.download(filePath, requestedName);
+});
+
+app.get('/api/parsing/view/:token', (request, response) => {
+  const filePath = resolveParsingExportPath(request.params.token);
+
+  if (!filePath) {
+    response.status(404).json({
+      message: '预览文件不存在或已失效。',
+    });
+    return;
+  }
+
+  if (!isPdfExportFile(filePath, request.query.name || filePath)) {
+    response.status(400).json({
+      message: '当前文件不支持在线预览。',
+    });
+    return;
+  }
+
+  const requestedName = normalizeDownloadFileName(request.query.name || path.basename(filePath));
+
+  response.setHeader('Content-Type', 'application/pdf');
+  response.setHeader('Content-Disposition', buildInlineContentDisposition(requestedName));
+  response.sendFile(filePath);
 });
 
 app.post('/api/parsing/chat', async (request, response) => {

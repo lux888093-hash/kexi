@@ -198,6 +198,145 @@ export function resolveDownloadUrl(downloadPath = "", downloadFileName = "") {
   return buildApiUrl(pathWithName);
 }
 
+function resolvePreviewPath(previewPath = "", downloadPath = "", fileName = "") {
+  const normalizedPreviewPath = String(previewPath || "").trim();
+  if (normalizedPreviewPath) {
+    return normalizedPreviewPath;
+  }
+
+  const normalizedDownloadPath = String(downloadPath || "").trim();
+  if (/\.pdf$/i.test(String(fileName || "").trim()) && normalizedDownloadPath) {
+    return normalizedDownloadPath.replace("/api/parsing/download/", "/api/parsing/view/");
+  }
+
+  return "";
+}
+
+function extractPdfFileName(label = "", href = "") {
+  const normalizedLabel = String(label || "").trim();
+  const normalizedHref = String(href || "").trim();
+  const labelMatch =
+    normalizedLabel.match(/《([^》]+\.pdf)》/i) ||
+    normalizedLabel.match(/([^\s]+\.pdf)/i);
+
+  if (labelMatch?.[1]) {
+    return labelMatch[1].trim();
+  }
+
+  const nameMatch = normalizedHref.match(/[?&]name=([^&]+)/i);
+  if (nameMatch?.[1]) {
+    try {
+      return decodeURIComponent(nameMatch[1]).trim();
+    } catch {
+      return nameMatch[1].trim();
+    }
+  }
+
+  const pathMatch = normalizedHref.match(/\/([^/?#]+\.pdf)(?:[?#]|$)/i);
+  if (pathMatch?.[1]) {
+    try {
+      return decodeURIComponent(pathMatch[1]).trim();
+    } catch {
+      return pathMatch[1].trim();
+    }
+  }
+
+  return "";
+}
+
+function normalizePdfPreviewUrl(href = "") {
+  const normalizedHref = String(href || "").trim();
+  if (!normalizedHref || !/\/api\/parsing\/(?:download|view)\//i.test(normalizedHref)) {
+    return "";
+  }
+
+  const previewHref = normalizedHref.replace("/api/parsing/download/", "/api/parsing/view/");
+
+  if (/^https?:\/\//i.test(previewHref)) {
+    return previewHref;
+  }
+
+  if (previewHref.startsWith("/")) {
+    return buildApiUrl(previewHref);
+  }
+
+  return buildApiUrl(`/${previewHref.replace(/^\/+/, "")}`);
+}
+
+export function normalizeGeneratedDeliverable(deliverable = {}) {
+  const source = deliverable && typeof deliverable === "object" ? deliverable : {};
+  const fileName = String(
+    source.fileName || source.downloadFileName || "",
+  ).trim();
+  const downloadPath = String(source.downloadPath || "").trim();
+  const previewPath = resolvePreviewPath(
+    source.previewPath,
+    downloadPath,
+    fileName,
+  );
+  const downloadUrl = String(
+    source.downloadUrl || resolveDownloadUrl(downloadPath, fileName),
+  ).trim();
+  const previewUrl = String(
+    source.previewUrl || resolveDownloadUrl(previewPath, fileName),
+  ).trim();
+
+  if (!fileName && !downloadPath && !previewPath && !downloadUrl && !previewUrl) {
+    return null;
+  }
+
+  return {
+    fileName,
+    downloadPath,
+    previewPath,
+    downloadUrl,
+    previewUrl,
+    generatedAt: Number(source.generatedAt || Date.now()),
+  };
+}
+
+export function resolveConversationPdfDeliverable(conversation = {}) {
+  const contextDeliverable = normalizeGeneratedDeliverable(
+    conversation?.chatParsingContext?.generatedDeliverable,
+  );
+
+  if (/\.pdf$/i.test(contextDeliverable?.fileName || "") && contextDeliverable?.previewUrl) {
+    return contextDeliverable;
+  }
+
+  const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+
+    if (message?.sender !== "ai" || typeof message?.text !== "string") {
+      continue;
+    }
+
+    const matches = [...message.text.matchAll(/\[([^\]]+)\]\(([^)]+)\)/g)];
+
+    for (let linkIndex = matches.length - 1; linkIndex >= 0; linkIndex -= 1) {
+      const [, label = "", href = ""] = matches[linkIndex] || [];
+      const previewUrl = normalizePdfPreviewUrl(href);
+      const fileName = extractPdfFileName(label, href);
+
+      if (!previewUrl || !/\.pdf$/i.test(fileName || href)) {
+        continue;
+      }
+
+      return normalizeGeneratedDeliverable({
+        fileName,
+        previewUrl,
+        downloadUrl: String(href || "").trim(),
+      });
+    }
+  }
+
+  return contextDeliverable && /\.pdf$/i.test(contextDeliverable.fileName || "")
+    ? contextDeliverable
+    : null;
+}
+
 export function normalizeParsingMessage(message = {}) {
   return {
     ...message,
@@ -238,6 +377,7 @@ export function normalizeParsingContext(context = {}, skill, selectedStore, sele
     reviewFiles: Array.isArray(context.reviewFiles) ? context.reviewFiles : [],
     failFiles: Array.isArray(context.failFiles) ? context.failFiles : [],
     missingFiles: Array.isArray(context.missingFiles) ? context.missingFiles : [],
+    generatedDeliverable: normalizeGeneratedDeliverable(context.generatedDeliverable),
   };
 }
 

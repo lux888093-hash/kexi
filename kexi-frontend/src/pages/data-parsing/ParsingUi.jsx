@@ -2,6 +2,51 @@ import { useState } from "react";
 import { getParsingSkillById } from "../../lib/parsingSkills";
 import { cn } from "./parsingUtils";
 
+function resolvePdfPreviewHref(href = "", label = "") {
+  const normalizedHref = String(href || "").trim();
+  if (!normalizedHref) {
+    return "";
+  }
+
+  const isPdfLink =
+    /\.pdf($|[?#])/i.test(normalizedHref) ||
+    /\.pdf/i.test(String(label || "").trim()) ||
+    /name=[^&]*\.pdf/i.test(normalizedHref);
+
+  if (!isPdfLink) {
+    return normalizedHref;
+  }
+
+  return normalizedHref.replace("/api/parsing/download/", "/api/parsing/view/");
+}
+
+function resolvePdfPreviewLabel(label = "", href = "") {
+  const normalizedLabel = String(label || "").trim();
+  const normalizedHref = String(href || "").trim();
+  const previewHref = resolvePdfPreviewHref(normalizedHref, normalizedLabel);
+  const isPreviewPdfLink =
+    Boolean(previewHref) &&
+    (previewHref !== normalizedHref || /\/api\/parsing\/view\//i.test(previewHref));
+
+  if (!isPreviewPdfLink) {
+    return normalizedLabel;
+  }
+
+  if (/预览/.test(normalizedLabel)) {
+    return normalizedLabel;
+  }
+
+  if (/下载/.test(normalizedLabel)) {
+    return normalizedLabel.replace(/下载/g, "预览");
+  }
+
+  if (/查看/.test(normalizedLabel)) {
+    return normalizedLabel.replace(/查看/g, "预览");
+  }
+
+  return normalizedLabel;
+}
+
 function renderInlineMarkdown(text) {
   const source = String(text || "");
   const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\)|\[\^\d+\])/g;
@@ -45,15 +90,18 @@ function renderInlineMarkdown(text) {
 
     const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (linkMatch) {
+      const linkLabel = linkMatch[1];
+      const linkHref = resolvePdfPreviewHref(linkMatch[2], linkLabel);
+      const renderedLabel = resolvePdfPreviewLabel(linkLabel, linkMatch[2]);
       return (
         <a
           key={`${part}-${index}`}
           className="font-semibold text-primary underline decoration-primary/30 underline-offset-4"
-          href={linkMatch[2]}
+          href={linkHref}
           rel="noreferrer"
           target="_blank"
         >
-          {linkMatch[1]}
+          {renderedLabel}
         </a>
       );
     }
