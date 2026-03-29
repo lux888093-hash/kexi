@@ -24,6 +24,7 @@ const {
   deleteReport,
   updateReportData,
 } = require('./lib/financialStore');
+const { parseWorkbook } = require('./lib/financialParser');
 const {
   resolveParsingExportPath,
 } = require('./lib/sourceFileWorkbook');
@@ -42,6 +43,7 @@ const {
   resolveParsingSkill,
   toPublicParsingSkill,
 } = require('./lib/parsingSkills');
+const { BODY_TABLE_SKILL_ID } = require('./lib/parsingSkills/bodyTableSkill');
 const { parseShuadanScreenshot } = require('./lib/parsingSkills/shuadanPacketParser');
 
 const app = express();
@@ -180,6 +182,48 @@ function buildConversationArtifactApiPath(conversationId = '', skillId = '', mod
   return `/api/parsing/history/${encodeURIComponent(
     String(conversationId || '').trim(),
   )}/${encodeURIComponent(String(skillId || '').trim())}/${mode}`;
+}
+
+function resolvePeriodIdFromLabel(periodLabel = '') {
+  const match = String(periodLabel || '').trim().match(/(\d{4})年(\d{1,2})月/);
+
+  if (!match) {
+    return '';
+  }
+
+  return `${match[1]}-${match[2].padStart(2, '0')}`;
+}
+
+function syncGeneratedBodyTableReport({
+  filePath = '',
+  downloadFileName = '',
+  storeName = '',
+  periodLabel = '',
+}) {
+  return ingestWorkbook(filePath, {
+    originalName: downloadFileName || path.basename(filePath),
+    storeName,
+    period: resolvePeriodIdFromLabel(periodLabel),
+    uploadedAt: new Date().toISOString(),
+  });
+}
+
+function readConversationBodyTableReport(conversationId = '', skillId = '') {
+  const filePath = resolveConversationArtifactPath(conversationId, skillId);
+
+  if (!filePath) {
+    return null;
+  }
+
+  if (!/\.(xlsx|xls|csv)$/i.test(filePath)) {
+    throw new Error('当前会话产物不是可读取的体质表文件。');
+  }
+
+  return parseWorkbook(filePath, {
+    originalName: path.basename(filePath),
+    sourceRelativePath: '',
+    uploadedAt: new Date().toISOString(),
+  });
 }
 
 app.get('/api/system/health', (_request, response) => {
@@ -485,6 +529,15 @@ app.post('/api/parsing/export-draft', async (request, response) => {
       missingFiles: Array.isArray(missingFiles) ? missingFiles : [],
     });
 
+    if (skill.id === BODY_TABLE_SKILL_ID && filePath) {
+      syncGeneratedBodyTableReport({
+        filePath,
+        downloadFileName,
+        storeName: resolvedStoreName,
+        periodLabel: resolvedPeriodLabel,
+      });
+    }
+
     let downloadPath = `/api/parsing/download/${token}`;
     let previewPath = isPdfExportFile(token, downloadFileName) ? `/api/parsing/view/${token}` : '';
 
@@ -577,6 +630,35 @@ app.get('/api/parsing/history/:conversationId/:skillId/download', (request, resp
   );
 
   response.download(filePath, requestedName);
+});
+
+app.get('/api/parsing/history/:conversationId/:skillId/report', (request, response) => {
+  try {
+    if (request.params.skillId !== BODY_TABLE_SKILL_ID) {
+      response.status(400).json({
+        message: '当前技能没有会话级体质表数据。',
+      });
+      return;
+    }
+
+    const report = readConversationBodyTableReport(
+      request.params.conversationId,
+      request.params.skillId,
+    );
+
+    if (!report) {
+      response.status(404).json({
+        message: '当前会话还没有生成体质表。',
+      });
+      return;
+    }
+
+    response.json(report);
+  } catch (error) {
+    response.status(400).json({
+      message: error.message || '当前会话体质表读取失败。',
+    });
+  }
 });
 
 app.get('/api/parsing/history/:conversationId/:skillId/view', (request, response) => {

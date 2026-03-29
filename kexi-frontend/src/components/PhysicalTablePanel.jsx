@@ -32,7 +32,100 @@ const EXPENSE_CATEGORIES = [
   "其他开支"
 ];
 
-export default function PhysicalTablePanel({ storeId, storeName, period, periodLabel, onClose }) {
+function createEmptyExpenses() {
+  const initialExpenses = {};
+  EXPENSE_CATEGORIES.forEach((category) => {
+    initialExpenses[category] = [];
+  });
+  return initialExpenses;
+}
+
+function normalizeExpenseCategoryLabel(value = "") {
+  return String(value || "").replace(/\s+/g, "").replace(/[()（）]/g, "").trim();
+}
+
+function createExpenseItem(item = {}, categoryName = "", index = 0) {
+  const remark = [item.notes, item.previousMonthHint].filter(Boolean).join("；");
+
+  return {
+    id: `${categoryName || "expense"}-${item.sourceRowIndex ?? index}-${index}`,
+    name: item.name || "",
+    amount: Number.isFinite(Number(item.amount)) ? Number(item.amount) : "",
+    remark,
+  };
+}
+
+function buildExpensesFromCategories(categories = []) {
+  const expenses = createEmptyExpenses();
+
+  categories.forEach((category = {}) => {
+    const normalizedCategory = normalizeExpenseCategoryLabel(category.name);
+    const items = Array.isArray(category.items) ? category.items : [];
+
+    if (!items.length) {
+      return;
+    }
+
+    if (normalizedCategory === "门店宿舍租金") {
+      items.forEach((item, index) => {
+        const targetCategory = /宿舍/.test(item?.name || "") ? "门店宿舍" : "租金";
+        expenses[targetCategory].push(createExpenseItem(item, targetCategory, index));
+      });
+      return;
+    }
+
+    const targetCategory =
+      normalizedCategory === "其他" || normalizedCategory === "其他工资"
+        ? "其他工资"
+        : normalizedCategory === "其它开支" || normalizedCategory === "其他开支"
+          ? "其他开支"
+          : EXPENSE_CATEGORIES.find(
+              (expenseCategory) =>
+                normalizeExpenseCategoryLabel(expenseCategory) === normalizedCategory,
+            ) || "其他开支";
+
+    items.forEach((item, index) => {
+      expenses[targetCategory].push(createExpenseItem(item, targetCategory, index));
+    });
+  });
+
+  return expenses;
+}
+
+function normalizeReportExpenses(report = {}) {
+  const existingExpenses = report?.expenses && typeof report.expenses === "object"
+    ? report.expenses
+    : null;
+  const hasExistingExpenses = existingExpenses
+    ? Object.values(existingExpenses).some((items) => Array.isArray(items) && items.length > 0)
+    : false;
+
+  if (hasExistingExpenses) {
+    const normalizedExpenses = createEmptyExpenses();
+
+    EXPENSE_CATEGORIES.forEach((category) => {
+      normalizedExpenses[category] = Array.isArray(existingExpenses[category])
+        ? existingExpenses[category]
+        : [];
+    });
+
+    return normalizedExpenses;
+  }
+
+  return buildExpensesFromCategories(Array.isArray(report?.categories) ? report.categories : []);
+}
+
+export default function PhysicalTablePanel({
+  storeId,
+  storeName,
+  period,
+  periodLabel,
+  onClose,
+  reportScope = "global",
+  conversationId = "",
+  skillId = "",
+  generatedDeliverable = null,
+}) {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   
@@ -42,44 +135,53 @@ export default function PhysicalTablePanel({ storeId, storeName, period, periodL
   
   const [activeTab, setActiveTab] = useState("expenses");
   const [activeCategory, setActiveCategory] = useState(EXPENSE_CATEGORIES[0]);
+  const isConversationScope = reportScope === "conversation";
 
   useEffect(() => {
     const fetchReport = async () => {
       setLoading(true);
       try {
-        const res = await fetch(buildApiUrl(`/api/financials/reports/${storeId}/${period}`));
+        const reportPath = isConversationScope
+          ? `/api/parsing/history/${encodeURIComponent(conversationId)}/${encodeURIComponent(skillId)}/report`
+          : `/api/financials/reports/${storeId}/${period}`;
+        const res = await fetch(buildApiUrl(reportPath));
         if (res.ok) {
           const data = await res.json();
           setReport(data);
           setFormData(data.summary || {});
-          
-          // Ensure expenses object is initialized for all categories
-          const loadedExpenses = data.expenses || {};
-          const initialExpenses = {};
-          EXPENSE_CATEGORIES.forEach(cat => {
-             initialExpenses[cat] = loadedExpenses[cat] || [];
-          });
-          setExpenses(initialExpenses);
+          setExpenses(normalizeReportExpenses(data));
         } else {
           setReport(null);
           setFormData({});
-          
-          const initialExpenses = {};
-          EXPENSE_CATEGORIES.forEach(cat => { initialExpenses[cat] = []; });
-          setExpenses(initialExpenses);
+          setExpenses(createEmptyExpenses());
         }
       } catch (e) {
         console.error(e);
         setReport(null);
+        setFormData({});
+        setExpenses(createEmptyExpenses());
       } finally {
         setLoading(false);
       }
     };
 
-    if (storeId && period) {
+    if (isConversationScope ? conversationId && skillId : storeId && period) {
       fetchReport();
+    } else {
+      setReport(null);
+      setFormData({});
+      setExpenses(createEmptyExpenses());
+      setLoading(false);
     }
-  }, [storeId, period]);
+  }, [
+    conversationId,
+    generatedDeliverable?.fileName,
+    generatedDeliverable?.generatedAt,
+    isConversationScope,
+    period,
+    skillId,
+    storeId,
+  ]);
 
   const handleChangeBasic = (key, val) => {
     setFormData((prev) => ({ ...prev, [key]: val === "" ? "" : Number(val) }));
@@ -124,6 +226,11 @@ export default function PhysicalTablePanel({ storeId, storeName, period, periodL
   };
 
   const handleSave = async () => {
+    if (isConversationScope) {
+      alert("当前窗口只查看本会话生成的体质表，不会写入其他会话或全局月报。");
+      return;
+    }
+
     setSaving(true);
     try {
       // Clean up expenses before saving: convert amount to number, remove completely empty items
@@ -155,10 +262,7 @@ export default function PhysicalTablePanel({ storeId, storeName, period, periodL
             const data = await fetchReportData.json();
             setReport(data);
             setFormData(data.summary || {});
-            const loadedExpenses = data.expenses || {};
-            const initialExpenses = {};
-            EXPENSE_CATEGORIES.forEach(cat => { initialExpenses[cat] = loadedExpenses[cat] || []; });
-            setExpenses(initialExpenses);
+            setExpenses(normalizeReportExpenses(data));
         }
       } else {
         alert("保存失败");
@@ -171,6 +275,11 @@ export default function PhysicalTablePanel({ storeId, storeName, period, periodL
   };
 
   const handleDelete = async () => {
+    if (isConversationScope) {
+      alert("当前窗口只查看本会话生成的体质表，如需清理请在本会话重新生成或切换会话。");
+      return;
+    }
+
     if (!window.confirm(`确定要删除 ${storeName} ${periodLabel} 的体质表吗？`)) return;
     try {
       const res = await fetch(buildApiUrl(`/api/financials/reports/${storeId}/${period}`), {
@@ -190,6 +299,18 @@ export default function PhysicalTablePanel({ storeId, storeName, period, periodL
   };
 
   const handleDownload = () => {
+    if (isConversationScope) {
+      const downloadUrl = generatedDeliverable?.downloadUrl || generatedDeliverable?.previewUrl || "";
+
+      if (!downloadUrl) {
+        alert("当前会话还没有可下载的体质表。");
+        return;
+      }
+
+      window.open(downloadUrl, "_blank");
+      return;
+    }
+
     window.open(buildApiUrl(`/api/financials/reports/${storeId}/${period}/download`), "_blank");
   };
 
@@ -256,7 +377,11 @@ export default function PhysicalTablePanel({ storeId, storeName, period, periodL
                     {!report && (
                        <div className="mb-6 rounded-xl border border-yellow-200 bg-yellow-50 p-4 text-[13px] text-yellow-800 leading-relaxed flex items-start gap-3">
                           <span className="material-symbols-outlined text-[18px] text-yellow-600">info</span>
-                          <div>当前门店该月尚未生成正式体质表数据。您可以在此手动创建或等待AI解析完成后自动填充。</div>
+                          <div>
+                            {isConversationScope
+                              ? "当前会话还没有生成体质表。请先在这个会话里上传并完成解析。"
+                              : "当前门店该月尚未生成正式体质表数据。您可以在此手动创建或等待AI解析完成后自动填充。"}
+                          </div>
                        </div>
                     )}
                     <div className="grid grid-cols-3 gap-x-8 gap-y-6">

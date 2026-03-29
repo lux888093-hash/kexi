@@ -799,10 +799,15 @@ export default function ParsingWorkspace() {
                         </>
                       )}
 
-                      {activePreviewPanel === "physical_table" && !activeDeliverableUrl ? (
+                      {activePreviewPanel === "physical_table" ? (
                         <button
                           className="flex h-[40px] shrink-0 items-center gap-2 rounded-full border border-[#b6860c]/20 bg-[#fff7ef]/80 px-4 text-[12px] font-bold text-[#b6860c] shadow-sm transition hover:bg-[#fff1e6] backdrop-blur-md"
                           onClick={() => setIsPanelOpen(true)}
+                          title={
+                            activeGeneratedDeliverable?.fileName
+                              ? `查看当前会话对应的体质表，最新生成文件：${activeGeneratedDeliverable.fileName}`
+                              : "查看当前会话对应的体质表"
+                          }
                           type="button"
                         >
                           <span className="material-symbols-outlined text-[18px]">table_chart</span>
@@ -1068,9 +1073,13 @@ export default function ParsingWorkspace() {
 
           {isPanelOpen && activePreviewPanel === "physical_table" ? (
             <PhysicalTablePanel
+              conversationId={activeConversation.id}
+              generatedDeliverable={activeGeneratedDeliverable}
               onClose={() => setIsPanelOpen(false)}
               period={getPeriodId(activeConversation.selectedMonth)}
               periodLabel={activeConversation.selectedMonth}
+              reportScope="conversation"
+              skillId={activeConversation.activeSkillId}
               storeId={STORE_MAP[activeConversation.selectedStore]}
               storeName={activeConversation.selectedStore}
             />
