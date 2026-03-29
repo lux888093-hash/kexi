@@ -92,12 +92,11 @@ export default function ParsingWorkspace() {
       : ".xls,.xlsx,.csv,.pdf,.doc,.docx";
   const headerDeliverableMeta = buildHeaderDeliverableMeta(activeSkill, acceptedFileTypes);
   const lastMessage = activeConversation.messages[activeConversation.messages.length - 1];
-  const activeGeneratedDeliverable = resolveConversationPdfDeliverable(activeConversation);
-  const activePdfPreviewUrl =
-    /\.pdf$/i.test(activeGeneratedDeliverable?.fileName || "") &&
-    activeGeneratedDeliverable?.previewUrl
-      ? activeGeneratedDeliverable.previewUrl
-      : "";
+  const activeGeneratedDeliverable =
+    normalizeGeneratedDeliverable(activeConversation.chatParsingContext?.generatedDeliverable) ||
+    resolveConversationPdfDeliverable(activeConversation);
+  const activeDeliverableUrl =
+    activeGeneratedDeliverable?.previewUrl || activeGeneratedDeliverable?.downloadUrl || "";
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -260,13 +259,13 @@ export default function ParsingWorkspace() {
     resetConversationContext({ activeSkillId: skillId });
   }
 
-  function handleOpenGeneratedPdf() {
-    if (!activePdfPreviewUrl) {
-      window.alert("当前对话还没有生成 PDF 文件，请先在本对话中完成一次 PDF 生成。");
+  function handleOpenGeneratedDeliverable() {
+    if (!activeDeliverableUrl) {
+      window.alert("当前对话还没有生成可查看的结果文件，请先在本对话中完成一次生成。");
       return;
     }
 
-    window.open(activePdfPreviewUrl, "_blank", "noopener,noreferrer");
+    window.open(activeDeliverableUrl, "_blank", "noopener,noreferrer");
   }
 
   async function handleSendMessage() {
@@ -454,6 +453,7 @@ export default function ParsingWorkspace() {
             skillId: skillSnapshot.id,
             storeName: conversationSnapshot.selectedStore,
             periodLabel: conversationSnapshot.selectedMonth,
+            conversationId,
           });
           parsedDraftFiles.push(...(result.parsedFiles || []));
           reviewDraftFiles.push(...(result.reviewFiles || []));
@@ -530,6 +530,7 @@ export default function ParsingWorkspace() {
           reviewFiles: mergedReviewFiles,
           failFiles: mergedFailFiles,
           missingFiles,
+          conversationId,
         });
         const downloadUrl = resolveDownloadUrl(
           exportResult.downloadPath,
@@ -798,7 +799,7 @@ export default function ParsingWorkspace() {
                         </>
                       )}
 
-                      {activePreviewPanel === "physical_table" ? (
+                      {activePreviewPanel === "physical_table" && !activeDeliverableUrl ? (
                         <button
                           className="flex h-[40px] shrink-0 items-center gap-2 rounded-full border border-[#b6860c]/20 bg-[#fff7ef]/80 px-4 text-[12px] font-bold text-[#b6860c] shadow-sm transition hover:bg-[#fff1e6] backdrop-blur-md"
                           onClick={() => setIsPanelOpen(true)}
@@ -809,16 +810,16 @@ export default function ParsingWorkspace() {
                             {activeSkill.deliverableActionLabel || "查看结果"}
                           </span>
                         </button>
-                      ) : /pdf/i.test(activeSkill.deliverableLabel || "") ? (
+                      ) : activeDeliverableUrl ? (
                         <button
                           className="flex h-[40px] shrink-0 items-center gap-2 rounded-full border border-[#b6860c]/20 bg-[#fff7ef]/80 px-4 text-[12px] font-bold text-[#b6860c] shadow-sm transition hover:bg-[#fff1e6] backdrop-blur-md"
-                          onClick={handleOpenGeneratedPdf}
+                          onClick={handleOpenGeneratedDeliverable}
                           title={
-                            activePdfPreviewUrl
+                            activeDeliverableUrl
                               ? `查看当前会话生成的 ${
                                   activeGeneratedDeliverable?.fileName || headerDeliverableMeta.label
                                 }`
-                              : "当前对话还没有生成 PDF 文件"
+                              : "当前对话还没有生成结果文件"
                           }
                           type="button"
                         >

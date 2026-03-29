@@ -28,6 +28,12 @@ const {
   resolveParsingExportPath,
 } = require('./lib/sourceFileWorkbook');
 const {
+  clearConversationShuadanAssetCache,
+  ensureParsingArtifactDirectories,
+  resolveConversationArtifactPath,
+  writeConversationArtifact,
+} = require('./lib/parsingArtifactStore');
+const {
   buildWorkspaceAgentReply,
 } = require('./lib/agentChat');
 const {
@@ -42,6 +48,7 @@ const app = express();
 const PORT = process.env.PORT || 3101;
 
 ensureDirectories();
+ensureParsingArtifactDirectories();
 ensureSettingsFile();
 bootstrapWorkspaceReports();
 
@@ -164,9 +171,15 @@ function resolveFreshParsingSkill(skillId = '') {
     } catch (_error) {
       // Ignore cache misses.
     }
-  });
+    });
 
   return require('./lib/parsingSkills').resolveParsingSkill(normalizedSkillId);
+}
+
+function buildConversationArtifactApiPath(conversationId = '', skillId = '', mode = 'download') {
+  return `/api/parsing/history/${encodeURIComponent(
+    String(conversationId || '').trim(),
+  )}/${encodeURIComponent(String(skillId || '').trim())}/${mode}`;
 }
 
 app.get('/api/system/health', (_request, response) => {
@@ -290,7 +303,7 @@ app.put('/api/financials/reports/:storeId/:period', (request, response) => {
   }
 });
 
-app.post('/api/financials/upload', upload.array('files', 12), (request, response) => {
+app.post('/api/financials/upload', upload.array('files', 12), async (request, response) => {
   const files = request.files || [];
 
   if (!files.length) {
@@ -303,36 +316,42 @@ app.post('/api/financials/upload', upload.array('files', 12), (request, response
   const ingested = [];
   const errors = [];
 
-  files.forEach((file) => {
-    try {
-      const normalizedOriginalName = normalizeUploadFileName(file.originalname);
-      const report = ingestWorkbook(file.path, {
-        originalName: normalizedOriginalName,
-        storeId: files.length === 1 ? storeId : null,
-        period: files.length === 1 ? period : null,
-        uploadedAt: new Date().toISOString(),
-      });
+  try {
+    files.forEach((file) => {
+      try {
+        const normalizedOriginalName = normalizeUploadFileName(file.originalname);
+        const report = ingestWorkbook(file.path, {
+          originalName: normalizedOriginalName,
+          storeId: files.length === 1 ? storeId : null,
+          period: files.length === 1 ? period : null,
+          uploadedAt: new Date().toISOString(),
+        });
 
-      ingested.push({
-        id: report.id,
-        storeId: report.storeId,
-        storeName: report.storeName,
-        period: report.period,
-        sourceFileName: report.sourceFileName,
-      });
-    } catch (error) {
-      errors.push({
-        fileName: normalizeUploadFileName(file.originalname),
-        message: error.message,
-      });
-    }
-  });
+        ingested.push({
+          id: report.id,
+          storeId: report.storeId,
+          storeName: report.storeName,
+          period: report.period,
+          sourceFileName: report.sourceFileName,
+        });
+      } catch (error) {
+        errors.push({
+          fileName: normalizeUploadFileName(file.originalname),
+          message: error.message,
+        });
+      }
+    });
 
-  response.status(errors.length ? 207 : 200).json({
+    response.status(errors.length ? 207 : 200).json({
     message: ingested.length ? '报表解析完成。' : '没有成功导入任何报表。',
     ingested,
     errors,
-  });
+    });
+  } finally {
+    await Promise.all(
+      files.map((file) => fs.promises.unlink(file.path).catch(() => null)),
+    );
+  }
 });
 
 app.get('/api/parsing/skills', (_request, response) => {
@@ -352,6 +371,7 @@ app.post('/api/parsing/upload', upload.array('files', 12), async (request, respo
 
   const storeName = String(request.body.storeName || '').trim();
   const periodLabel = String(request.body.periodLabel || '').trim();
+  const conversationId = String(request.body.conversationId || '').trim();
   const skill = resolveFreshParsingSkill(request.body.skillId);
 
   try {
@@ -365,6 +385,7 @@ app.post('/api/parsing/upload', upload.array('files', 12), async (request, respo
               originalName: normalizedOriginalName,
               storeName,
               periodLabel,
+              conversationId,
             });
           }
 
@@ -372,6 +393,7 @@ app.post('/api/parsing/upload', upload.array('files', 12), async (request, respo
             originalName: normalizedOriginalName,
             storeName,
             periodLabel,
+            conversationId,
           });
         } catch (error) {
           return {
@@ -436,6 +458,7 @@ app.post('/api/parsing/export-draft', async (request, response) => {
     failFiles = [],
     missingFiles = [],
     skillId = '',
+    conversationId = '',
   } = request.body || {};
 
   const skill = resolveParsingSkill(skillId);
@@ -453,7 +476,7 @@ app.post('/api/parsing/export-draft', async (request, response) => {
   );
 
   try {
-    const { token, downloadFileName } = await skill.exportDraft({
+    const { token, filePath, downloadFileName } = await skill.exportDraft({
       storeName: resolvedStoreName,
       periodLabel: resolvedPeriodLabel,
       parsedFiles: parsedList,
@@ -462,12 +485,32 @@ app.post('/api/parsing/export-draft', async (request, response) => {
       missingFiles: Array.isArray(missingFiles) ? missingFiles : [],
     });
 
+    let downloadPath = `/api/parsing/download/${token}`;
+    let previewPath = isPdfExportFile(token, downloadFileName) ? `/api/parsing/view/${token}` : '';
+
+    if (String(conversationId || '').trim() && filePath) {
+      writeConversationArtifact({
+        conversationId,
+        skillId: skill.id,
+        sourceFilePath: filePath,
+        downloadFileName,
+      });
+
+      downloadPath = buildConversationArtifactApiPath(conversationId, skill.id, 'download');
+      previewPath = isPdfExportFile(filePath, downloadFileName)
+        ? buildConversationArtifactApiPath(conversationId, skill.id, 'view')
+        : '';
+
+      await fs.promises.unlink(filePath).catch(() => null);
+      clearConversationShuadanAssetCache(conversationId);
+    }
+
     response.json({
       message: `${skill.deliverableLabel || '文档'}已生成。`,
       skillId: skill.id,
       skill: toPublicParsingSkill(skill),
-      downloadPath: `/api/parsing/download/${token}`,
-      previewPath: isPdfExportFile(token, downloadFileName) ? `/api/parsing/view/${token}` : '',
+      downloadPath,
+      previewPath,
       downloadFileName,
     });
   } catch (error) {
@@ -510,6 +553,55 @@ app.get('/api/parsing/view/:token', (request, response) => {
   }
 
   const requestedName = normalizeDownloadFileName(request.query.name || path.basename(filePath));
+
+  response.setHeader('Content-Type', 'application/pdf');
+  response.setHeader('Content-Disposition', buildInlineContentDisposition(requestedName));
+  response.sendFile(filePath);
+});
+
+app.get('/api/parsing/history/:conversationId/:skillId/download', (request, response) => {
+  const filePath = resolveConversationArtifactPath(
+    request.params.conversationId,
+    request.params.skillId,
+  );
+
+  if (!filePath) {
+    response.status(404).json({
+      message: 'History artifact not found.',
+    });
+    return;
+  }
+
+  const requestedName = normalizeDownloadFileName(
+    request.query.name || path.basename(filePath),
+  );
+
+  response.download(filePath, requestedName);
+});
+
+app.get('/api/parsing/history/:conversationId/:skillId/view', (request, response) => {
+  const filePath = resolveConversationArtifactPath(
+    request.params.conversationId,
+    request.params.skillId,
+  );
+
+  if (!filePath) {
+    response.status(404).json({
+      message: 'Preview artifact not found.',
+    });
+    return;
+  }
+
+  if (!isPdfExportFile(filePath, request.query.name || filePath)) {
+    response.status(400).json({
+      message: 'This artifact does not support inline preview.',
+    });
+    return;
+  }
+
+  const requestedName = normalizeDownloadFileName(
+    request.query.name || path.basename(filePath),
+  );
 
   response.setHeader('Content-Type', 'application/pdf');
   response.setHeader('Content-Disposition', buildInlineContentDisposition(requestedName));

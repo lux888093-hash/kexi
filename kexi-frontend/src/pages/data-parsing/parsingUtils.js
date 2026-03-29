@@ -502,12 +502,15 @@ export async function requestParsingSkills() {
   return mergeParsingSkillCatalog(payload);
 }
 
-export async function uploadSourceFiles(files, { skillId, storeName, periodLabel }) {
+export async function uploadSourceFiles(files, { skillId, storeName, periodLabel, conversationId }) {
   const formData = new FormData();
   files.forEach((file) => formData.append("files", file));
   formData.append("skillId", skillId);
   formData.append("storeName", storeName);
   formData.append("periodLabel", periodLabel);
+  if (conversationId) {
+    formData.append("conversationId", conversationId);
+  }
   const response = await fetch(buildApiUrl("/api/parsing/upload"), {
     method: "POST",
     body: formData,
@@ -527,6 +530,7 @@ export async function exportParsingDraft({
   reviewFiles,
   failFiles,
   missingFiles,
+  conversationId,
 }) {
   const response = await fetch(buildApiUrl("/api/parsing/export-draft"), {
     method: "POST",
@@ -539,6 +543,7 @@ export async function exportParsingDraft({
       reviewFiles,
       failFiles,
       missingFiles,
+      conversationId,
     }),
   });
   const payload = await response.json().catch(() => ({}));

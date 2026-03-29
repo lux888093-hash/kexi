@@ -4,19 +4,15 @@ const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
 const { readSettings } = require('../appSettings');
+const {
+  SHUADAN_ASSETS_DIR,
+  buildShuadanAssetToken,
+} = require('../parsingArtifactStore');
 
 const execFileAsync = promisify(execFile);
 
 const ZHIPU_API_URL =
   process.env.ZHIPU_API_URL || 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
-const SHUADAN_ASSETS_DIR = path.join(
-  __dirname,
-  '..',
-  '..',
-  'exports',
-  'parsing-assets',
-  'shuadan',
-);
 const IMAGE_MIME_TYPES = {
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
@@ -1845,10 +1841,9 @@ function buildProcessingNote(sources = []) {
   return '截图识别完成，可直接纳入《门店刷单整理-分板块版》导出。';
 }
 
-function persistImageAsset(filePath, originalName = '') {
+function persistImageAsset(filePath, originalName = '', conversationId = '') {
   ensureShuadanAssetsDir();
-  const extension = getExtension(originalName || filePath);
-  const token = `${Date.now()}-${crypto.randomUUID()}${extension ? `.${extension}` : ''}`;
+  const token = buildShuadanAssetToken(conversationId, originalName || filePath);
   const targetPath = path.join(SHUADAN_ASSETS_DIR, token);
   fs.copyFileSync(filePath, targetPath);
   return {
@@ -2121,6 +2116,7 @@ async function parseShuadanScreenshot(filePath, options = {}) {
   const extension = getExtension(originalName);
   const storeName = safeText(options.storeName);
   const periodLabel = safeText(options.periodLabel);
+  const conversationId = safeText(options.conversationId);
 
   if (!IMAGE_EXTENSIONS.has(extension)) {
     return {
@@ -2142,7 +2138,7 @@ async function parseShuadanScreenshot(filePath, options = {}) {
     };
   }
 
-  const asset = persistImageAsset(filePath, originalName);
+  const asset = persistImageAsset(filePath, originalName, conversationId);
   const pipeline = [];
   const errors = [];
   let visionNormalized = null;

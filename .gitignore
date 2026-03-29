@@ -1,25 +1,34 @@
-# 依赖
+# Dependencies
 node_modules/
 package-lock.json
 
-# 日志
+# Logs and run state
 *.log
 *.err.log
+.runlogs/
 
-# 临时文件
+# Temp office files
 ~$*
 
 # IDE
 .vscode/
 .idea/
 
-# 构建产物
+# Build output
 dist/
 build/
-kexi-backend/uploads/
-kexi-backend/data/financial-reports.json
-kexi-backend/sample_financial.xlsx
+coverage/
 
-# 环境变量
+# Backend runtime storage
+kexi-backend/uploads/
+kexi-backend/exports/
+kexi-backend/data/financial-reports.json
+kexi-backend/data/financial-report-files/
+kexi-backend/data/parsing-history/
+kexi-backend/sample_financial.xlsx
+kexi-backend/*.traineddata
+kexi-backend/.env.production
+
+# Environment files
 .env
 .env.local
