@@ -65,16 +65,40 @@ function cn(...classes) {
   return classes.filter(Boolean).join(" ");
 }
 
-const KNOWN_GARBLED_NOTE_REPLACEMENTS = [
+const legacyUtf8Encoder =
+  typeof TextEncoder === "function" ? new TextEncoder() : null;
+const legacyGbkDecoder =
+  typeof TextDecoder === "function" ? new TextDecoder("gbk") : null;
+
+function toLegacyMojibake(text) {
+  const source = String(text || "").trim();
+
+  if (!source || !legacyUtf8Encoder || !legacyGbkDecoder) {
+    return "";
+  }
+
+  return legacyGbkDecoder
+    .decode(legacyUtf8Encoder.encode(source))
+    .replace(/\uFFFD/g, "?");
+}
+
+const KNOWN_AGENT_NOTE_REPLACEMENTS = [
   {
-    match: "姝ｅ湪鏁寸悊璐㈠姟涓婁笅鏂囧苟杩炴帴鏅鸿氨",
+    source: "正在整理财务上下文并连接智谱",
     replacement: "正在整理财务上下文并连接智谱，稍后开始生成。",
   },
   {
-    match: "宸叉彁浜ゆ櫤璋辨ā鍨嬶紝姝ｅ湪绛夊緟棣栦釜 token 杩斿洖",
+    source: "已提交智谱模型，正在等待首个 token 返回",
     replacement: "已提交智谱模型，正在等待首个 token 返回...",
   },
 ];
+
+const KNOWN_GARBLED_NOTE_REPLACEMENTS = KNOWN_AGENT_NOTE_REPLACEMENTS.map(
+  ({ source, replacement }) => ({
+    match: toLegacyMojibake(source),
+    replacement,
+  }),
+).filter((item) => item.match);
 
 function normalizeAgentNote(note) {
   const text = String(note || "").trim();

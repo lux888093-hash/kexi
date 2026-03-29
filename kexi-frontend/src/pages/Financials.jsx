@@ -59,12 +59,28 @@ function formatStoreAxisLabel(name) {
   return String(name || "").replace(/店$/, "");
 }
 
-async function fetchJson(path, options) {
+async function fetchJson(path, options = {}) {
+  const { timeoutMs = 0, ...fetchOptions } = options;
   let response;
+  let timeoutId = null;
+
+  if (timeoutMs > 0) {
+    const controller = new AbortController();
+    fetchOptions.signal = controller.signal;
+    timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  }
 
   try {
-    response = await fetch(buildApiUrl(path), options);
-  } catch {
+    response = await fetch(buildApiUrl(path), fetchOptions);
+  } catch (error) {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+
+    if (error?.name === "AbortError") {
+      throw new Error("AI 分析请求超时，请重试。全部门店分析通常需要 1 到 2 分钟。");
+    }
+
     const apiBaseUrl = getApiBaseUrl();
     const localhostHint = apiBaseUrl.includes("localhost")
       ? " 如果你不是在部署机本地打开页面，请把系统设置里的服务地址改成部署机 IP 或域名。"
@@ -77,10 +93,18 @@ async function fetchJson(path, options) {
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+
     throw new Error(
       payload.message ||
         `无法连接到财务服务，请检查系统设置中的服务地址。当前地址：${getApiBaseUrl()}`,
     );
+  }
+
+  if (timeoutId) {
+    clearTimeout(timeoutId);
   }
 
   return payload;
@@ -2445,6 +2469,11 @@ function AiRuntimeBadge({ agent }) {
             {agent.model}
           </span>
         ) : null}
+        {agent?.strategyLabel ? (
+          <span className="rounded-full border border-black/5 bg-white px-3 py-1 text-[11px] font-bold tracking-[0.16em] text-slate-500">
+            {agent.strategyLabel}
+          </span>
+        ) : null}
       </div>
       {agent?.statusLine ? (
         <p className="text-xs font-semibold text-slate-500">{agent.statusLine}</p>
@@ -2453,6 +2482,40 @@ function AiRuntimeBadge({ agent }) {
         <p className="text-xs leading-5 text-slate-500">{agent.note}</p>
       ) : null}
     </div>
+  );
+}
+
+function AiAnalysisButton({
+  loading,
+  disabled,
+  onClick,
+  label = "点击 AI 分析",
+  loadingLabel = "分析中...",
+  fullWidth = false,
+}) {
+  return (
+    <button
+      className={cn(
+        "group relative flex items-center justify-center gap-2 overflow-hidden rounded-2xl bg-[#171412] px-4 py-3 text-sm font-bold text-white shadow-[0_12px_30px_rgba(23,20,18,0.2)] transition-all hover:scale-[1.02] hover:shadow-[0_16px_40px_rgba(23,20,18,0.3)] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100",
+        fullWidth ? "w-full" : "",
+      )}
+      disabled={disabled || loading}
+      onClick={onClick}
+      type="button"
+    >
+      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000 ease-in-out" />
+      {loading ? (
+        <>
+          <span className="material-symbols-outlined text-base animate-spin">sync</span>
+          {loadingLabel}
+        </>
+      ) : (
+        <>
+          <span className="material-symbols-outlined text-base text-[#d96e42]">auto_awesome</span>
+          {label}
+        </>
+      )}
+    </button>
   );
 }
 
@@ -2557,16 +2620,58 @@ export default function Financials() {
   });
   const [pageState, setPageState] = useState({ loading: true, error: "" });
   const [analysisState, setAnalysisState] = useState({
-    loading: true,
+    loading: false,
     error: "",
+    requested: false,
   });
   const [refreshToken, setRefreshToken] = useState(0);
   const [dragActive, setDragActive] = useState(false);
 
   const deferredSearch = useDeferredValue(searchQuery.trim());
 
-  const fetchAnalysis = () => {
-    setRefreshToken((r) => r + 1);
+  const fetchAnalysis = async () => {
+    const activeStoreIds = activeStoreId === "all" ? [] : [activeStoreId];
+    const selectedStoreCountForAi = activeStoreIds.length
+      ? activeStoreIds.length
+      : Number(dashboard?.overview?.selectedStoreCount || dashboard?.storeComparison?.length || 6);
+    const analysisTimeoutMs = Math.min(
+      300000,
+      Math.max(90000, selectedStoreCountForAi * 30000),
+    );
+
+    setAnalysisState({
+      loading: true,
+      error: "",
+      requested: true,
+    });
+    setAnalysis(null);
+
+    try {
+      const aiPayload = await fetchJson("/api/financials/ai-analysis", {
+        body: JSON.stringify({
+          storeIds: activeStoreIds,
+          periodStart: periodStart || null,
+          periodEnd: periodEnd || null,
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+        timeoutMs: analysisTimeoutMs,
+      });
+
+      setAnalysis(aiPayload);
+      setAnalysisState({
+        loading: false,
+        error: "",
+        requested: true,
+      });
+    } catch (error) {
+      setAnalysis(null);
+      setAnalysisState({
+        loading: false,
+        error: error.message || "AI 分析暂时不可用。",
+        requested: true,
+      });
+    }
   };
 
   useEffect(() => {
@@ -2574,7 +2679,7 @@ export default function Financials() {
 
     async function loadData() {
       setPageState((current) => ({ ...current, loading: true, error: "" }));
-      setAnalysisState({ loading: true, error: "" });
+      setAnalysisState({ loading: false, error: "", requested: false });
       setAnalysis(null);
 
       try {
@@ -2592,11 +2697,6 @@ export default function Financials() {
         const dashboardPath = query
           ? `/api/financials/dashboard?${query}`
           : "/api/financials/dashboard";
-        const aiBody = {
-          storeIds: activeStoreIds,
-          periodStart: periodStart || null,
-          periodEnd: periodEnd || null,
-        };
         const referencePath = referenceQuery
           ? `/api/financials/dashboard?${referenceQuery}`
           : "/api/financials/dashboard";
@@ -2613,31 +2713,6 @@ export default function Financials() {
         setDashboard(dashboardPayload);
         setReferenceDashboard(referencePayload);
         setPageState({ loading: false, error: "" });
-
-        try {
-          const aiPayload = await fetchJson("/api/financials/ai-analysis", {
-            body: JSON.stringify(aiBody),
-            headers: { "Content-Type": "application/json" },
-            method: "POST",
-          });
-
-          if (cancelled) {
-            return;
-          }
-
-          setAnalysis(aiPayload);
-          setAnalysisState({ loading: false, error: "" });
-        } catch (error) {
-          if (cancelled) {
-            return;
-          }
-
-          setAnalysis(null);
-          setAnalysisState({
-            loading: false,
-            error: error.message || "AI 分析暂时不可用。",
-          });
-        }
       } catch (error) {
         if (cancelled) {
           return;
@@ -2647,7 +2722,7 @@ export default function Financials() {
         setReferenceDashboard(null);
         setAnalysis(null);
         setPageState({ loading: false, error: error.message });
-        setAnalysisState({ loading: false, error: "" });
+        setAnalysisState({ loading: false, error: "", requested: false });
       }
     }
 
@@ -2884,6 +2959,17 @@ export default function Financials() {
   const storeAiSubtitle = activeStoreMeta
     ? "当前仅展示选中门店的 AI 诊断卡，上方仍保留全店维度的基准视角。"
     : "这里会逐店生成 AI 诊断卡。只要门店报表上传完整，每家店都会得到自己的经营结论、风险和动作建议。";
+  const analysisCtaLabel = activeStoreMeta ? "分析当前门店" : "分析全部门店";
+  const analysisSummaryPlaceholder = activeStoreMeta
+    ? `点击右侧按钮，生成 ${activeStoreMeta.storeName} 的 AI 分析。`
+    : "点击右侧按钮开始 AI 分析。系统会先逐店分析，再汇总总分析，通常需要 1 到 2 分钟。";
+  const analysisHintText = activeStoreMeta
+    ? "当前不会自动分析，避免一直转圈。切换筛选后请手动触发。"
+    : "全部门店场景下会先逐店分析，再生成整体总结，耗时会明显高于单店分析。";
+  const canRunAnalysis =
+    !pageState.loading &&
+    !analysisState.loading &&
+    Number(dashboard?.overview?.reportCount || 0) > 0;
 
   return (
     <AppShell
@@ -2925,25 +3011,13 @@ export default function Financials() {
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              className="group relative flex cursor-pointer items-center gap-2 overflow-hidden rounded-2xl bg-[#171412] px-4 py-3 text-sm font-bold text-white shadow-[0_12px_30px_rgba(23,20,18,0.2)] transition-all hover:scale-[1.02] hover:shadow-[0_16px_40px_rgba(23,20,18,0.3)] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100"
+            <AiAnalysisButton
+              disabled={!canRunAnalysis}
+              label={analysisCtaLabel}
+              loading={analysisState.loading}
+              loadingLabel="AI 分析中..."
               onClick={fetchAnalysis}
-              disabled={analysisState.loading}
-              type="button"
-            >
-              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000 ease-in-out" />
-              {analysisState.loading ? (
-                <>
-                  <span className="material-symbols-outlined text-base animate-spin">sync</span>
-                  分析中...
-                </>
-              ) : (
-                <>
-                  <span className="material-symbols-outlined text-base text-[#d96e42]">auto_awesome</span>
-                  生成 AI 分析
-                </>
-              )}
-            </button>
+            />
 
             <button
               className="flex cursor-pointer items-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-[#171412] border border-black/5 shadow-[0_4px_16px_rgba(0,0,0,0.04)] transition-all hover:bg-slate-50 hover:border-black/10 hover:shadow-[0_8px_24px_rgba(0,0,0,0.06)]"
@@ -3198,8 +3272,14 @@ export default function Financials() {
                   </div>
                   
                   <h3 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#171412] leading-tight mb-4">
-                    {analysis?.overall?.summary || "等待 AI 分析..."}
+                    {analysis?.overall?.summary || analysisSummaryPlaceholder}
                   </h3>
+
+                  {!analysis?.overall?.summary ? (
+                    <p className="max-w-[620px] text-sm leading-6 text-slate-500">
+                      {analysisHintText}
+                    </p>
+                  ) : null}
 
                   {analysis?.overall?.ownerBrief ? (
                     <div className="mt-6 rounded-[24px] border-l-4 border-[#d96e42] bg-white p-5 shadow-sm">
@@ -3216,73 +3296,102 @@ export default function Financials() {
                   ) : null}
                 </div>
                 
-                <div className="shrink-0 self-center md:self-start bg-white rounded-3xl p-4 shadow-[0_8px_24px_rgba(0,0,0,0.04)] border border-black/5">
-                  <div className="flex flex-col items-center gap-2">
-                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Health Score</span>
-                    <GaugeDial
-                      accent={analysis?.overall?.healthScore >= 75 ? "#4ade80" : analysis?.overall?.healthScore >= 60 ? "#fbbf24" : "#f87171"}
-                      caption={analysis?.overall?.grade || "AI"}
-                      score={analysis?.overall?.healthScore || 0}
-                      size={140}
-                    />
-                  </div>
+                <div className="shrink-0 self-center md:self-start bg-white rounded-3xl p-4 shadow-[0_8px_24px_rgba(0,0,0,0.04)] border border-black/5 md:w-[240px]">
+                  {analysis?.overall ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Health Score</span>
+                      <GaugeDial
+                        accent={analysis?.overall?.healthScore >= 75 ? "#4ade80" : analysis?.overall?.healthScore >= 60 ? "#fbbf24" : "#f87171"}
+                        caption={analysis?.overall?.grade || "AI"}
+                        score={analysis?.overall?.healthScore || 0}
+                        size={140}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex h-full flex-col justify-center gap-4 rounded-[24px] bg-[#fff8f3] p-4">
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#d96e42]">
+                          AI 入口
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-slate-500">
+                          这里现在改成手动触发，不会一进页面就卡在“分析中”。
+                        </p>
+                      </div>
+                      <AiAnalysisButton
+                        disabled={!canRunAnalysis}
+                        fullWidth
+                        label={analysisCtaLabel}
+                        loading={analysisState.loading}
+                        loadingLabel="AI 分析中..."
+                        onClick={fetchAnalysis}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-3">
-              <AiList
-                icon="award_star"
-                items={analysis?.overall?.highlights || []}
-                title="亮点"
-              />
-              <AiList
-                icon="warning"
-                items={analysis?.overall?.risks || []}
-                title="风险"
-                tone="risk"
-              />
-              <AiList
-                icon="trending_up"
-                items={analysis?.overall?.actions || []}
-                title="动作"
-                tone="action"
-              />
-            </div>
+            {analysis?.overall ? (
+              <>
+                <div className="grid gap-4 lg:grid-cols-3">
+                  <AiList
+                    icon="award_star"
+                    items={analysis?.overall?.highlights || []}
+                    title="亮点"
+                  />
+                  <AiList
+                    icon="warning"
+                    items={analysis?.overall?.risks || []}
+                    title="风险"
+                    tone="risk"
+                  />
+                  <AiList
+                    icon="trending_up"
+                    items={analysis?.overall?.actions || []}
+                    title="动作"
+                    tone="action"
+                  />
+                </div>
 
-            <div className="grid gap-4 lg:grid-cols-3">
-              <AiList
-                icon="leaderboard"
-                items={analysis?.overall?.rankingSnapshot || []}
-                title="Ranking"
-              />
-              <AiList
-                icon="crisis_alert"
-                items={analysis?.overall?.anomalies || []}
-                title="Anomalies"
-                tone="risk"
-              />
-              <AiList
-                icon="event_note"
-                items={analysis?.overall?.plan30d || []}
-                title="30D Plan"
-                tone="action"
-              />
-            </div>
+                <div className="grid gap-4 lg:grid-cols-3">
+                  <AiList
+                    icon="leaderboard"
+                    items={analysis?.overall?.rankingSnapshot || []}
+                    title="Ranking"
+                  />
+                  <AiList
+                    icon="crisis_alert"
+                    items={analysis?.overall?.anomalies || []}
+                    title="Anomalies"
+                    tone="risk"
+                  />
+                  <AiList
+                    icon="event_note"
+                    items={analysis?.overall?.plan30d || []}
+                    title="30D Plan"
+                    tone="action"
+                  />
+                </div>
 
-            <div className="grid gap-4 lg:grid-cols-2">
-              <AiList
-                icon="lab_profile"
-                items={analysis?.overall?.diagnosis || []}
-                title="Diagnosis"
-              />
-              <AiList
-                icon="inventory_2"
-                items={analysis?.overall?.dataGaps || []}
-                title="Data Gaps"
-                tone="risk"
-              />
-            </div>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <AiList
+                    icon="lab_profile"
+                    items={analysis?.overall?.diagnosis || []}
+                    title="Diagnosis"
+                  />
+                  <AiList
+                    icon="inventory_2"
+                    items={analysis?.overall?.dataGaps || []}
+                    title="Data Gaps"
+                    tone="risk"
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="rounded-[28px] border border-dashed border-[#d96e42]/20 bg-white/80 px-5 py-6 text-sm leading-6 text-slate-500">
+                当前不会自动触发 AI。先确认门店和月份筛选，然后点击右侧或顶部的 AI 按钮开始分析。
+              </div>
+            )}
           </div>
         </SectionCard>
       </section>
@@ -3294,11 +3403,19 @@ export default function Financials() {
       >
         {analysisState.loading ? (
           <div className="rounded-[28px] bg-[#f8f2eb] px-5 py-8 text-sm text-slate-500">
-            正在生成门店 AI 洞察...
+            正在生成门店 AI 洞察，请稍候...
           </div>
         ) : analysisState.error ? (
           <div className="rounded-[28px] border border-[#d96e42]/20 bg-[#fcf1ee] px-5 py-8 text-sm text-[#8f5138]">
-            {analysisState.error}
+            <p>{analysisState.error}</p>
+            <div className="mt-4">
+              <AiAnalysisButton
+                disabled={!canRunAnalysis}
+                label="重新尝试 AI 分析"
+                loading={analysisState.loading}
+                onClick={fetchAnalysis}
+              />
+            </div>
           </div>
         ) : searchedAiStores.length ? (
           <div className="grid gap-6 xl:grid-cols-2">
@@ -3308,7 +3425,21 @@ export default function Financials() {
           </div>
         ) : (
           <div className="rounded-[28px] bg-[#f8f2eb] px-5 py-8 text-sm text-slate-500">
-            当前筛选下没有可展示的门店 AI 分析。
+            <p>
+              {analysisState.requested
+                ? "当前筛选下没有可展示的门店 AI 分析。"
+                : "还没有执行 AI 分析。点击下面按钮开始。"}
+            </p>
+            {!analysisState.requested ? (
+              <div className="mt-4">
+                <AiAnalysisButton
+                  disabled={!canRunAnalysis}
+                  label={analysisCtaLabel}
+                  loading={analysisState.loading}
+                  onClick={fetchAnalysis}
+                />
+              </div>
+            ) : null}
           </div>
         )}
       </SectionCard>

@@ -10,7 +10,10 @@ const {
   FINANCIAL_ANALYST_AGENT_NAME,
   FINANCIAL_ANALYST_AGENT_VERSION,
 } = require('./financialAgentPrompt');
-const { runZhipuFinancialAgent } = require('./zhipuFinancialAgent');
+const {
+  runZhipuFinancialAgent,
+  runZhipuHierarchicalFinancialAgent,
+} = require('./zhipuFinancialAgent');
 
 function percent(value) {
   return `${(Number(value || 0) * 100).toFixed(1)}%`;
@@ -1062,6 +1065,18 @@ function buildFinancialContextBundle(reports, filters = {}) {
   };
 }
 
+function buildHierarchicalStoreContexts(reports, appliedFilters = {}, selectedStores = []) {
+  return (selectedStores || [])
+    .filter((store) => store?.storeId)
+    .map((store) =>
+      buildFinancialContextBundle(reports, {
+        storeIds: [store.storeId],
+        periodStart: appliedFilters.periodStart || null,
+        periodEnd: appliedFilters.periodEnd || null,
+      }).context,
+    );
+}
+
 function normalizeNarrativeList(items, fallbackItems = [], limit = 3) {
   const normalized = dedupeList(
     (items || []).map((item) => normalizeText(item, 72)).filter(Boolean),
@@ -1613,19 +1628,51 @@ async function buildAiAnalysis(reports, filters = {}, options = {}) {
   }
 
   try {
-    const llmResult = await runZhipuFinancialAgent({
-      apiKey: settings.zhipuApiKey,
-      context: financialContext,
-      preferredModel: settings.zhipuModel,
+    const selectedStoreCount = (dashboard.storeComparison || []).length;
+    const useHierarchical = selectedStoreCount > 1;
+    const llmResult = useHierarchical
+      ? await runZhipuHierarchicalFinancialAgent({
+          apiKey: settings.zhipuApiKey,
+          overallContext: financialContext,
+          storeContexts: buildHierarchicalStoreContexts(
+            reports,
+            dashboard.appliedFilters,
+            dashboard.storeComparison,
+          ),
+          fallbackStores: fallbackAnalysis.stores,
+          preferredModel: settings.zhipuModel,
+        })
+      : await runZhipuFinancialAgent({
+          apiKey: settings.zhipuApiKey,
+          context: financialContext,
+          preferredModel: settings.zhipuModel,
+        });
+    const agentMeta = createAgentMeta({
+      mode: 'llm',
+      provider: 'zhipu',
+      model: llmResult.model,
+      note: useHierarchical
+        ? `AI 已先逐店分析 ${llmResult.storeCount || selectedStoreCount} 家门店，再做整体汇总${
+            llmResult.failedStoreCount ? `；其中 ${llmResult.failedStoreCount} 家回退规则分析` : ''
+          }。`
+        : '',
     });
 
+    agentMeta.strategy = useHierarchical ? 'hierarchical' : 'single_pass';
+    agentMeta.strategyLabel = useHierarchical ? '逐店分析 + 汇总' : '单次分析';
+
+    if (useHierarchical) {
+      agentMeta.statusLine = llmResult.model
+        ? `已启用 ${llmResult.model} 逐店分析 + 汇总`
+        : '已启用逐店分析 + 汇总';
+    }
+
     return mergeNarrativeAnalysis(fallbackAnalysis, llmResult.parsed, {
-      ...createAgentMeta({
-        mode: 'llm',
-        provider: 'zhipu',
-        model: llmResult.model,
-      }),
-      generatedBy: 'zhipu-live-analysis',
+      ...agentMeta,
+      generatedBy:
+        llmResult.strategy === 'hierarchical'
+          ? 'zhipu-hierarchical-analysis'
+          : 'zhipu-live-analysis',
     }, financialContext);
   } catch (error) {
     return {

@@ -1,3 +1,6 @@
+const UTF8_ENCODER = new TextEncoder();
+const GBK_DECODER = new TextDecoder('gbk');
+
 const STORE_REGISTRY = [
   { id: 'meixihu', name: '梅溪湖店' },
   { id: 'huachuang', name: '华创店' },
@@ -7,32 +10,37 @@ const STORE_REGISTRY = [
   { id: 'jiazhaoye', name: '佳兆业店' },
 ];
 
-const STORE_ALIASES = new Map([
-  ['梅溪湖店', 'meixihu'],
-  ['梅溪湖', 'meixihu'],
-  ['姊呮邯婀栧簵', 'meixihu'],
-  ['姊呮邯婀?', 'meixihu'],
-  ['华创店', 'huachuang'],
-  ['华创', 'huachuang'],
-  ['鍗庡垱搴?', 'huachuang'],
-  ['鍗庡垱', 'huachuang'],
-  ['凯德壹店', 'kaideyi'],
-  ['凯德壹', 'kaideyi'],
-  ['鍑痉澹瑰簵', 'kaideyi'],
-  ['鍑痉澹?', 'kaideyi'],
-  ['万象城店', 'wanxiangcheng'],
-  ['万象城', 'wanxiangcheng'],
-  ['涓囪薄鍩庡簵', 'wanxiangcheng'],
-  ['涓囪薄鍩?', 'wanxiangcheng'],
-  ['德思勤店', 'desiqin'],
-  ['德思勤', 'desiqin'],
-  ['寰锋€濆嫟搴?', 'desiqin'],
-  ['寰锋€濆嫟', 'desiqin'],
-  ['佳兆业店', 'jiazhaoye'],
-  ['佳兆业', 'jiazhaoye'],
-  ['浣冲厗涓氬簵', 'jiazhaoye'],
-  ['浣冲厗涓?', 'jiazhaoye'],
-]);
+function toLegacyMojibake(value) {
+  const text = String(value ?? '').trim();
+
+  if (!text) {
+    return '';
+  }
+
+  return GBK_DECODER.decode(UTF8_ENCODER.encode(text)).replace(/\uFFFD/g, '?');
+}
+
+function buildStoreAliases() {
+  const aliases = [];
+
+  STORE_REGISTRY.forEach((store) => {
+    const readableAliases = [store.name, store.name.replace(/店$/, '')].filter(Boolean);
+
+    readableAliases.forEach((alias) => {
+      aliases.push([alias, store.id]);
+
+      const mojibakeAlias = toLegacyMojibake(alias);
+
+      if (mojibakeAlias && mojibakeAlias !== alias) {
+        aliases.push([mojibakeAlias, store.id]);
+      }
+    });
+  });
+
+  return new Map(aliases);
+}
+
+const STORE_ALIASES = buildStoreAliases();
 
 function cleanText(value) {
   return String(value ?? '')
@@ -44,6 +52,7 @@ function cleanText(value) {
 
 function normalizeKey(value) {
   return cleanText(value)
+    .replace(/\uFFFD/g, '?')
     .replace(/[，。！？、,.!?：:；;（）()【】[\]'"“”‘’]/g, '')
     .replace(/\s+/g, '')
     .toLowerCase();
