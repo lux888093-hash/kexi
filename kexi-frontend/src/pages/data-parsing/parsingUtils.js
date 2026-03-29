@@ -100,6 +100,7 @@ export function normalizeParsedFile(file = {}) {
     previewLines: Array.isArray(file.previewLines) ? file.previewLines : [],
     metricsSummary: buildFileMetaSummary(file.metrics),
     sourceGroupKey: file.sourceGroupKey || "",
+    coveredSourceGroupKeys: Array.isArray(file.coveredSourceGroupKeys) ? file.coveredSourceGroupKeys : [],
   };
 }
 
@@ -113,6 +114,7 @@ export function normalizeReviewFile(file = {}) {
     previewLines: Array.isArray(file.previewLines) ? file.previewLines : [],
     metricsSummary: buildFileMetaSummary(file.metrics),
     sourceGroupKey: file.sourceGroupKey || "",
+    coveredSourceGroupKeys: Array.isArray(file.coveredSourceGroupKeys) ? file.coveredSourceGroupKeys : [],
   };
 }
 
@@ -127,7 +129,12 @@ export function mergeFilesByName(currentFiles = [], incomingFiles = []) {
 
 export function buildMatchedGroupKeys(parsedFiles = [], reviewFiles = []) {
   return new Set(
-    [...parsedFiles, ...reviewFiles].map((file) => file?.sourceGroupKey).filter(Boolean),
+    [...parsedFiles, ...reviewFiles]
+      .flatMap((file) => [
+        file?.sourceGroupKey,
+        ...(Array.isArray(file?.coveredSourceGroupKeys) ? file.coveredSourceGroupKeys : []),
+      ])
+      .filter(Boolean),
   );
 }
 

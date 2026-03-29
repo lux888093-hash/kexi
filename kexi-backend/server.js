@@ -462,9 +462,10 @@ app.post('/api/parsing/upload', upload.array('files', 12), async (request, respo
     const failFiles = results.filter((item) => item.status === 'unsupported');
 
     const matchedGroupKeys = new Set(
-      results
-        .map((item) => item.sourceGroupKey)
-        .filter(Boolean),
+      results.flatMap((item) => [
+        item.sourceGroupKey,
+        ...(Array.isArray(item.coveredSourceGroupKeys) ? item.coveredSourceGroupKeys : []),
+      ]).filter(Boolean),
     );
 
     const missingFiles = (skill.requiredSourceGroups || []).filter(

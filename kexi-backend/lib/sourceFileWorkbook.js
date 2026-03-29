@@ -105,11 +105,28 @@ function toNumber(value) {
     return 0;
   }
 
-  const numeric = Number(
-    String(value)
+  if (typeof value === 'object') {
+    if (Object.prototype.hasOwnProperty.call(value, 'result')) {
+      return toNumber(value.result);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(value, 'text')) {
+      return toNumber(value.text);
+    }
+  }
+
+  const source = String(value).trim();
+  const negativeByParen = /^[（(].*[)）]$/.test(source.replace(/\s+/g, ''));
+  let numeric = Number(
+    source
       .replace(/,/g, '')
+      .replace(/[()（）]/g, '')
       .replace(/[^\d.-]/g, ''),
   );
+
+  if (negativeByParen && Number.isFinite(numeric) && numeric > 0) {
+    numeric *= -1;
+  }
 
   return Number.isFinite(numeric) ? numeric : 0;
 }
@@ -210,7 +227,7 @@ function extractTemplateLayout(worksheet) {
     const categoryLabel = safeText(worksheet.getCell(`A${row}`).value);
     const detailName = safeText(worksheet.getCell(`C${row}`).value);
 
-    if (categoryLabel) {
+    if (categoryLabel && categoryLabel !== currentGroup?.categoryLabel) {
       if (currentGroup) {
         currentGroup.endRow = row - 1;
         groups.push(currentGroup);
@@ -265,7 +282,7 @@ function createAccumulator() {
 }
 
 function appendDetailAmount(accumulator, detailName, amount, evidence) {
-  if (!detailName || !Number.isFinite(amount) || !amount) {
+  if (!detailName || !Number.isFinite(amount)) {
     return;
   }
 
@@ -277,7 +294,7 @@ function appendDetailAmount(accumulator, detailName, amount, evidence) {
   }
 
   const current = accumulator.details.get(detailName);
-  current.amount += amount;
+  current.amount = Number((current.amount + amount).toFixed(10));
 
   if (evidence) {
     current.evidence.push(evidence);
@@ -305,6 +322,28 @@ function mergeStructuredData(accumulator, parsedFiles = []) {
       return;
     }
 
+    if (structuredData.kind === 'body-table-extract') {
+      if (structuredData.revenue) {
+        accumulator.revenue = structuredData.revenue;
+      }
+
+      (Array.isArray(structuredData.items) ? structuredData.items : []).forEach((item) => {
+        const detailName = safeText(item.name);
+
+        if (!detailName) {
+          return;
+        }
+
+        appendDetailAmount(
+          accumulator,
+          detailName,
+          toNumber(item.amount),
+          safeText(item.note),
+        );
+      });
+      return;
+    }
+
     if (structuredData.kind === 'expense-pdf' || structuredData.kind === 'inventory-register') {
       (Array.isArray(structuredData.items) ? structuredData.items : []).forEach((item) => {
         const detailName = matchExpenseDetail(item.name);
@@ -325,6 +364,10 @@ function setCellFormula(worksheet, address, formula, result = 0) {
 }
 
 function buildChannelText(revenue = {}) {
+  if (safeText(revenue.channelText)) {
+    return safeText(revenue.channelText);
+  }
+
   const channels = revenue.channels || {};
   const walletChannel = toNumber(channels.walletChannel);
   const cashChannel = toNumber(channels.cashChannel);
@@ -392,7 +435,7 @@ function setWorkbookValues({
       continue;
     }
 
-    worksheet.getCell(`D${layoutRow.row}`).value = Number(payload.amount.toFixed(2));
+    worksheet.getCell(`D${layoutRow.row}`).value = Number(payload.amount.toFixed(10));
 
     if (payload.evidence.length) {
       worksheet.getCell(`H${layoutRow.row}`).value = [...new Set(payload.evidence)].slice(0, 8).join('、');
@@ -400,7 +443,7 @@ function setWorkbookValues({
   }
 
   worksheet.getCell('D22').value = {
-    formula: 'ROUND(D3*0.06,4)',
+    formula: 'D3*0.06',
     result: Number((toNumber(revenue.recognizedRevenue || revenue.projectRevenue) * 0.06).toFixed(4)),
   };
 
@@ -459,9 +502,24 @@ function setWorkbookValues({
   setCellFormula(worksheet, 'F5', 'IF(B3=0,0,B5/B3)', customerCount > 0 ? totalCost / customerCount : 0);
   setCellFormula(worksheet, 'D68', 'D3', recognizedRevenue);
   setCellFormula(worksheet, 'D69', 'D66', totalCost);
-  setCellFormula(worksheet, 'D70', 'D22+D23', toNumber(worksheet.getCell('D22').value?.result || worksheet.getCell('D22').value) + toNumber(worksheet.getCell('D23').value));
-  setCellFormula(worksheet, 'D71', 'D68-D69', profit);
-  setCellFormula(worksheet, 'D72', 'IF(D68=0,0,D71/D68)', recognizedRevenue > 0 ? profit / recognizedRevenue : 0);
+  setCellFormula(
+    worksheet,
+    'D70',
+    'D22+D23',
+    Number(
+      (
+        toNumber(worksheet.getCell('D22').value?.result || worksheet.getCell('D22').value) +
+        toNumber(worksheet.getCell('D23').value)
+      ).toFixed(10),
+    ),
+  );
+  setCellFormula(worksheet, 'D71', 'D68-D69', Number(profit.toFixed(10)));
+  setCellFormula(
+    worksheet,
+    'D72',
+    'D71/D68',
+    recognizedRevenue > 0 ? profit / recognizedRevenue : 0,
+  );
 
   const summaryNote = buildSummaryNote({
     reviewFiles,

@@ -132,7 +132,9 @@ function classifyExpenseMapping(mapping = {}) {
 function buildExpenseFileSection(file = {}, periodLabel = "", index = 1) {
   const resolvedPeriodLabel = resolveFilePeriodLabel(file, periodLabel);
   const totalAmount = file.structuredData?.totalAmount || file.metrics?.totalAmount || 0;
-  const mappings = getBodySheetMappings(file).filter((item) => item.placementType !== "reference");
+  const mappings = getBodySheetMappings(file).filter(
+    (item) => item.placementType !== "reference" && item.placementType !== "summary",
+  );
   const groups = {
     fixed: [],
     staff: [],
@@ -237,7 +239,9 @@ function buildInventoryFileSection(file = {}, index = 1, periodLabel = "") {
 }
 
 function buildRevenueFileSection(file = {}, periodLabel = "", index = 1) {
-  const data = file.structuredData || {};
+  const data = file.structuredData?.kind === "body-table-extract"
+    ? (file.structuredData?.revenue || {})
+    : (file.structuredData || {});
   const resolvedPeriodLabel = resolveFilePeriodLabel(file, periodLabel);
 
   return [
@@ -348,6 +352,10 @@ function buildMissingWarning({ reviewFiles = [], failFiles = [], missingFiles = 
 function buildOverviewIntro(parsedFiles = []) {
   const kinds = new Set(parsedFiles.map((file) => file.structuredData?.kind || file.sourceGroupKey));
 
+  if (kinds.has("body-table-extract")) {
+    return "这批文档已经整理成体质表中间结果，同时包含汇总指标与细分项，可直接用于当前门店的数据复核与草稿生成。";
+  }
+
   if (kinds.has("expense-pdf") && kinds.has("inventory-register")) {
     return "这两份文档分别记录了门店在日常经营中的财务现金流出（报销）与物资流转（出入库 / 固定资产）。";
   }
@@ -372,7 +380,6 @@ function buildOverviewIntro(parsedFiles = []) {
 }
 
 export function buildParsingInsightMarkdown({
-  storeName = "",
   periodLabel = "",
   parsedFiles = [],
   reviewFiles = [],
@@ -381,8 +388,12 @@ export function buildParsingInsightMarkdown({
 }) {
   const sections = [];
   const resolvedPeriodLabel = resolveReportPeriodLabel(parsedFiles, periodLabel);
-  const revenueFile = parsedFiles.find((file) => file.structuredData?.kind === "revenue-report");
-  const expenseFile = parsedFiles.find((file) => file.structuredData?.kind === "expense-pdf");
+  const revenueFile = parsedFiles.find(
+    (file) => file.structuredData?.kind === "revenue-report" || file.structuredData?.kind === "body-table-extract",
+  );
+  const expenseFile = parsedFiles.find(
+    (file) => file.structuredData?.kind === "expense-pdf" || file.structuredData?.kind === "body-table-extract",
+  );
   const inventoryFile = parsedFiles.find((file) => file.structuredData?.kind === "inventory-register");
 
   let sectionIndex = 1;
@@ -401,7 +412,11 @@ export function buildParsingInsightMarkdown({
     sections.push(buildInventoryFileSection(inventoryFile, sectionIndex, resolvedPeriodLabel));
   }
 
-  const expenseMappings = expenseFile ? getBodySheetMappings(expenseFile) : [];
+  const expenseMappings = expenseFile
+    ? getBodySheetMappings(expenseFile).filter(
+        (item) => item.placementType !== "summary" && item.placementType !== "reference",
+      )
+    : [];
   const fixedCostAmount = expenseMappings
     .filter((item) => classifyExpenseMapping(item) === "fixed")
     .reduce((sum, item) => sum + Number(item.amount || 0), 0);

@@ -619,19 +619,42 @@ function getParsingContextFiles(parsingContext = {}) {
   ].filter(Boolean);
 }
 
+function fileCoversSourceGroup(file = {}, sourceGroupKey = '') {
+  if (!sourceGroupKey) {
+    return false;
+  }
+
+  return (
+    file?.sourceGroupKey === sourceGroupKey ||
+    (Array.isArray(file?.coveredSourceGroupKeys) && file.coveredSourceGroupKeys.includes(sourceGroupKey))
+  );
+}
+
+function extractRevenueStructuredData(file = {}) {
+  if (file?.structuredData?.kind === 'revenue-report') {
+    return file.structuredData;
+  }
+
+  if (file?.structuredData?.kind === 'body-table-extract' && file.structuredData.revenue) {
+    return file.structuredData.revenue;
+  }
+
+  return null;
+}
+
 function findRevenueParsingFile(parsingContext = {}) {
   return (
     getParsingContextFiles(parsingContext).find(
-      (file) =>
-        file?.structuredData?.kind === 'revenue-report' || file?.sourceGroupKey === 'revenue',
+      (file) => Boolean(extractRevenueStructuredData(file)) || fileCoversSourceGroup(file, 'revenue'),
     ) || null
   );
 }
 
 function buildParsingReport(parsingContext = {}, reports = []) {
   const revenueFile = findRevenueParsingFile(parsingContext);
+  const revenue = extractRevenueStructuredData(revenueFile);
 
-  if (!revenueFile?.structuredData || revenueFile.structuredData.kind !== 'revenue-report') {
+  if (!revenueFile || !revenue) {
     return null;
   }
 
@@ -639,7 +662,6 @@ function buildParsingReport(parsingContext = {}, reports = []) {
     parsingContext.storeId || parsingContext.storeName || revenueFile.storeName || '';
   const store = resolveStore(storeToken) || resolveStoreFromReports(storeToken, reports);
   const period = normalizeParsingPeriod(parsingContext);
-  const revenue = revenueFile.structuredData;
   const channels = {
     微信银联支付宝: roundNumber(revenue.channels?.walletChannel),
     现金: roundNumber(revenue.channels?.cashChannel),
@@ -1610,8 +1632,7 @@ function buildDirectLookupFacts({ report, target, peerComparison, usedLatestPeri
 function buildParsingSourceFact(report = {}) {
   const sourceFile =
     (Array.isArray(report.parsingSourceFiles) ? report.parsingSourceFiles : []).find(
-      (file) =>
-        file?.structuredData?.kind === 'revenue-report' || file?.sourceGroupKey === 'revenue',
+      (file) => Boolean(extractRevenueStructuredData(file)) || fileCoversSourceGroup(file, 'revenue'),
     ) || null;
 
   if (!sourceFile) {
@@ -3689,6 +3710,27 @@ function buildFinancialAgentExecutionContext({
                       newMembers: file.structuredData.newMembers,
                       channels: file.structuredData.channels || {},
                     }
+                  : file.structuredData?.kind === 'body-table-extract'
+                    ? {
+                        kind: file.structuredData.kind,
+                        totalAmount: file.structuredData.totalAmount,
+                        revenue: file.structuredData.revenue
+                          ? {
+                              grossRevenue: file.structuredData.revenue.grossRevenue,
+                              recognizedRevenue: file.structuredData.revenue.recognizedRevenue,
+                              customerCount: file.structuredData.revenue.customerCount,
+                              newMembers: file.structuredData.revenue.newMembers,
+                              channels: file.structuredData.revenue.channels || {},
+                            }
+                          : null,
+                        topItems: (file.structuredData.topItems || file.structuredData.items || [])
+                          .slice(0, 8)
+                          .map((item) => ({
+                            name: item.name,
+                            amount: item.amount,
+                            note: item.note || '',
+                          })),
+                      }
                   : file.structuredData?.kind === 'expense-pdf'
                     ? {
                         kind: file.structuredData.kind,

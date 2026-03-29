@@ -51,6 +51,12 @@ const BODY_SHEET_SECTIONS = {
     target: '体质表 / 人力成本',
     description: '用于补齐工资、提成、绩效、人效与人工成本相关字段。',
   },
+  complete: {
+    key: 'body_table_complete',
+    label: '体质表整表',
+    target: '体质表 / 汇总数据 + 明细数据',
+    description: '用于接收已经整理好的体质表中间结果，可直接生成整张体质表。',
+  },
   unknown: {
     key: 'manual_review',
     label: '待人工归类',
@@ -77,12 +83,29 @@ function toNumber(value) {
     return 0;
   }
 
-  const numeric = Number(
-    String(value)
+  if (typeof value === 'object') {
+    if (Object.prototype.hasOwnProperty.call(value, 'result')) {
+      return toNumber(value.result);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(value, 'text')) {
+      return toNumber(value.text);
+    }
+  }
+
+  const source = String(value).trim();
+  const negativeByParen = /^[（(].*[)）]$/.test(source.replace(/\s+/g, ''));
+  let numeric = Number(
+    source
       .replace(/,/g, '')
       .replace(/%/g, '')
+      .replace(/[()（）]/g, '')
       .replace(/[^\d.-]/g, ''),
   );
+
+  if (negativeByParen && Number.isFinite(numeric) && numeric > 0) {
+    numeric *= -1;
+  }
 
   return Number.isFinite(numeric) ? numeric : 0;
 }
@@ -342,7 +365,7 @@ function buildExpenseBodySheetMappings(entries = [], options = {}) {
     const sourceName = normalizeExpenseAlias(sanitizeSourceItemName(entry?.name));
     const amount = toNumber(entry?.amount);
 
-    if (!sourceName || amount <= 0) {
+    if (!sourceName || !Number.isFinite(amount) || amount === 0) {
       return;
     }
 
@@ -487,6 +510,207 @@ function findBestExpenseWorkbookSheet(workbook) {
   return bestMatch;
 }
 
+function detectBodyTableExtractHeader(rows = []) {
+  let bestMatch = null;
+
+  for (let rowIndex = 0; rowIndex < Math.min(rows.length, 6); rowIndex += 1) {
+    const row = Array.isArray(rows[rowIndex]) ? rows[rowIndex] : [];
+    const normalizedRow = row.map((cell) => normalizeText(cell).replace(/\s+/g, ''));
+    const nameIndex = normalizedRow.findIndex((cell) => /^(细分项名称|细分项)$/.test(cell));
+    const amountIndex = normalizedRow.findIndex((cell) => /^(细分项金额|金额)$/.test(cell));
+    const noteIndex = normalizedRow.findIndex((cell) => /备注|说明/.test(cell));
+
+    if (nameIndex === -1 || amountIndex === -1) {
+      continue;
+    }
+
+    const current = {
+      rowIndex,
+      nameIndex,
+      amountIndex,
+      noteIndex,
+      score: 10 + (noteIndex !== -1 ? 2 : 0),
+    };
+
+    if (!bestMatch || current.score > bestMatch.score) {
+      bestMatch = current;
+    }
+  }
+
+  return bestMatch;
+}
+
+function isBodyTableMetricLabel(value = '') {
+  const normalized = normalizeText(value).replace(/\s+/g, '');
+  return /月总客数|核算总实收|机机乐总实收|储蓄金额|月度总实收|微信银联支付宝|项目实收|月平均客单价|月平均客成本|新增会员数/.test(
+    normalized,
+  );
+}
+
+function countBodyTableMetricRows(rows = [], header = {}) {
+  let count = 0;
+
+  for (let rowIndex = header.rowIndex + 1; rowIndex < rows.length; rowIndex += 1) {
+    const row = Array.isArray(rows[rowIndex]) ? rows[rowIndex] : [];
+
+    if (isBodyTableMetricLabel(row[header.nameIndex])) {
+      count += 1;
+    }
+  }
+
+  return count;
+}
+
+function findBodyTableExtractSheet(workbook) {
+  let bestMatch = null;
+
+  (workbook?.SheetNames || []).forEach((sheetName) => {
+    const rows = getSheetRows(workbook, sheetName);
+    const header = detectBodyTableExtractHeader(rows);
+
+    if (!header) {
+      return;
+    }
+
+    const metricCount = countBodyTableMetricRows(rows, header);
+
+    if (metricCount < 4 && !/细分项提取/i.test(sheetName)) {
+      return;
+    }
+
+    const denseRowCount = rows.filter((row) =>
+      Array.isArray(row) && row.some((cell) => String(cell || '').trim()),
+    ).length;
+    const current = {
+      sheetName,
+      rows,
+      header,
+      metricCount,
+      score: header.score * 100 + metricCount * 20 + denseRowCount,
+    };
+
+    if (!bestMatch || current.score > bestMatch.score) {
+      bestMatch = current;
+    }
+  });
+
+  return bestMatch;
+}
+
+function extractBodyTableInlineNumber(label = '', amountCell = '') {
+  const directAmount = String(amountCell || '').trim();
+
+  if (directAmount) {
+    return toNumber(directAmount);
+  }
+
+  const matched = normalizeText(label).match(/[：:]\s*([（(]?-?[\d,.]+[)）]?)/);
+  return matched ? toNumber(matched[1]) : 0;
+}
+
+function parseBodyTableChannels(channelText = '') {
+  const source = normalizeText(channelText);
+
+  return {
+    walletChannel: toNumber(source.match(/微信银联支付宝[：:]\s*([（(]?-?[\d,.]+[)）]?)/)?.[1] || 0),
+    cashChannel: toNumber(source.match(/现金[：:]\s*([（(]?-?[\d,.]+[)）]?)/)?.[1] || 0),
+    meituanRevenue: toNumber(source.match(/美团[：:]\s*([（(]?-?[\d,.]+[)）]?)/)?.[1] || 0),
+    douyinRevenue: toNumber(source.match(/抖音[：:]\s*([（(]?-?[\d,.]+[)）]?)/)?.[1] || 0),
+  };
+}
+
+function refineBodyTableExtractAmount(amount, note = '') {
+  const rawAmount = toNumber(amount);
+  const normalizedNote = normalizeText(note);
+
+  if (!normalizedNote || !Number.isFinite(rawAmount)) {
+    return rawAmount;
+  }
+
+  const explicitTotalMatch = normalizedNote.match(
+    /([0-9]+(?:\.[0-9]+)?)\s*分摊到\s*1[.．、,，]?\s*2[.．、,，]?\s*3/,
+  );
+
+  if (explicitTotalMatch) {
+    const derived = Number(explicitTotalMatch[1]) / 3;
+
+    if (Number.isFinite(derived) && Math.abs(rawAmount - derived) < 0.02) {
+      return derived;
+    }
+  }
+
+  const qtyPriceMatch = normalizedNote.match(
+    /1[.．、,，]?\s*2[.．、,，]?\s*3\s*分摊\s*([0-9]+(?:\.[0-9]+)?)\s*个[，,]\s*([0-9]+(?:\.[0-9]+)?)\s*元\/个/,
+  );
+
+  if (qtyPriceMatch) {
+    const derived = (Number(qtyPriceMatch[1]) * Number(qtyPriceMatch[2])) / 3;
+
+    if (Number.isFinite(derived) && Math.abs(rawAmount - derived) < 0.02) {
+      return derived;
+    }
+  }
+
+  return rawAmount;
+}
+
+function buildBodyTableExtractDetailMappings(entries = [], options = {}) {
+  const grouped = new Map();
+
+  entries.forEach((entry) => {
+    const detailName = sanitizeSourceItemName(entry?.name);
+    const amount = toNumber(entry?.amount);
+    const note = sanitizeSourceItemName(entry?.note);
+
+    if (!detailName || !Number.isFinite(amount)) {
+      return;
+    }
+
+    const placement = resolveBodySheetPlacement({
+      detailName,
+      storeName: options.storeName,
+      periodLabel: options.periodLabel,
+    });
+    const key = placement
+      ? `${placement.placementType}:${placement.targetCategory}:${placement.targetDetail}`
+      : `unmapped:${detailName}`;
+
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        sourceNames: [],
+        amount: 0,
+        placementType: placement?.placementType || 'unmapped',
+        targetWorkbookName: placement?.targetWorkbookName || '',
+        targetSheetName: placement?.targetSheetName || '',
+        targetCategory: placement?.targetCategory || '',
+        targetDetail: placement?.targetDetail || '',
+        targetRow: placement?.targetRow || null,
+        targetLabel: placement?.targetLabel || '待人工归类 / 待复核',
+        note: placement ? (placement.note || '') : '当前项目未命中体质表映射规则，建议人工复核。',
+      });
+    }
+
+    const current = grouped.get(key);
+    current.amount = Number((current.amount + amount).toFixed(2));
+
+    if (!current.sourceNames.includes(detailName)) {
+      current.sourceNames.push(detailName);
+    }
+
+    if (note) {
+      const notes = current.note ? current.note.split('；').filter(Boolean) : [];
+
+      if (!notes.includes(note)) {
+        notes.push(note);
+      }
+
+      current.note = notes.join('；');
+    }
+  });
+
+  return [...grouped.values()].sort((left, right) => Math.abs(right.amount) - Math.abs(left.amount));
+}
+
 function buildExpenseWorkbookEntries(rows = [], header = {}, sheetName = '') {
   const entries = [];
   const detailCounts = new Map();
@@ -508,7 +732,7 @@ function buildExpenseWorkbookEntries(rows = [], header = {}, sheetName = '') {
     const rawName = sanitizeSourceItemName(row[header.detailIndex] || rawCategory);
     const name = normalizeExpenseAlias(rawName || rawCategory);
 
-    if (!name || amount <= 0) {
+    if (!name || !Number.isFinite(amount) || amount === 0) {
       continue;
     }
 
@@ -799,7 +1023,7 @@ async function buildExpenseWorkbookBodySheetMappings(entries = [], options = {})
     const amount = toNumber(entry?.amount);
     const placement = resolvedPlacements[index];
 
-    if (!sourceName || amount <= 0) {
+    if (!sourceName || !Number.isFinite(amount) || amount === 0) {
       return;
     }
 
@@ -1158,6 +1382,185 @@ function findRechargeTotals(rows = []) {
   });
 
   return totals;
+}
+
+function parseBodyTableExtractWorkbook(filePath, options = {}) {
+  const originalName = options.originalName || path.basename(filePath);
+  const workbook = options.workbook || XLSX.readFile(filePath, { raw: false });
+  const bestSheet = options.sheetMeta || findBodyTableExtractSheet(workbook);
+
+  if (!bestSheet?.sheetName || !bestSheet?.header) {
+    throw new Error('当前 Excel 未识别到体质表细分项提取结构。');
+  }
+
+  const rows = bestSheet.rows || getSheetRows(workbook, bestSheet.sheetName);
+  const detailEntries = [];
+  let customerCount = 0;
+  let recognizedRevenue = 0;
+  let machineRevenue = 0;
+  let savingsAmount = 0;
+  let grossRevenue = 0;
+  let channelText = '';
+  let projectRevenueHint = 0;
+  let averageTicket = 0;
+  let averageCost = 0;
+  let newMembers = 0;
+
+  for (let rowIndex = bestSheet.header.rowIndex + 1; rowIndex < rows.length; rowIndex += 1) {
+    const row = Array.isArray(rows[rowIndex]) ? rows[rowIndex] : [];
+    const rawLabel = row[bestSheet.header.nameIndex];
+    const label = sanitizeSourceItemName(rawLabel);
+    const amountCell = row[bestSheet.header.amountIndex];
+    const note = sanitizeSourceItemName(
+      bestSheet.header.noteIndex === -1 ? '' : row[bestSheet.header.noteIndex],
+    );
+
+    if (!label) {
+      continue;
+    }
+
+    if (/^月总客数/.test(label)) {
+      customerCount = extractBodyTableInlineNumber(label, amountCell);
+      continue;
+    }
+
+    if (/^核算总实收/.test(label)) {
+      recognizedRevenue = extractBodyTableInlineNumber(label, amountCell);
+      continue;
+    }
+
+    if (/^机机乐总实收/.test(label)) {
+      machineRevenue = extractBodyTableInlineNumber(label, amountCell);
+      continue;
+    }
+
+    if (/^储蓄金额/.test(label)) {
+      savingsAmount = extractBodyTableInlineNumber(label, amountCell);
+      continue;
+    }
+
+    if (/^月度总实收/.test(label)) {
+      grossRevenue = extractBodyTableInlineNumber(label, amountCell);
+      continue;
+    }
+
+    if (/^微信银联支付宝/.test(label)) {
+      channelText = String(rawLabel || '').replace(/\r/g, '').trim();
+      continue;
+    }
+
+    if (/^项目实收/.test(label)) {
+      projectRevenueHint = extractBodyTableInlineNumber(label, amountCell);
+      continue;
+    }
+
+    if (/^月平均客单价/.test(label)) {
+      averageTicket = extractBodyTableInlineNumber(label, amountCell);
+      continue;
+    }
+
+    if (/^月平均客成本/.test(label)) {
+      averageCost = extractBodyTableInlineNumber(label, amountCell);
+      continue;
+    }
+
+    if (/^新增会员数/.test(label)) {
+      newMembers = extractBodyTableInlineNumber(label, amountCell);
+      continue;
+    }
+
+    const amount = refineBodyTableExtractAmount(toNumber(amountCell), note);
+
+    if (!Number.isFinite(amount)) {
+      continue;
+    }
+
+    detailEntries.push({
+      name: label,
+      amount,
+      note,
+      rowIndex: rowIndex + 1,
+      sheetName: bestSheet.sheetName,
+      source: 'body-table-extract',
+    });
+  }
+
+  const storeName = options.storeName || '';
+  const periodLabel = options.periodLabel || '';
+  const channels = parseBodyTableChannels(channelText);
+  const totalAmount = Number(
+    detailEntries.reduce((sum, entry) => sum + Number(entry.amount || 0), 0).toFixed(5),
+  );
+  const topItems = [...detailEntries]
+    .sort((left, right) => Math.abs(right.amount) - Math.abs(left.amount))
+    .slice(0, 8);
+  const revenueData = {
+    kind: 'revenue-report',
+    customerCount,
+    recognizedRevenue,
+    grossRevenue,
+    machineRevenue,
+    savingsAmount,
+    projectRevenue: recognizedRevenue || projectRevenueHint,
+    newMembers,
+    channels,
+    channelText,
+    averageTicket,
+    averageCost,
+    projectRevenueHint,
+  };
+  const revenueMappings = buildRevenueBodySheetMappings(revenueData, {
+    storeName,
+    periodLabel,
+  });
+  const detailMappings = buildBodyTableExtractDetailMappings(detailEntries, {
+    storeName,
+    periodLabel,
+  });
+  const bodySheetMappings = [...revenueMappings, ...detailMappings];
+
+  return {
+    fileName: originalName,
+    extension: getExtension(originalName),
+    status: 'parsed',
+    parserMode: 'spreadsheet',
+    sourceGroupKey: 'complete',
+    coveredSourceGroupKeys: ['revenue', 'expense', 'payroll'],
+    sourceGroupLabel: '体质表中间结果.xlsx',
+    storeName,
+    periodLabel,
+    bodySheetSection: getBodySheetSection('complete'),
+    parsedDataSummary: [
+      `识别到 ${detailEntries.length} 条体质表细分项，净额 ${formatCurrency(totalAmount)}`,
+      `已读取工作表 ${bestSheet.sheetName}，命中“细分项名称 / 细分项金额 / 备注”结构`,
+      `汇总指标已提取：月总客数 ${customerCount}、核算总实收 ${formatCurrency(recognizedRevenue)}、月度总实收 ${formatCurrency(grossRevenue)}`,
+      '当前文件已覆盖营收、费用、工资三类核心资料，可直接生成体质表草稿',
+    ],
+    previewLines: [
+      `月总客数 ${customerCount}`,
+      `核算总实收 ${formatCurrency(recognizedRevenue)}`,
+      `月度总开支 ${formatCurrency(totalAmount)}`,
+      ...topItems.slice(0, 2).map((item) => `${item.name} ${formatCurrency(item.amount)}`),
+    ].filter(Boolean).slice(0, 5),
+    metrics: {
+      rowCount: detailEntries.length,
+      sheetName: bestSheet.sheetName,
+      totalAmount,
+      customerCount,
+      recognizedRevenue,
+      grossRevenue,
+    },
+    bodySheetMappings,
+    structuredData: {
+      kind: 'body-table-extract',
+      revenue: revenueData,
+      totalAmount,
+      items: detailEntries,
+      topItems,
+      bodySheetMappings,
+    },
+    note: `已识别为体质表中间结果，读取 ${bestSheet.sheetName} 工作表，共 ${detailEntries.length} 条细分项；识别对象为 ${[storeName, periodLabel].filter(Boolean).join(' ')}。`,
+  };
 }
 
 async function parseExpenseWorkbook(filePath, options = {}) {
@@ -1832,6 +2235,19 @@ async function parseSourceFile(filePath, options = {}) {
 
   if (DIRECT_PARSE_EXTENSIONS.has(extension)) {
     try {
+      const workbook = XLSX.readFile(filePath, { raw: false });
+      const bodyTableExtractMeta = findBodyTableExtractSheet(workbook);
+
+      if (bodyTableExtractMeta) {
+        return parseBodyTableExtractWorkbook(filePath, {
+          originalName,
+          storeName: selectedStore,
+          periodLabel: selectedMonth,
+          workbook,
+          sheetMeta: bodyTableExtractMeta,
+        });
+      }
+
       if (/营业|营收|收银|业绩|经营日报|经营月报|日报/i.test(normalizeText(originalName))) {
         try {
           return parseRevenueWorkbook(filePath, {
@@ -1859,7 +2275,6 @@ async function parseSourceFile(filePath, options = {}) {
       }
 
       try {
-        const workbook = XLSX.readFile(filePath, { raw: false });
         const expenseSheetMeta = findBestExpenseWorkbookSheet(workbook);
 
         if (

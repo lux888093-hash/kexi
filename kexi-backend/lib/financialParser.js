@@ -12,12 +12,29 @@ function toNumber(value) {
     return 0;
   }
 
-  const numeric = Number(
-    String(value)
+  if (typeof value === 'object') {
+    if (Object.prototype.hasOwnProperty.call(value, 'result')) {
+      return toNumber(value.result);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(value, 'text')) {
+      return toNumber(value.text);
+    }
+  }
+
+  const source = String(value).trim();
+  const negativeByParen = /^[（(].*[)）]$/.test(source.replace(/\s+/g, ''));
+  let numeric = Number(
+    source
       .replace(/,/g, '')
       .replace(/%/g, '')
+      .replace(/[()（）]/g, '')
       .replace(/[^\d.-]/g, ''),
   );
+
+  if (negativeByParen && Number.isFinite(numeric) && numeric > 0) {
+    numeric *= -1;
+  }
 
   return Number.isFinite(numeric) ? numeric : 0;
 }
